@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+thiserror = "2"
 nix = { version = "0.31", optional = true, features = ["ioctl"] }
+bitflags = { version = "2", optional = true }
 
 [features]
 default = ["linux"]
-linux = ["dep:nix"]
+linux = ["dep:nix", "dep:bitflags"]
