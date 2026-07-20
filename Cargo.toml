@@ -5,9 +5,21 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2"
-nix = { version = "0.31", optional = true, features = ["ioctl"] }
-bitflags = { version = "2", optional = true }
+bitflags = "2"
+nusb = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-[features]
-default = ["linux"]
-linux = ["dep:nix", "dep:bitflags"]
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.31", features = ["ioctl"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+io-kit-sys = "0.5"

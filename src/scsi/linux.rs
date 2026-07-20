@@ -10,6 +10,7 @@ use std::{
     os::{fd::AsRawFd, raw::c_void},
     path::Path,
 };
+use tracing::{debug, instrument, warn};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -65,6 +66,10 @@ struct SgIoHdr {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+// `ToFromDev`/`Unknown` are real kernel-defined values, kept for
+// completeness, but we only ever construct this from our own
+// `DataDirection`, which never asks for either.
+#[allow(dead_code)]
 enum Direction {
     /// SCSI Test Unit Ready, or similar commands where there is no data transfer associated with it
     None = -1,
@@ -98,7 +103,6 @@ bitflags! {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// Original Linux SCSI status code
 /// NOTE: Not the same as the SCSI standard code d.t. vendor bytes
-#[allow(dead_code)]
 enum MaskedStatus {
     Good = 0x00,
     CheckCondition = 0x01,
@@ -136,7 +140,6 @@ impl TryFrom<u8> for MaskedStatus {
 
 #[repr(u16)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 enum HostStatus {
     /// No Error
     Ok = 0x00,
@@ -249,6 +252,7 @@ impl SgDevice {
 }
 
 impl Transport for SgDevice {
+    #[instrument(skip_all, fields(cdb = ?cdb, ?direction, data_len = data.len()))]
     fn execute(
         &mut self,
         cdb: &[u8],
@@ -295,6 +299,17 @@ impl Transport for SgDevice {
         // buffers' actual lengths, so the kernel can't read or write past them.
         unsafe { sg_io(self.0.as_raw_fd(), &mut hdr) }.map_err(io::Error::from)?;
 
+        // These decode fields the kernel/adapter fill in on every completion, not
+        // just failures - worth surfacing even when `info` says the command was
+        // fine, since a host/driver-level hiccup doesn't always trip that flag.
+        debug!(
+            masked_status = ?MaskedStatus::try_from(hdr.masked_status),
+            host_status = ?HostStatus::try_from(hdr.host_status),
+            driver_status = hdr.driver_status,
+            duration_ms = hdr.duration,
+            "SG_IO completed"
+        );
+
         // A successful ioctl only means the request was submitted; the command
         // itself may still have failed (see `info` and the sense buffer).
         if hdr.info.check_status() != Info::CHECK {
@@ -304,10 +319,17 @@ impl Transport for SgDevice {
         // `sb_len_wr` is kernel-written output; the driver contract says it's always
         // <= mx_sb_len, but we don't trust that when indexing our caller's buffer with it.
         let sb_len_wr = (hdr.sb_len_wr as usize).min(sense.len());
+        let sense = SenseData::parse(&sense[..sb_len_wr]);
+
+        warn!(
+            status = format!("0x{:02x}", hdr.status),
+            ?sense,
+            "SCSI command failed"
+        );
 
         Err(Error::Status {
             status: hdr.status,
-            sense: SenseData::parse(&sense[..sb_len_wr]),
+            sense,
         })
     }
 }
