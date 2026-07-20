@@ -3,7 +3,13 @@
 use std::{fmt, io};
 
 pub mod cdbs;
+#[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "macos")]
+pub mod macos;
+pub mod usb;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// A SCSI command descriptor block
 pub struct Cdb<const N: usize>(pub [u8; N]);
@@ -44,17 +50,47 @@ pub struct SenseData {
 }
 
 impl SenseData {
-    /// Parse fixed-format sense data (SPC-4), as returned by any transport's sense buffer.
-    /// Returns `None` if `sense` is too short to hold the fields we read.
+    /// Parse sense data, as returned by any transport's sense buffer.
+    ///
+    /// SCSI defines two independent sense data layouts, distinguished by the
+    /// response code in the low 7 bits of byte 0 (SPC-4 4.5 "Sense data"):
+    ///   - 70h/71h (current/deferred): fixed format, 4.5.3
+    ///   - 72h/73h (current/deferred): descriptor format, 4.5.2
+    ///
+    /// A transport is free to hand back either, so both must be handled
+    /// rather than assuming fixed format.
+    ///
+    /// Returns `None` if the response code is unrecognized, or `sense` is too
+    /// short to hold the fields its format requires.
     pub(crate) fn parse(sense: &[u8]) -> Option<Self> {
-        if sense.len() < 14 {
-            return None;
+        let response_code = *sense.first()? & 0x7f;
+        match response_code {
+            // Fixed format: SENSE KEY at byte 2 (low nibble), ASC/ASCQ at
+            // bytes 12/13 following SPC-4 4.5.3.
+            0x70 | 0x71 => {
+                if sense.len() < 14 {
+                    return None;
+                }
+                Some(Self {
+                    key: sense[2] & 0x0f,
+                    asc: sense[12],
+                    ascq: sense[13],
+                })
+            }
+            // Descriptor format: SENSE KEY at byte 1 (low nibble), ASC/ASCQ
+            // at bytes 2/3 following SPC-4 4.5.2.
+            0x72 | 0x73 => {
+                if sense.len() < 4 {
+                    return None;
+                }
+                Some(Self {
+                    key: sense[1] & 0x0f,
+                    asc: sense[2],
+                    ascq: sense[3],
+                })
+            }
+            _ => None,
         }
-        Some(Self {
-            key: sense[2] & 0x0f,
-            asc: sense[12],
-            ascq: sense[13],
-        })
     }
 }
 
