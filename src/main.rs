@@ -1,4 +1,4 @@
-use nkscan::{scanners::Ls9k, scsi::linux::SgDevice};
+use nkscan::{scanners::ls9000ed::Ls9k, scsi::linux::SgDevice};
 
 fn main() {
     tracing_subscriber::fmt()
