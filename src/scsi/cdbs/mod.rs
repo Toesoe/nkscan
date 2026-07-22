@@ -2,13 +2,15 @@
 //! Most of these follow from the spec hosted [here](https://www.staff.uni-mainz.de/tacke/scsi/SCSI2.html)
 
 mod inquiry;
+mod mode_select;
 mod read;
-mod reserve_unit;
 mod release_unit;
+mod reserve_unit;
 mod test_unit_ready;
 
 pub use inquiry::*;
+pub use mode_select::*;
 pub use read::*;
+pub use release_unit::*;
 pub use reserve_unit::*;
 pub use test_unit_ready::*;
-pub use release_unit::*;

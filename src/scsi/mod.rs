@@ -104,6 +104,27 @@ impl fmt::Display for SenseData {
     }
 }
 
+/// The data phase of a SCSI command.
+#[derive(Debug, Clone, Copy)]
+pub enum CommandData<'a> {
+    /// No data transfer.
+    None,
+    /// Host reads this many bytes from the device.
+    Read(usize),
+    /// Host writes these bytes to the device.
+    Write(&'a [u8]),
+}
+
+impl CommandData<'_> {
+    fn direction(&self) -> DataDirection {
+        match self {
+            CommandData::None => DataDirection::None,
+            CommandData::Read(_) => DataDirection::Read,
+            CommandData::Write(_) => DataDirection::Write,
+        }
+    }
+}
+
 pub trait Command {
     type Response;
     type Cdb: AsRef<[u8]>;
@@ -111,11 +132,8 @@ pub trait Command {
     /// Build the command descriptor block
     fn cdb(&self) -> Self::Cdb;
 
-    /// Direction of data transfer
-    fn direction(&self) -> DataDirection;
-
-    /// Size of the expected data buffer
-    fn data_length(&self) -> usize;
+    /// Data phase of this command: whether it reads, writes, or transfers no data
+    fn data(&self) -> CommandData<'_>;
 
     /// Decode the returned bytes
     fn decode(&self, data: &[u8]) -> Result<Self::Response, Error>;
@@ -138,9 +156,17 @@ pub trait Transport {
 
     fn send<C: Command>(&mut self, command: &C) -> Result<C::Response, Error> {
         let cdb = command.cdb();
-        let mut data = vec![0; command.data_length()];
         let mut sense = [0u8; SENSE_BUFFER_LEN];
-        self.execute(cdb.as_ref(), command.direction(), &mut data, &mut sense)?;
-        command.decode(&data)
+        let payload = command.data();
+        let mut data = match payload {
+            CommandData::None => Vec::new(),
+            CommandData::Read(len) => vec![0; len],
+            CommandData::Write(bytes) => bytes.to_vec(),
+        };
+        self.execute(cdb.as_ref(), payload.direction(), &mut data, &mut sense)?;
+        match payload {
+            CommandData::None | CommandData::Write(_) => command.decode(&[]),
+            CommandData::Read(_) => command.decode(&data),
+        }
     }
 }

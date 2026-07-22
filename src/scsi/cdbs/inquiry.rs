@@ -1,6 +1,6 @@
 //! INQUIRY (SPC-4 6.6)
 
-use crate::scsi::{Cdb, Command, DataDirection, Error};
+use crate::scsi::{Cdb, Command, CommandData, Error};
 
 #[derive(Debug)]
 pub struct Inquiry {
@@ -37,12 +37,8 @@ impl Command for Inquiry {
         Cdb([0x12, 0x00, 0x00, 0x00, self.allocation_length, 0x00])
     }
 
-    fn direction(&self) -> DataDirection {
-        DataDirection::Read
-    }
-
-    fn data_length(&self) -> usize {
-        self.allocation_length as usize
+    fn data(&self) -> CommandData<'_> {
+        CommandData::Read(self.allocation_length as usize)
     }
 
     fn decode(&self, data: &[u8]) -> Result<InquiryResponse, Error> {
@@ -99,15 +95,18 @@ impl Command for VpdInquiry {
     type Cdb = Cdb<6>;
 
     fn cdb(&self) -> Self::Cdb {
-        Cdb([0x12, 0x01, self.page_code, 0x00, self.allocation_length, 0x00])
+        Cdb([
+            0x12,
+            0x01,
+            self.page_code,
+            0x00,
+            self.allocation_length,
+            0x00,
+        ])
     }
 
-    fn direction(&self) -> DataDirection {
-        DataDirection::Read
-    }
-
-    fn data_length(&self) -> usize {
-        self.allocation_length as usize
+    fn data(&self) -> CommandData<'_> {
+        CommandData::Read(self.allocation_length as usize)
     }
 
     fn decode(&self, data: &[u8]) -> Result<VpdPage, Error> {
@@ -147,16 +146,11 @@ mod tests {
     }
 
     #[test]
-    fn direction_is_read() {
-        assert_eq!(Inquiry::new().direction(), DataDirection::Read);
-    }
-
-    #[test]
-    fn data_length_matches_allocation_length() {
+    fn data_is_read_with_allocation_length() {
         let inquiry = Inquiry {
             allocation_length: 200,
         };
-        assert_eq!(inquiry.data_length(), 200);
+        assert!(matches!(inquiry.data(), CommandData::Read(200)));
     }
 
     #[test]
@@ -189,13 +183,11 @@ mod tests {
     }
 
     #[test]
-    fn vpd_direction_is_read() {
-        assert_eq!(VpdInquiry::new(0xC8, 64).direction(), DataDirection::Read);
-    }
-
-    #[test]
-    fn vpd_data_length_matches_allocation_length() {
-        assert_eq!(VpdInquiry::new(0xC8, 64).data_length(), 64);
+    fn vpd_data_is_read_with_allocation_length() {
+        assert!(matches!(
+            VpdInquiry::new(0xC8, 64).data(),
+            CommandData::Read(64)
+        ));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! READ(10) for SCSI-2 scanner devices, from 15.2.4
 
-use crate::scsi::{Cdb, Command, DataDirection, Error};
+use crate::scsi::{Cdb, Command, CommandData, Error};
 
 /// SCSI-2 scanner READ(10)
 ///
@@ -68,12 +68,8 @@ impl Command for Read {
         ])
     }
 
-    fn direction(&self) -> DataDirection {
-        DataDirection::Read
-    }
-
-    fn data_length(&self) -> usize {
-        self.transfer_length as usize
+    fn data(&self) -> CommandData<'_> {
+        CommandData::Read(self.transfer_length as usize)
     }
 
     fn decode(&self, data: &[u8]) -> Result<Self::Response, Error> {
@@ -131,19 +127,9 @@ mod tests {
     }
 
     #[test]
-    fn direction_is_read() {
-        assert_eq!(
-            Read::new(0, DataTypeCode::Image, 0, 0, 0x00).direction(),
-            DataDirection::Read
-        );
-    }
-
-    #[test]
-    fn data_length_matches_transfer_length() {
-        assert_eq!(
-            Read::new(0, DataTypeCode::Image, 0, 512, 0x00).data_length(),
-            512
-        );
+    fn data_is_read_with_transfer_length() {
+        let read = Read::new(0, DataTypeCode::Image, 0, 512, 0x00);
+        assert!(matches!(read.data(), CommandData::Read(512)));
     }
 
     #[test]
