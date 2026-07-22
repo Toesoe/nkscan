@@ -199,16 +199,6 @@ impl FrameDecoder {
         }
     }
 
-    /// Sample index of one value in the staging block.
-    ///
-    /// The block is stage-major: for each stage position come `readouts`
-    /// readouts, each a sweep of `height` sensor pixels across `lines` CCD
-    /// lines. This is the inverse of that layout.
-    #[inline]
-    fn sample_index(&self, stage: usize, readout: usize, p: usize, line: usize) -> usize {
-        stage * self.stage_stride + readout * self.readout_samples + p * self.lines + line
-    }
-
     /// Transpose the freshly filled block into its output strip.
     ///
     /// One block covers `self.block` stage positions, which in three-line mode
@@ -218,6 +208,7 @@ impl FrameDecoder {
     fn emit(&mut self) {
         let first_col = self.block_index * self.block * self.lines;
         let strip_cols = self.block * self.lines;
+        let rsamp = self.readout_samples;
 
         let mut p0 = 0;
         while p0 < self.height {
@@ -232,38 +223,46 @@ impl FrameDecoder {
                     (col, 0)
                 };
                 let x = first_col + col;
+                // Invariant across the whole sensor sweep for this column.
+                let col_base = stage * self.stage_stride + line;
 
                 for p in p0..p_end {
-                    // The sensor bar reads out opposite to increasing y
+                    // The sensor bar reads out opposite to increasing y.
                     let y = self.height - 1 - p;
-                    let out = y * self.width + x;
+                    let out3 = (y * self.width + x) * 3;
+                    // Readout 0, channel 0 (= red) of this pixel; other
+                    // readouts follow at multiples of `rsamp`.
+                    let base = col_base + p * self.lines;
 
-                    // Single-sample is the common case, skip the accumulate and the (runtime, non-power-of-two) divide.
-                    // The readout slot for repeat 0 of channel c is just c.
-                    if self.multisample == 1 {
-                        for channel in 0..3 {
-                            let idx = self.sample_index(stage, channel, p, line);
-                            self.rgb[out * 3 + channel] = sample_at(&self.staging, idx);
-                        }
+                    // Gather the pixel into a stack triple, then write it in
+                    // one shot — RGB is interleaved in the output, so the
+                    // triple is contiguous and this is a single bounds check.
+                    let rgb = if self.multisample == 1 {
+                        // Readout slot for channel c is just c.
+                        [
+                            sample_at(&self.staging, base),
+                            sample_at(&self.staging, base + rsamp),
+                            sample_at(&self.staging, base + 2 * rsamp),
+                        ]
                     } else {
-                        for channel in 0..3 {
+                        let m = self.multisample as u32;
+                        let mut t = [0u16; 3];
+                        for (channel, out) in t.iter_mut().enumerate() {
                             let mut acc = 0u32;
                             for rep in 0..self.multisample {
-                                let idx = self.sample_index(
-                                    stage,
-                                    self.readout_of(channel, rep),
-                                    p,
-                                    line,
-                                );
+                                let idx = base + self.readout_of(channel, rep) * rsamp;
                                 acc += u32::from(sample_at(&self.staging, idx));
                             }
-                            self.rgb[out * 3 + channel] = (acc / self.multisample as u32) as u16;
+                            *out = (acc / m) as u16;
                         }
-                    }
+                        t
+                    };
+                    self.rgb[out3..out3 + 3].copy_from_slice(&rgb);
 
                     if self.ir {
-                        let idx = self.sample_index(stage, self.readout_of(3, 0), p, line);
-                        self.ir_plane[out] = sample_at(&self.staging, idx);
+                        // IR is readout slot 3, present only on repeat 0.
+                        self.ir_plane[y * self.width + x] =
+                            sample_at(&self.staging, base + 3 * rsamp);
                     }
                 }
             }

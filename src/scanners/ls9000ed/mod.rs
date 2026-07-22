@@ -1,5 +1,10 @@
 use crate::scsi::{Error as ScsiError, Transport, cdbs::*};
+use holder::Holder;
+use status::Status;
+
 pub mod decode;
+pub mod holder;
+pub mod status;
 
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
 pub struct Ls9k<T> {
@@ -163,5 +168,34 @@ where
     // TODO: Remove
     pub fn inquiry(&mut self) -> Result<InquiryResponse, ScsiError> {
         self.transport.send(&Inquiry::new())
+    }
+
+    /// Current status/state of the scanner
+    pub fn status(&mut self) -> Result<Status, ScsiError> {
+        // Unfold "Errors" from the state buffer into normal ok states
+        match self.transport.send(&TestUnitReady::new()) {
+            Ok(()) => Ok(Status::Ready),
+            Err(err) => {
+                if let ScsiError::Status {
+                    sense: Some(sense), ..
+                } = &err
+                    && let Some(state) = Status::from_sense(sense)
+                {
+                    return Ok(state);
+                }
+                Err(err)
+            }
+        }
+    }
+
+    /// Which film holder, if any, is currently loaded.
+    pub fn holder(&mut self) -> Result<Holder, ScsiError> {
+        let page = self.transport.send(&VpdInquiry::new(
+            Holder::PAGE_CODE,
+            Holder::ALLOCATION_LENGTH,
+        ))?;
+        Holder::from_page(&page).ok_or(ScsiError::InvalidResponse(
+            "unrecognized VPD page 0xC8 holder data",
+        ))
     }
 }
