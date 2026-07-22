@@ -198,4 +198,14 @@ where
             "unrecognized VPD page 0xC8 holder data",
         ))
     }
+
+    /// Gain exclsuive access to the scanner
+    pub fn reserve(&mut self) -> Result<(), ScsiError> {
+        self.transport.send(&ReserveUnit::default())
+    }
+
+    /// Release exclusive access to the scanner
+    pub fn release(&mut self) -> Result<(), ScsiError> {
+        self.transport.send(&ReleaseUnit::default())
+    }
 }
