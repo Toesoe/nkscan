@@ -1,6 +1,6 @@
 //! RELEASE UNIT
 
-use crate::scsi::{Cdb, Command, DataDirection, Error};
+use crate::scsi::{Cdb, Command, CommandData, Error};
 
 #[derive(Debug, Default)]
 /// RELEASE(6) - release previously reserved exclusive control
@@ -41,12 +41,8 @@ impl Command for ReleaseUnit {
         ])
     }
 
-    fn direction(&self) -> DataDirection {
-        DataDirection::None
-    }
-
-    fn data_length(&self) -> usize {
-        0
+    fn data(&self) -> CommandData<'_> {
+        CommandData::None
     }
 
     fn decode(&self, _data: &[u8]) -> Result<(), Error> {

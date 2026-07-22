@@ -1,6 +1,6 @@
 //! RESERVE UNIT
 
-use crate::scsi::{Cdb, Command, DataDirection, Error};
+use crate::scsi::{Cdb, Command, CommandData, Error};
 
 #[derive(Debug, Default)]
 /// RESERVE(6) - claim exclusive control
@@ -41,12 +41,8 @@ impl Command for ReserveUnit {
         ])
     }
 
-    fn direction(&self) -> DataDirection {
-        DataDirection::None
-    }
-
-    fn data_length(&self) -> usize {
-        0
+    fn data(&self) -> CommandData<'_> {
+        CommandData::None
     }
 
     fn decode(&self, _data: &[u8]) -> Result<(), Error> {
