@@ -1,4 +1,4 @@
-//! READ(10) for SCSI-2 scanner devices
+//! READ(10) for SCSI-2 scanner devices, from 15.2.4
 
 use crate::scsi::{Cdb, Command, DataDirection, Error};
 

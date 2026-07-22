@@ -1,6 +1,7 @@
 use crate::scsi::{Cdb, Command, DataDirection, Error};
 
 #[derive(Debug, Default)]
+/// TEST UNIT READY - main SCSI status CDB
 pub struct TestUnitReady;
 
 impl TestUnitReady {
