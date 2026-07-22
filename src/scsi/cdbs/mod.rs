@@ -3,6 +3,7 @@
 
 mod inquiry;
 mod mode_select;
+mod mode_sense;
 mod read;
 mod release_unit;
 mod reserve_unit;
@@ -10,6 +11,7 @@ mod test_unit_ready;
 
 pub use inquiry::*;
 pub use mode_select::*;
+pub use mode_sense::*;
 pub use read::*;
 pub use release_unit::*;
 pub use reserve_unit::*;
