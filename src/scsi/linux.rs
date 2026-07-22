@@ -10,7 +10,7 @@ use std::{
     os::{fd::AsRawFd, raw::c_void},
     path::Path,
 };
-use tracing::{debug, instrument, warn};
+use tracing::{debug, instrument};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -321,10 +321,15 @@ impl Transport for SgDevice {
         let sb_len_wr = (hdr.sb_len_wr as usize).min(sense.len());
         let sense = SenseData::parse(&sense[..sb_len_wr]);
 
-        warn!(
+        // CHECK CONDITION alone doesn't mean an error occurred; the sense data
+        // may describe a normal, expected state (e.g. "not ready, warming
+        // up"). Only the caller, which knows how to interpret sense data for
+        // the specific device, can tell the two apart, so this stays at
+        // debug rather than warn.
+        debug!(
             status = format!("0x{:02x}", hdr.status),
             ?sense,
-            "SCSI command failed"
+            "SCSI command reported CHECK CONDITION"
         );
 
         Err(Error::Status {
