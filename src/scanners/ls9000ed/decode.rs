@@ -234,9 +234,8 @@ impl FrameDecoder {
                     // readouts follow at multiples of `rsamp`.
                     let base = col_base + p * self.lines;
 
-                    // Gather the pixel into a stack triple, then write it in
-                    // one shot — RGB is interleaved in the output, so the
-                    // triple is contiguous and this is a single bounds check.
+                    // Gather the pixel into a stack triple, then write it in one shot
+                    // RGB is interleaved in the output, so the triple is contiguous and this is a single bounds check.
                     let rgb = if self.multisample == 1 {
                         // Readout slot for channel c is just c.
                         [
