@@ -319,6 +319,10 @@ impl Transport for SgDevice {
         // `sb_len_wr` is kernel-written output; the driver contract says it's always
         // <= mx_sb_len, but we don't trust that when indexing our caller's buffer with it.
         let sb_len_wr = (hdr.sb_len_wr as usize).min(sense.len());
+        // TODO: Remove. Raw sense bytes include the sense-key-specific field
+        // pointer (fixed format bytes 15-17) that `SenseData::parse` doesn't
+        // expose yet, which is what actually pinpoints the invalid CDB byte.
+        debug!(sense_raw = ?&sense[..sb_len_wr], "raw sense buffer");
         let sense = SenseData::parse(&sense[..sb_len_wr]);
 
         // CHECK CONDITION alone doesn't mean an error occurred; the sense data
