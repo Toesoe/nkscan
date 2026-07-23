@@ -1,7 +1,9 @@
-use crate::scsi::{Error as ScsiError, Transport, cdbs::*};
+use crate::scsi::{Error as ScsiError, Transport, cdbs::*, mode_pages::MeasurementUnits};
+use cdbs::*;
 use holder::Holder;
 use status::Status;
 
+pub mod cdbs;
 pub mod decode;
 pub mod holder;
 pub mod status;
@@ -9,6 +11,7 @@ pub mod status;
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
 pub struct Ls9k<T> {
     transport: T,
+    exclusive: bool,
 }
 
 /// Scan settings for one frame
@@ -162,12 +165,33 @@ where
     T: Transport,
 {
     pub fn new(transport: T) -> Self {
-        Ls9k { transport }
+        Ls9k {
+            transport,
+            exclusive: false,
+        }
     }
 
     // TODO: Remove
     pub fn inquiry(&mut self) -> Result<InquiryResponse, ScsiError> {
         self.transport.send(&Inquiry::new())
+    }
+
+    // TODO: Remove. Raw MODE SENSE access for probing which pages this
+    // scanner actually implements before we've decoded them.
+    pub fn mode_sense(
+        &mut self,
+        pc: PageControl,
+        page_code: PageCode,
+        allocation_length: u8,
+    ) -> Result<ModeSenseResponse, ScsiError> {
+        self.transport.send(&ModeSense::new(
+            0,
+            false,
+            pc,
+            page_code,
+            allocation_length,
+            0x00,
+        ))
     }
 
     /// Current status/state of the scanner
@@ -201,11 +225,60 @@ where
 
     /// Gain exclsuive access to the scanner
     pub fn reserve(&mut self) -> Result<(), ScsiError> {
-        self.transport.send(&ReserveUnit::default())
+        self.transport.send(&ReserveUnit::default())?;
+        self.exclusive = true;
+        Ok(())
     }
 
     /// Release exclusive access to the scanner
     pub fn release(&mut self) -> Result<(), ScsiError> {
-        self.transport.send(&ReleaseUnit::default())
+        self.transport.send(&ReleaseUnit::default())?;
+        self.exclusive = false;
+        Ok(())
+    }
+
+    /// Sets the scanner's measurement units mode page (basic unit + divisor).
+    pub fn set_measurement_units(&mut self, units: MeasurementUnits) -> Result<(), ScsiError> {
+        if !self.exclusive {
+            return Err(ScsiError::ExclusiveOnly);
+        }
+        let header = ModeParameterHeader {
+            mode_data_length: 0x00, // reserved for MODE SELECT
+            medium_type: 0x00,
+            device_specific: 0x00,
+            block_descriptor_length: 8,
+        };
+        let block_descriptor = BlockDescriptor {
+            density_code: 0x00,
+            number_of_blocks: 0x00,
+            block_length: 0x01,
+        };
+
+        let mut parameter_list = header.to_bytes().to_vec();
+        parameter_list.extend_from_slice(&block_descriptor.to_bytes());
+        parameter_list.extend_from_slice(&units.page_bytes());
+
+        self.transport
+            .send(&ModeSelect::new(0, true, false, parameter_list, 0x00))
+    }
+
+    /// Stage a focus target (arbitrary units) and commit it via TRIGGER.
+    pub fn set_focus(&mut self, focus: u16) -> Result<(), ScsiError> {
+        self.transport
+            .send(&VendorWrite::new(VendorPayload::Focus(focus)))?;
+        self.transport.send(&VendorTrigger)?;
+        Ok(())
+    }
+
+    /// Read back the focus value currently staged in firmware. May be a
+    /// setpoint rather than the motor's actual physical position - see
+    /// VendorPayload::Focus.
+    pub fn get_focus(&mut self) -> Result<u16, ScsiError> {
+        match self.transport.send(&VendorRead::new(Subcode::Focus, 9))? {
+            VendorPayload::Focus(focus) => Ok(focus),
+            // A VendorRead built with Subcode::Focus always decodes to
+            // VendorPayload::Focus - see VendorRead::decode.
+            VendorPayload::Preheat => unreachable!(),
+        }
     }
 }

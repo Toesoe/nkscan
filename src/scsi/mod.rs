@@ -7,6 +7,7 @@ pub mod cdbs;
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod mode_pages;
 pub mod usb;
 #[cfg(target_os = "windows")]
 pub mod windows;
@@ -40,6 +41,9 @@ pub enum Error {
 
     #[error("invalid SCSI response: {0}")]
     InvalidResponse(&'static str),
+
+    #[error("Operation required exclusive access")]
+    ExclusiveOnly,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

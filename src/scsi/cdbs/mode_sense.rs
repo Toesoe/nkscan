@@ -86,12 +86,50 @@ impl ModeSense {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// Mode parameter list header, common to MODE SENSE(6) and MODE SELECT(6)
 pub struct ModeParameterHeader {
-    /// Length in bytes of the mode data that follows, not including this byte
+    /// Length in bytes of the mode data that follows, not including this byte.
+    /// Reserved (should be 0) when used with MODE SELECT.
     pub mode_data_length: u8,
     pub medium_type: u8,
     pub device_specific: u8,
     /// Length in bytes of the block descriptor(s) that follow the header
     pub block_descriptor_length: u8,
+}
+
+impl ModeParameterHeader {
+    pub fn to_bytes(self) -> [u8; 4] {
+        [
+            self.mode_data_length,
+            self.medium_type,
+            self.device_specific,
+            self.block_descriptor_length,
+        ]
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// Mode parameter block descriptor, common to MODE SENSE(6) and MODE
+/// SELECT(6) (SPC-2 8.3.4)
+pub struct BlockDescriptor {
+    pub density_code: u8,
+    /// 24-bit field. Zero means the descriptor doesn't specify a block count.
+    pub number_of_blocks: u32,
+    /// 24-bit field
+    pub block_length: u32,
+}
+
+impl BlockDescriptor {
+    pub fn to_bytes(self) -> [u8; 8] {
+        [
+            self.density_code,
+            ((self.number_of_blocks & 0xFF0000) >> 16) as u8,
+            ((self.number_of_blocks & 0x00FF00) >> 8) as u8,
+            (self.number_of_blocks & 0x0000FF) as u8,
+            0x00, // reserved
+            ((self.block_length & 0xFF0000) >> 16) as u8,
+            ((self.block_length & 0x00FF00) >> 8) as u8,
+            (self.block_length & 0x0000FF) as u8,
+        ]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,5 +247,29 @@ mod tests {
         let data = [0u8; 3];
         let err = mode_sense.decode(&data).unwrap_err();
         assert!(matches!(err, Error::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn header_to_bytes_matches_field_order() {
+        let header = ModeParameterHeader {
+            mode_data_length: 0x0A,
+            medium_type: 0x01,
+            device_specific: 0x02,
+            block_descriptor_length: 0x08,
+        };
+        assert_eq!(header.to_bytes(), [0x0A, 0x01, 0x02, 0x08]);
+    }
+
+    #[test]
+    fn block_descriptor_to_bytes_encodes_24_bit_fields_big_endian() {
+        let descriptor = BlockDescriptor {
+            density_code: 0x00,
+            number_of_blocks: 0x00,
+            block_length: 0x01,
+        };
+        assert_eq!(
+            descriptor.to_bytes(),
+            [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]
+        );
     }
 }
