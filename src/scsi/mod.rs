@@ -2,6 +2,7 @@
 
 use std::{fmt, io};
 
+pub mod asc;
 pub mod cdbs;
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -33,7 +34,10 @@ pub enum Error {
     #[error("SCSI transport error: {0}")]
     Transport(#[from] io::Error),
 
-    #[error("SCSI command failed with status 0x{status:02x}")]
+    #[error(
+        "SCSI command failed with status 0x{status:02x}: {}",
+        sense.as_ref().map_or_else(|| "no sense data".to_string(), ToString::to_string)
+    )]
     Status {
         status: u8,
         sense: Option<SenseData>,
@@ -41,19 +45,79 @@ pub enum Error {
 
     #[error("invalid SCSI response: {0}")]
     InvalidResponse(&'static str),
-
-    #[error("Operation required exclusive access")]
-    ExclusiveOnly,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// SPC-2 Table 69/70: the sense key's top-level category for a CHECK CONDITION
+/// This is just a coarse status, ASC/ASCQ give the actual detail.
+pub enum SenseKey {
+    NoSense,
+    RecoveredError,
+    NotReady,
+    MediumError,
+    HardwareError,
+    IllegalRequest,
+    UnitAttention,
+    DataProtect,
+    BlankCheck,
+    VendorSpecific,
+    CopyAborted,
+    AbortedCommand,
+    Equal,
+    VolumeOverflow,
+    Miscompare,
+    /// 0Fh is reserved
+    Reserved,
+}
+
+impl SenseKey {
+    fn from_nibble(nibble: u8) -> Self {
+        match nibble & 0x0F {
+            0x0 => SenseKey::NoSense,
+            0x1 => SenseKey::RecoveredError,
+            0x2 => SenseKey::NotReady,
+            0x3 => SenseKey::MediumError,
+            0x4 => SenseKey::HardwareError,
+            0x5 => SenseKey::IllegalRequest,
+            0x6 => SenseKey::UnitAttention,
+            0x7 => SenseKey::DataProtect,
+            0x8 => SenseKey::BlankCheck,
+            0x9 => SenseKey::VendorSpecific,
+            0xA => SenseKey::CopyAborted,
+            0xB => SenseKey::AbortedCommand,
+            0xC => SenseKey::Equal,
+            0xD => SenseKey::VolumeOverflow,
+            0xE => SenseKey::Miscompare,
+            _ => SenseKey::Reserved,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct SenseData {
+    /// Raw sense key nibble; see `sense_key()` for the decoded form
     pub key: u8,
     pub asc: u8,
     pub ascq: u8,
+    /// Incorrect Length Indicator (SPC-4 4.5.3): set when the actual transfer length didn't match what was requested
+    pub ili: bool,
+    /// True for a deferred error (response code 71h/73h) rather than a current one (70h/72h)
+    /// the error relates to a command that already completed, not the one that returned this sense data.
+    pub deferred: bool,
 }
 
 impl SenseData {
+    /// The decoded sense key (SPC-2 Table 69/70).
+    pub fn sense_key(&self) -> SenseKey {
+        SenseKey::from_nibble(self.key)
+    }
+
+    /// The decoded additional sense code/qualifier (SPC-2 Table 71), for
+    /// logging or matching in error handling instead of raw ASC/ASCQ bytes.
+    pub fn condition(&self) -> asc::AdditionalSenseCode {
+        asc::AdditionalSenseCode::from_asc_ascq(self.asc, self.ascq)
+    }
+
     /// Parse sense data, as returned by any transport's sense buffer.
     ///
     /// SCSI defines two independent sense data layouts, distinguished by the
@@ -69,8 +133,8 @@ impl SenseData {
     pub(crate) fn parse(sense: &[u8]) -> Option<Self> {
         let response_code = *sense.first()? & 0x7f;
         match response_code {
-            // Fixed format: SENSE KEY at byte 2 (low nibble), ASC/ASCQ at
-            // bytes 12/13 following SPC-4 4.5.3.
+            // Fixed format: SENSE KEY at byte 2 (low nibble; ILI is bit 5 of
+            // the same byte), ASC/ASCQ at bytes 12/13 following SPC-4 4.5.3.
             0x70 | 0x71 => {
                 if sense.len() < 14 {
                     return None;
@@ -79,6 +143,8 @@ impl SenseData {
                     key: sense[2] & 0x0f,
                     asc: sense[12],
                     ascq: sense[13],
+                    ili: sense[2] & 0x20 != 0,
+                    deferred: response_code == 0x71,
                 })
             }
             // Descriptor format: SENSE KEY at byte 1 (low nibble), ASC/ASCQ
@@ -91,6 +157,8 @@ impl SenseData {
                     key: sense[1] & 0x0f,
                     asc: sense[2],
                     ascq: sense[3],
+                    ili: false,
+                    deferred: response_code == 0x73,
                 })
             }
             _ => None,
@@ -100,11 +168,18 @@ impl SenseData {
 
 impl fmt::Display for SenseData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "sense key=0x{:02x}, asc=0x{:02x}, ascq=0x{:02x}",
-            self.key, self.asc, self.ascq
-        )
+        write!(f, "{:?}: {:?}", self.sense_key(), self.condition())
+    }
+}
+
+impl fmt::Debug for SenseData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SenseData")
+            .field("sense_key", &self.sense_key())
+            .field("condition", &self.condition())
+            .field("ili", &self.ili)
+            .field("deferred", &self.deferred)
+            .finish()
     }
 }
 
@@ -143,10 +218,8 @@ pub trait Command {
     fn decode(&self, data: &[u8]) -> Result<Self::Response, Error>;
 }
 
-/// Default sense buffer size, shared across transports. Matches the Linux
-/// kernel's own `SCSI_SENSE_BUFFERSIZE`, which is large enough for
-/// descriptor-format sense data with several descriptors, not just the
-/// 18-byte fixed-format minimum that [`SenseData::parse`] reads.
+/// Default sense buffer size, shared across transports.
+/// Matches the Linux kernel's own `SCSI_SENSE_BUFFERSIZE`
 const SENSE_BUFFER_LEN: usize = 96;
 
 pub trait Transport {

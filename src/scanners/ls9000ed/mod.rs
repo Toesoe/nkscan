@@ -22,10 +22,12 @@ const WINDOW_DESCRIPTOR_LEN: u32 = 50;
 const WINDOW_COUNT: u32 = 5;
 
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
+///
+/// Owning a handle means owning exclusive access: `new()` reserves the
+/// scanner unconditionally, so there's no tracked "do we currently hold the
+/// reservation" state to get out of sync - every operation can assume it.
 pub struct Ls9000ed<T> {
     transport: T,
-    /// We currently have exclusive access to the scanner
-    exclusive: bool,
 }
 
 /// Scan settings for one frame
@@ -201,10 +203,23 @@ where
     T: Transport,
 {
     pub fn new(transport: T) -> Result<Self, ScsiError> {
-        let mut scanner = Ls9000ed {
-            transport,
-            exclusive: false,
-        };
+        let mut scanner = Ls9000ed { transport };
+
+        // The first command issued after SBP-2 login always comes back
+        // UNIT ATTENTION (typically 0x3F/0x04, "microcode has been
+        // changed") - not a real error, just the device reporting it was
+        // reset. Absorb it here via status(), which already treats any
+        // NotReady/UnitAttention as a state rather than an Err, so it
+        // doesn't surface from reserve() below.
+        let initial_status = scanner.status()?;
+        debug!(?initial_status, "Scanner state at open");
+
+        // We always want exclusive access for the lifetime of this handle -
+        // there's no supported use case for sharing a scanner between
+        // initiators - so reserve it once here instead of every operation
+        // separately tracking whether it needs to.
+        scanner.reserve()?;
+
         // On startup, make sure we set the working units to 4000 DPI
         // We will always assume these are the units everywhere (like NikonScan)
         // Without this, SET_WINDOW will fail because we haven't set a unit
@@ -213,13 +228,11 @@ where
         Ok(scanner)
     }
 
-    // TODO: Remove
     pub fn inquiry(&mut self) -> Result<InquiryResponse, ScsiError> {
         self.transport.send(&Inquiry::new())
     }
 
-    // TODO: Remove. Raw MODE SENSE access for probing which pages this
-    // scanner actually implements before we've decoded them.
+    // TODO: Remove. Raw MODE SENSE access for probing which pages this scanner actually implements before we've decoded them.
     pub fn mode_sense(
         &mut self,
         pc: PageControl,
@@ -265,27 +278,20 @@ where
         ))
     }
 
-    /// Gain exclsuive access to the scanner
+    /// Gain exclusive access to the scanner
     pub fn reserve(&mut self) -> Result<(), ScsiError> {
-        self.transport.send(&ReserveUnit::default())?;
-        self.exclusive = true;
-        Ok(())
+        self.transport.send(&ReserveUnit::default())
     }
 
     /// Release exclusive access to the scanner
     pub fn release(&mut self) -> Result<(), ScsiError> {
-        self.transport.send(&ReleaseUnit::default())?;
-        self.exclusive = false;
-        Ok(())
+        self.transport.send(&ReleaseUnit::default())
     }
 
     /// Sets the scanner's measurement units mode page (basic unit + divisor).
     ///
     /// NOTE: We will hard-code a set to 4000dpi as then we don't have to do math later
     fn set_measurement_units(&mut self, units: MeasurementUnits) -> Result<(), ScsiError> {
-        if !self.exclusive {
-            self.reserve()?
-        }
         let header = ModeParameterHeader {
             mode_data_length: 0x00, // reserved for MODE SELECT
             medium_type: 0x00,
@@ -334,8 +340,7 @@ where
         }
     }
 
-    /// `Some(channel)` fetches just that window's descriptor; `None` fetches
-    /// every window this scanner has defined.
+    /// `Some(channel)` fetches just that window's descriptor; `None` fetches every window this scanner has defined.
     pub fn get_window(
         &mut self,
         channel: Option<Channel>,
