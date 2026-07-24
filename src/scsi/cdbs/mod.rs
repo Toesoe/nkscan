@@ -7,7 +7,9 @@ mod mode_sense;
 mod read;
 mod release_unit;
 mod reserve_unit;
+mod scan;
 mod test_unit_ready;
+mod window;
 
 pub use inquiry::*;
 pub use mode_select::*;
@@ -15,4 +17,6 @@ pub use mode_sense::*;
 pub use read::*;
 pub use release_unit::*;
 pub use reserve_unit::*;
+pub use scan::*;
 pub use test_unit_ready::*;
+pub use window::*;

@@ -1,13 +1,11 @@
 use nkscan::{
-    scanners::ls9000ed::{Ls9k, status::Status},
-    scsi::{
-        linux::SgDevice,
-        mode_pages::{BasicUnit, MeasurementUnits},
-    },
+    scanners::ls9000ed::{Channel, Ls9000ed, holder::Holder, status::Status},
+    scsi::linux::SgDevice,
 };
 use tracing::*;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
+    // Set up tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -15,41 +13,23 @@ fn main() {
         )
         .init();
 
-    let transport = SgDevice::open("/dev/sg4").unwrap();
-    let mut scanner = Ls9k::new(transport);
+    // Open scanner device
+    let transport = SgDevice::open("/dev/sg4")?;
+    let mut scanner = Ls9000ed::new(transport)?;
 
-    scanner.reserve().unwrap();
-
-    let mut last_status = scanner.status().unwrap();
-    info!("Scanner state at program start: {:#?}", last_status);
-
-    // Set to 4000 units per inch as the "point" measurement unit
-    scanner
-        .set_measurement_units(MeasurementUnits {
-            basic_unit: BasicUnit::Inches,
-            divisor: 4000,
-        })
-        .unwrap();
-
+    // Block until we have a film holder and the scanner is ready
+    info!("Waiting for scanner to be ready");
     loop {
-        let this_status = scanner.status().unwrap();
-        if this_status != last_status {
-            info!("Scanner status has changed: {:#?}", this_status);
-            if this_status == Status::Ready {
-                info!(
-                    "Scanner ready with film holder state: {:#?}",
-                    scanner.holder().unwrap()
-                );
-
-                let focus_before = scanner.get_focus().unwrap();
-                info!("Focus position before set: {focus_before}");
-
-                scanner.set_focus(0).unwrap();
-
-                let focus_after = scanner.get_focus().unwrap();
-                info!("Focus position after set: {focus_after}");
-            }
+        let this_status = scanner.status()?;
+        let holder = scanner.holder()?;
+        if this_status == Status::Ready && (holder != Holder::None) {
+            info!("Scanner ready with film holder: {:#?}", holder);
+            break;
         }
-        last_status = this_status;
     }
+
+    // GET_WINDOW for all channels
+    info!("All Channels: {:#?}", scanner.get_window(None)?);
+
+    Ok(())
 }
