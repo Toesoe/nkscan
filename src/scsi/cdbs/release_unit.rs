@@ -45,7 +45,7 @@ impl Command for ReleaseUnit {
         CommandData::None
     }
 
-    fn decode(&self, _data: &[u8]) -> Result<(), Error> {
+    fn decode(&self, _data: &[u8]) -> Result<Self::Response, Error> {
         Ok(())
     }
 }

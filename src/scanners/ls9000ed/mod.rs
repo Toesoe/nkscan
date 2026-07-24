@@ -1,16 +1,30 @@
-use crate::scsi::{Error as ScsiError, Transport, cdbs::*, mode_pages::MeasurementUnits};
+use crate::scsi::{
+    Error as ScsiError, Transport,
+    cdbs::*,
+    mode_pages::{BasicUnit, MeasurementUnits},
+};
 use cdbs::*;
 use holder::Holder;
 use status::Status;
+use tracing::*;
 
 pub mod cdbs;
 pub mod decode;
 pub mod holder;
 pub mod status;
+pub mod window;
+
+/// This scanner always works in u16 pixels
+pub const BITS_PER_PIXEL: usize = 16;
+/// This scanner's window descriptors are 50 bytes: 40 standardized bytes plus 10 vendor-specific
+const WINDOW_DESCRIPTOR_LEN: u32 = 50;
+/// This scanner always defines exactly 5 windows: 0 = all/composite, 1/2/3 = R/G/B, 9 = IR.
+const WINDOW_COUNT: u32 = 5;
 
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
-pub struct Ls9k<T> {
+pub struct Ls9000ed<T> {
     transport: T,
+    /// We currently have exclusive access to the scanner
     exclusive: bool,
 }
 
@@ -159,16 +173,44 @@ impl Window {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// Color channels for the scanner's lamp
+pub enum Channel {
+    All,
+    Red,
+    Green,
+    Blue,
+    IR,
+}
+
+impl Channel {
+    fn to_id(self) -> u8 {
+        match self {
+            Channel::All => 0,
+            Channel::Red => 1,
+            Channel::Green => 2,
+            Channel::Blue => 3,
+            Channel::IR => 9,
+        }
+    }
+}
+
 /// The coolscan 9000 is SCSI-only, so we can gate here on scsi backends
-impl<T> Ls9k<T>
+impl<T> Ls9000ed<T>
 where
     T: Transport,
 {
-    pub fn new(transport: T) -> Self {
-        Ls9k {
+    pub fn new(transport: T) -> Result<Self, ScsiError> {
+        let mut scanner = Ls9000ed {
             transport,
             exclusive: false,
-        }
+        };
+        // On startup, make sure we set the working units to 4000 DPI
+        // We will always assume these are the units everywhere (like NikonScan)
+        // Without this, SET_WINDOW will fail because we haven't set a unit
+        debug!("Setting global units to 4000 DPI");
+        scanner.set_global_units()?;
+        Ok(scanner)
     }
 
     // TODO: Remove
@@ -238,9 +280,11 @@ where
     }
 
     /// Sets the scanner's measurement units mode page (basic unit + divisor).
-    pub fn set_measurement_units(&mut self, units: MeasurementUnits) -> Result<(), ScsiError> {
+    ///
+    /// NOTE: We will hard-code a set to 4000dpi as then we don't have to do math later
+    fn set_measurement_units(&mut self, units: MeasurementUnits) -> Result<(), ScsiError> {
         if !self.exclusive {
-            return Err(ScsiError::ExclusiveOnly);
+            self.reserve()?
         }
         let header = ModeParameterHeader {
             mode_data_length: 0x00, // reserved for MODE SELECT
@@ -262,6 +306,14 @@ where
             .send(&ModeSelect::new(0, true, false, parameter_list, 0x00))
     }
 
+    /// Set our working units to "points" in 4000DPI increments
+    fn set_global_units(&mut self) -> Result<(), ScsiError> {
+        self.set_measurement_units(MeasurementUnits {
+            basic_unit: BasicUnit::Inches,
+            divisor: 4000,
+        })
+    }
+
     /// Stage a focus target (arbitrary units) and commit it via TRIGGER.
     pub fn set_focus(&mut self, focus: u16) -> Result<(), ScsiError> {
         self.transport
@@ -280,5 +332,25 @@ where
             // VendorPayload::Focus - see VendorRead::decode.
             VendorPayload::Preheat => unreachable!(),
         }
+    }
+
+    /// `Some(channel)` fetches just that window's descriptor; `None` fetches
+    /// every window this scanner has defined.
+    pub fn get_window(
+        &mut self,
+        channel: Option<Channel>,
+    ) -> Result<Vec<WindowDescriptor>, ScsiError> {
+        let (single, window_identifier, count) = match channel {
+            Some(channel) => (true, channel.to_id(), 1),
+            None => (false, 0, WINDOW_COUNT),
+        };
+        let transfer_length = 8 + count * WINDOW_DESCRIPTOR_LEN;
+        self.transport.send(&GetWindow::new(
+            0,
+            single,
+            window_identifier,
+            transfer_length,
+            0x80,
+        ))
     }
 }
