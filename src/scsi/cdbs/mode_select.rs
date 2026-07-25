@@ -1,16 +1,16 @@
 //! MODE SELECT has two variants, a 6 and 10 byte
 //! It seems the scanners we've used only use the 6 byte form
-use crate::scsi::{Cdb, Command, CommandData, Error};
+use crate::scsi::{Cdb, Command, CommandData, Error, fields::lun_byte};
 
 #[derive(Debug, Clone)]
 /// MODE SELECT(6) command provides a means for the initiator to specify medium,
 /// logical unit, or peripheral device parameters to the target.
-/// Targets that implement the MODE SELECT command shall also implement the MODE SENSE command.
+/// Targets that implement the MODE SELECT command shall also implement the MODE SENSE command
 /// Initiators should issue MODE SENSE prior to each MODE SELECT to determine supported pages, page lengths, and other parameters.
 pub struct ModeSelect {
     /// Logical unit number
     lun: u8,
-    /// Page format.
+    /// Page format
     /// False indicates that the parameters follow SCSI-1
     /// True indicates the parameters following the header and block descriptors are structured as pages
     pf: bool,
@@ -42,7 +42,7 @@ impl Command for ModeSelect {
     fn cdb(&self) -> Self::Cdb {
         Cdb([
             0x15, // opcode
-            ((self.lun & 0b111) << 5) | ((self.pf as u8) << 4) | (self.sp as u8),
+            lun_byte(self.lun) | ((self.pf as u8) << 4) | (self.sp as u8),
             0x00,
             0x00,
             self.parameter_list.len() as u8,
@@ -54,7 +54,7 @@ impl Command for ModeSelect {
         CommandData::Write(&self.parameter_list)
     }
 
-    fn decode(&self, _data: &[u8]) -> Result<(), Error> {
+    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 }

@@ -3,7 +3,7 @@
 //! These writes send a value to RAM but don't actually take effect until the
 //! vendor TRIGGER is applied.
 
-use crate::scsi::{Cdb, Command, CommandData, Error};
+use crate::scsi::{Cdb, Command, CommandData, Error, fields::be_u24};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Subcode {
@@ -60,32 +60,36 @@ impl VendorWrite {
     }
 }
 
+/// The two vendor opcodes share a CDB layout, differing only in direction
+fn vendor_cdb(opcode: u8, subcode: Subcode, length: u32) -> Cdb<10> {
+    let [length_hi, length_mid, length_lo] = be_u24(length);
+    Cdb([
+        opcode,
+        0x00,
+        subcode.to_byte(),
+        0x00,
+        0x00,
+        0x00,
+        length_hi,
+        length_mid,
+        length_lo,
+        0x00,
+    ])
+}
+
 impl Command for VendorWrite {
     type Response = ();
     type Cdb = Cdb<10>;
 
     fn cdb(&self) -> Self::Cdb {
-        // Transfer length is a 24-bit field, so the u32's high byte is dropped
-        let [_, length_hi, length_mid, length_lo] = (self.bytes.len() as u32).to_be_bytes();
-        Cdb([
-            0xE0,
-            0x00,
-            self.subcode.to_byte(),
-            0x00,
-            0x00,
-            0x00,
-            length_hi,
-            length_mid,
-            length_lo,
-            0x00,
-        ])
+        vendor_cdb(0xE0, self.subcode, self.bytes.len() as u32)
     }
 
     fn data(&self) -> CommandData<'_> {
         CommandData::Write(&self.bytes)
     }
 
-    fn decode(&self, _data: &[u8]) -> Result<(), Error> {
+    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -110,27 +114,14 @@ impl Command for VendorRead {
     type Cdb = Cdb<10>;
 
     fn cdb(&self) -> Self::Cdb {
-        // Transfer length is a 24-bit field, so the u32's high byte is dropped
-        let [_, length_hi, length_mid, length_lo] = self.transfer_length.to_be_bytes();
-        Cdb([
-            0xE1,
-            0x00,
-            self.subcode.to_byte(),
-            0x00,
-            0x00,
-            0x00,
-            length_hi,
-            length_mid,
-            length_lo,
-            0x00,
-        ])
+        vendor_cdb(0xE1, self.subcode, self.transfer_length)
     }
 
     fn data(&self) -> CommandData<'_> {
         CommandData::Read(self.transfer_length as usize)
     }
 
-    fn decode(&self, data: &[u8]) -> Result<Self::Response, Error> {
+    fn parse_response(&self, data: &[u8]) -> Result<Self::Response, Error> {
         if data.len() != self.transfer_length as usize {
             return Err(Error::InvalidResponse(
                 "We didn't get all the bytes we expected",
@@ -140,7 +131,8 @@ impl Command for VendorRead {
             Subcode::Focus => VendorPayload::Focus(u16::from_be_bytes(
                 data[3..5].try_into().expect("we checked the byte length"),
             )),
-            Subcode::Preheat => todo!(),
+            // We've never needed to read this one back, so the payload stays uninterpreted
+            Subcode::Preheat => VendorPayload::Preheat,
         })
     }
 }

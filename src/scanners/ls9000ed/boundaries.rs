@@ -6,14 +6,14 @@
 //! then the real per-frame positions once the overview scan has actually located the frames.
 
 use super::{
-    Ls9000ed,
+    Ls9000ed, ScanArea,
     dtc::{self, Dtc},
 };
-use crate::scsi::{Error as ScsiError, Transport};
+use crate::scsi::{self, Transport};
 
-/// One frame's extent, in the same 1/4000-in dots as [`Window`](super::Window).
+/// One frame's extent, in the same 1/4000-in dots as [`ScanArea`](super::ScanArea)
 ///
-/// Y is along stage travel (which frame), X is along the sensor bar.
+/// Y is along stage travel (which frame), X is along the sensor bar
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameRect {
     pub y_top: u32,
@@ -23,10 +23,10 @@ pub struct FrameRect {
 }
 
 impl FrameRect {
-    /// A frame `height` dots tall at `y_top`, spanning the full 56 mm medium format width.
+    /// A frame `height` dots tall at `y_top`, spanning the full 56 mm medium format width
     ///
-    /// Only correct for holders that lay film out in a single row, which is all we have captures for.
-    /// A holder carrying two rows of 35 mm side by side would put each row in its own X band.
+    /// Only correct for holders that lay film out in a single row, which is all we have captures for
+    /// A holder carrying two rows of 35 mm side by side would put each row in its own X band
     pub fn full_width(y_top: u32, height: u32) -> Self {
         Self {
             y_top,
@@ -36,9 +36,10 @@ impl FrameRect {
         }
     }
 
-    /// The 8964-dot width used throughout the scan path, centred on the 10000-dot sensor exactly as [`Window::centred`](super::Window::centred) does.
-    const X_LEFT: u32 = 518;
-    const X_RIGHT: u32 = 9482;
+    /// The same centred 8964-dot span [`ScanArea::centred`](super::ScanArea::centred) produces,
+    /// derived rather than restated so the two cannot drift
+    const X_LEFT: u32 = (ScanArea::SENSOR_DOTS - ScanArea::FILM_WIDTH_DOTS) / 2;
+    const X_RIGHT: u32 = Self::X_LEFT + ScanArea::FILM_WIDTH_DOTS;
 
     fn to_bytes(self) -> [u8; 16] {
         let mut buf = [0u8; 16];
@@ -50,29 +51,20 @@ impl FrameRect {
     }
 }
 
-/// The DTC 0x88 parameter list: a short header plus one rectangle per frame.
+/// The DTC 0x88 parameter list: a short header plus one rectangle per frame
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrameBoundaries(pub Vec<FrameRect>);
 
 impl FrameBoundaries {
-    /// Data-type code this is read and written under
-    pub const DTC: u8 = 0x88;
-    /// Data-type qualifier the driver uses for every 0x88 access
-    pub const DTQ: u16 = 0x0003;
-
     /// The nominal boundaries Nikon Scan writes during calibration, before any
     /// frame has actually been located: four 6696-dot (6x4.5) frames butted
     /// together from y=2236, for some reason
     pub fn nominal() -> Self {
-        Self(
-            (0..4)
-                .map(|i| FrameRect::full_width(2236 + i * 6696, 6696))
-                .collect(),
-        )
+        Self::evenly_spaced(2236, 6696, 4)
     }
 
     /// `count` frames of `height` dots each, butted together from `y_top`.
-    /// Single-row holders only - see [`FrameRect::full_width`].
+    /// Single-row holders only, see [`FrameRect::full_width`]
     pub fn evenly_spaced(y_top: u32, height: u32, count: u32) -> Self {
         Self(
             (0..count)
@@ -99,12 +91,15 @@ where
     T: Transport,
 {
     /// Where the frames sit on the loaded film, as the scanner currently has it
-    pub fn frame_boundaries(&mut self) -> Result<Vec<u8>, ScsiError> {
+    pub fn frame_boundaries(&mut self) -> Result<Vec<u8>, scsi::Error> {
         self.read_framed_dtc(Dtc::FrameBoundaries, None, dtc::HEADER_LEN)
     }
 
     /// Tell the scanner where the frames sit on the loaded film
-    pub fn set_frame_boundaries(&mut self, boundaries: &FrameBoundaries) -> Result<(), ScsiError> {
+    pub fn set_frame_boundaries(
+        &mut self,
+        boundaries: &FrameBoundaries,
+    ) -> Result<(), scsi::Error> {
         self.write_dtc(Dtc::FrameBoundaries, None, boundaries.to_bytes())
     }
 }

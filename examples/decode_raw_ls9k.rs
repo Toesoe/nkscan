@@ -2,9 +2,10 @@
 
 use clap::Parser;
 use image::ImageFormat;
+use nkscan::decode::StreamDecoder;
 use nkscan::scanners::ls9000ed::{
-    CcdMode, Dpi, Multisample, ScanSettings, Window,
-    decode::{FrameDecoder, FrameView},
+    CcdMode, Dpi, Multisample, ScanArea, ScanSettings,
+    decode::{FrameDecoder, ImageView},
 };
 use std::{
     fs::File,
@@ -21,7 +22,7 @@ struct Args {
     /// Whether this file has IR data
     #[arg(long)]
     ir: bool,
-    /// Mutlisample factor
+    /// Multisample factor
     #[arg(long)]
     multisample: u8,
     /// DPI
@@ -67,7 +68,7 @@ fn main() {
             _ => panic!("not a valid multisample factor"),
         },
         // The position of the window here doesn't really matter, just the size
-        window: Window::centred(0, cli.x * dpi.divisor(), cli.y * dpi.divisor()),
+        window: ScanArea::centred(0, cli.x * dpi.divisor(), cli.y * dpi.divisor()),
     };
 
     // Setup the decoder state
@@ -105,7 +106,7 @@ fn main() {
 /// Encode a frame through a `BufWriter` so the TIFF encoder's many small writes
 /// don't each become a syscall. The IR mask, if present, goes beside the RGB
 /// output with an `_ir` suffix.
-fn write_tiff(frame: &FrameView, out: &Path) {
+fn write_tiff(frame: &ImageView, out: &Path) {
     let mut w = BufWriter::new(File::create(out).expect("create output"));
     frame
         .rgb

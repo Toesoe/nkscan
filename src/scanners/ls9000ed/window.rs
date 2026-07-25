@@ -1,12 +1,12 @@
 //! Vendor-specific window descriptor fields, LS-9000ED
 
-use super::{BITS_PER_PIXEL, CcdMode, Multisample, Window};
+use super::{BITS_PER_PIXEL, CcdMode, Multisample, ScanArea};
 use crate::scsi::cdbs::{CompressionType, ImageCompositionCode, PaddingType, WindowDescriptor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Sampling mode. Nikon Scan only ever pairs `Scan` with a square window and `Preview` with a half-height one so this really selects whether the stage steps at full rate.
 ///
-/// Note the 83-DPI whole-strip overview is a `Scan`, not a `Preview`, it's square-sampled at 83x83.
+/// Note the 83-DPI whole-strip overview is a `Scan`, not a `Preview`, it's square-sampled at 83x83
 pub enum BaseQuality {
     /// Square sampling: the 4000-DPI scan and the 83-DPI overview
     Scan,
@@ -30,8 +30,8 @@ pub struct WindowParams {
     pub multisample: Multisample,
     pub quality: BaseQuality,
     pub window_kind: WindowKind,
-    /// Per-channel exposure, overwritten wholesale by autoexposure.
-    /// Before AE runs, Nikon Scan seeds it from the scanner's own GET WINDOW readback.
+    /// Per-channel exposure, overwritten wholesale by autoexposure
+    /// Before AE runs, Nikon Scan seeds it from the scanner's own GET WINDOW readback
     pub exposure: u32,
 }
 
@@ -48,7 +48,7 @@ impl WindowParams {
     ///
     /// This scanner only ever does multi-level RGB at 16 bits with no halftoning, padding or
     /// compression, so those are fixed. The id is left for [`set_window`](super::Ls9000ed::set_window).
-    pub fn descriptor(self, x_resolution: u16, window: Window) -> WindowDescriptor {
+    pub fn descriptor(self, x_resolution: u16, window: ScanArea) -> WindowDescriptor {
         WindowDescriptor {
             id: 0,
             auto: false,
@@ -62,7 +62,7 @@ impl WindowParams {
             threshold: 0,
             contrast: 0,
             composition: ImageCompositionCode::Rgb,
-            bits_per_pixel: BITS_PER_PIXEL as u8,
+            bits_per_pixel: BITS_PER_PIXEL,
             halftone_pattern: 0,
             rif: false,
             padding: PaddingType::NoPadding,
@@ -186,7 +186,7 @@ mod tests {
         );
     }
 
-    /// The 83-DPI whole-strip overview square-sampled, so it's a Scan, and single-line CCD.
+    /// The 83-DPI whole-strip overview square-sampled, so it's a Scan, and single-line CCD
     #[test]
     fn matches_captured_overview() {
         let bytes: Vec<u8> = WindowParams {

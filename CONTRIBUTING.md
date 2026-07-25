@@ -3,6 +3,17 @@
 All help is welcome and greatly appreciated!
 If you would like to contribute to the project, we ask you adhere to the following policies:
 
+## Before you open a PR
+
+```sh
+cargo fmt
+cargo clippy --all-targets     # should be silent
+cargo test
+rg -nP '[^\x00-\x7F]' src/ examples/    # should find nothing
+```
+
+The source is ASCII only. No em dashes, smart quotes or arrows, in code or comments.
+
 ## AI Assistance
 
 Using AI tools to help you contribute is nominally ok, we just want to remind you that

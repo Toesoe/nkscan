@@ -3,15 +3,18 @@
 use image::ImageFormat;
 use nkscan::{
     decode::StreamDecoder,
-    scanners::ls9000ed::{
-        CcdMode, Channel, Ls9000ed, Multisample, Window,
-        boundaries::FrameBoundaries,
-        decode::OverviewDecoder,
-        holder::Holder,
-        status::Status,
-        window::{BaseQuality, WindowKind, WindowParams},
+    scanners::{
+        FilmHolder, Scanner,
+        ls9000ed::{
+            CcdMode, Channel, Ls9000ed, Multisample, ScanArea,
+            boundaries::FrameBoundaries,
+            decode::OverviewDecoder,
+            holder::Holder,
+            status::Status,
+            window::{BaseQuality, WindowKind, WindowParams},
+        },
     },
-    scsi::linux::SgDevice,
+    scsi::{Transport, linux::SgDevice},
 };
 use std::{fs::File, io::BufWriter, thread::sleep, time::Duration};
 use tracing::*;
@@ -29,7 +32,8 @@ fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let transport = SgDevice::open("/dev/sg4")?;
+    // Boxed so the backend could be chosen at runtime
+    let transport: Box<dyn Transport> = Box::new(SgDevice::open("/dev/sg4")?);
     let mut scanner = Ls9000ed::new(transport)?;
 
     // Block until we have a film holder and the scanner is ready
@@ -51,20 +55,17 @@ fn main() -> anyhow::Result<()> {
     info!("Calibrated");
 
     // The 83-DPI thumbnail: the whole strip in one pass, single-line CCD, RGB
-    let channels = [Channel::Red, Channel::Green, Channel::Blue];
-    for (channel, exposure) in channels
-        .iter()
-        .zip([exposures.red, exposures.green, exposures.blue])
-    {
+    let channels = Channel::RGB;
+    for channel in channels {
         let params = WindowParams {
             ccd: CcdMode::SingleLine,
             multisample: Multisample::X1,
             quality: BaseQuality::Scan,
             window_kind: WindowKind::Overview,
-            exposure,
+            exposure: exposures.get(channel),
         };
         info!(?channel, "Setting overview window");
-        scanner.set_window(*channel, params.descriptor(83, Window::overview()))?;
+        scanner.set_window(channel, params.descriptor(83, ScanArea::overview()))?;
     }
 
     info!("Triggering thumbnail scan");
@@ -79,11 +80,20 @@ fn main() -> anyhow::Result<()> {
 
     let mut decoder = OverviewDecoder::new();
 
-    let line = Window::overview_dims().0 * 3 * 2;
+    let line = ScanArea::overview_dims().0 * 3 * 2;
     let chunk = line * (32 * 1024 / line);
 
-    info!(expected = decoder.expected_bytes(), chunk, "Reading image");
-    scanner.read_into(&mut decoder, chunk)?;
+    let expected = decoder.expected_bytes();
+    info!(expected, chunk, "Reading image");
+
+    let mut last_percent = 0;
+    scanner.read_into_with(&mut decoder, chunk, |received, expected| {
+        let percent = received * 100 / expected;
+        if percent >= last_percent + 10 {
+            last_percent = percent;
+            info!(percent, "Reading");
+        }
+    })?;
 
     let image = decoder.finish()?;
     let mut out = BufWriter::new(File::create("thumbnail.tiff")?);

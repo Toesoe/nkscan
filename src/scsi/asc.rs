@@ -88,7 +88,7 @@ pub enum AdditionalSenseCode {
     UnsuccessfulSoftReset,
     VideoAcquisitionError,
     WriteError,
-    /// Not one of the scanner-relevant codes above; the raw `(ASC, ASCQ)`.
+    /// Not one of the scanner-relevant codes above; the raw `(ASC, ASCQ)`
     Other(u8, u8),
 }
 

@@ -20,7 +20,7 @@ impl Command for VendorTrigger {
         CommandData::None
     }
 
-    fn decode(&self, _data: &[u8]) -> Result<(), Error> {
+    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 }

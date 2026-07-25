@@ -1,6 +1,6 @@
 //! Film holder detection via VPD page 0xC8
 
-use crate::scsi::cdbs::VpdPage;
+use crate::scsi::cdbs::{VendorPage, VpdPage};
 
 /// Film holder currently loaded in the scanner
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,21 +15,18 @@ pub enum Holder {
     Feeder,
     SixStrip,
     ThirtySixStrip,
-    /// A holder is present, but its type byte isn't one we've seen before.
+    /// A holder is present, but its type byte isn't one we've seen before
     Unknown(u8),
 }
 
-impl Holder {
-    /// Holder page code probe
-    pub const PAGE_CODE: u8 = 0xC8;
-    /// Comfortably covers both observed response sizes (5 and 21 bytes total).
-    pub const ALLOCATION_LENGTH: u8 = 64;
+impl VendorPage for Holder {
+    const PAGE_CODE: u8 = 0xC8;
+    /// Comfortably covers both observed response sizes (5 and 21 bytes total)
+    const ALLOCATION_LENGTH: u8 = 64;
 
-    /// Decode a VPD page 0xC8 response. Returns `None` if `page` isn't
-    /// actually page 0xC8, or if the present flag is set but the payload is
-    /// too short to hold a type byte - both cases the caller should treat as
-    /// a real error, not a holder state.
-    pub fn from_page(page: &VpdPage) -> Option<Self> {
+    /// `None` if this isn't page 0xC8, or the present flag is set but the payload is too
+    /// short to hold a type byte. Both are real errors, not holder states.
+    fn from_page(page: &VpdPage) -> Option<Self> {
         if page.page_code != Self::PAGE_CODE {
             return None;
         }

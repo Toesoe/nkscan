@@ -237,7 +237,7 @@ const SG_IO: u16 = 0x2285;
 
 ioctl_readwrite_bad!(sg_io, SG_IO, SgIoHdr);
 
-/// Default command timeout, in milliseconds.
+/// Default command timeout, in milliseconds
 const DEFAULT_TIMEOUT_MS: u32 = 20_000;
 
 // ---- High level interface
@@ -309,6 +309,14 @@ impl Transport for SgDevice {
             duration_ms = hdr.duration,
             "SG_IO completed"
         );
+
+        // A bus-level fault doesn't necessarily set the check-status flag below, so a
+        // timeout or an unresponsive target would otherwise read as success.
+        if hdr.host_status != HostStatus::Ok as u16 {
+            return Err(Error::HostAdapter {
+                status: hdr.host_status,
+            });
+        }
 
         // A successful ioctl only means the request was submitted; the command
         // itself may still have failed (see `info` and the sense buffer).

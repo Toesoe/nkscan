@@ -3,13 +3,16 @@
 //! A session-level preamble, not part of any scan. Nikon Scan runs it once, gating the first SCAN.
 
 use super::{
-    Channel, Ls9000ed, Window,
+    Channel, Ls9000ed, ScanArea,
     boundaries::FrameBoundaries,
     dtc::{self, Dtc},
     geometry::{CcdMode, Multisample},
     window::{BaseQuality, WindowKind, WindowParams},
 };
-use crate::scsi::{Error as ScsiError, Transport};
+use crate::{
+    scanners::Focus,
+    scsi::{self, Transport},
+};
 use tracing::*;
 
 /// Per-channel exposure seeds for the calibration windows
@@ -38,23 +41,33 @@ impl Default for ChannelExposures {
 }
 
 impl ChannelExposures {
-    /// In the order Nikon Scan stages them: R, G, B, then IR
-    fn per_channel(self) -> [(Channel, u32); 4] {
-        [
-            (Channel::Red, self.red),
-            (Channel::Green, self.green),
-            (Channel::Blue, self.blue),
-            (Channel::IR, self.ir),
-        ]
+    /// The exposure staged for one channel. `Channel::All` has none of its own, so it
+    /// reports the red one the scanner leads with.
+    pub fn get(&self, channel: Channel) -> u32 {
+        match channel {
+            Channel::Red | Channel::All => self.red,
+            Channel::Green => self.green,
+            Channel::Blue => self.blue,
+            Channel::Ir => self.ir,
+        }
+    }
+
+    fn set(&mut self, channel: Channel, exposure: u32) {
+        match channel {
+            Channel::Red | Channel::All => self.red = exposure,
+            Channel::Green => self.green = exposure,
+            Channel::Blue => self.blue = exposure,
+            Channel::Ir => self.ir = exposure,
+        }
     }
 }
 
 /// The full-area window staged on every channel before calibrating, identical in all captures regardless of film format
-fn calibration_window() -> Window {
-    Window {
+fn calibration_window() -> ScanArea {
+    ScanArea {
         x_pos: 0,
         y_pos: 0,
-        x_size: Window::FILM_WIDTH_DOTS,
+        x_size: ScanArea::FILM_WIDTH_DOTS,
         y_size: 13176,
     }
 }
@@ -65,20 +78,17 @@ where
 {
     /// The exposures the scanner currently has staged, read back off its own window descriptors
     ///
-    /// Any channel the scanner doesn't report keeps its [`Default`] value.
-    pub fn channel_exposures(&mut self) -> Result<ChannelExposures, ScsiError> {
+    /// Any channel the scanner doesn't report keeps its [`Default`] value
+    pub fn channel_exposures(&mut self) -> Result<ChannelExposures, scsi::Error> {
         let mut exposures = ChannelExposures::default();
         for descriptor in self.get_window(None)? {
             let Some(tail) = descriptor.vendor.get(6..10) else {
                 continue;
             };
             let exposure = u32::from_be_bytes(tail.try_into().expect("6..10 is four bytes"));
-            match descriptor.id {
-                1 => exposures.red = exposure,
-                2 => exposures.green = exposure,
-                3 => exposures.blue = exposure,
-                9 => exposures.ir = exposure,
-                _ => {}
+            // ScanArea 0 is the composite and carries no exposure of its own
+            if let Some(channel) = Channel::from_id(descriptor.id).filter(|c| *c != Channel::All) {
+                exposures.set(channel, exposure);
             }
         }
         Ok(exposures)
@@ -92,30 +102,30 @@ where
         &mut self,
         boundaries: &FrameBoundaries,
         exposures: ChannelExposures,
-    ) -> Result<(), ScsiError> {
+    ) -> Result<(), scsi::Error> {
         debug!(?boundaries, "Calibrating");
 
         // Nikon Scan reads this per channel immediately before staging the windows. We don't
         // use the payload, but the read may be what latches the frame setup firmware-side.
-        for (channel, _) in exposures.per_channel() {
+        for channel in Channel::RGBI {
             let setup = self.read_framed_dtc(Dtc::FrameSetup, Some(channel), dtc::HEADER_LEN)?;
             trace!(?channel, len = setup.len(), "Frame setup");
         }
 
         // Stage a full-area window on every channel, IR included
-        for (channel, exposure) in exposures.per_channel() {
+        for channel in Channel::RGBI {
             let params = WindowParams {
                 ccd: CcdMode::SingleLine,
                 multisample: Multisample::X1,
                 quality: BaseQuality::Scan,
                 window_kind: WindowKind::Frame,
-                exposure,
+                exposure: exposures.get(channel),
             };
             self.set_window(channel, params.descriptor(4000, calibration_window()))?;
         }
 
         // Commit the staged focus by writing back whatever the scanner reports
-        let focus = self.get_focus()?;
+        let focus = self.focus()?;
         self.set_focus(focus)?;
 
         // The scanner wants its current frame table read before it accepts a new one
@@ -124,7 +134,7 @@ where
         self.set_frame_boundaries(boundaries)?;
 
         // Nothing consumes these yet, but they're part of the observed sequence
-        for channel in [Channel::Red, Channel::Green, Channel::Blue] {
+        for channel in Channel::RGB {
             let channel = Some(channel);
             let dark = self.read_dtc(Dtc::DarkCurrent, channel, dtc::HEADER_LEN + 4)?;
             let line = self.read_framed_dtc(Dtc::ExtendedLine, channel, 20)?;
