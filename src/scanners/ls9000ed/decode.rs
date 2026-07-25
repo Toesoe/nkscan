@@ -125,7 +125,7 @@ pub struct FrameTranspose {
     // --- resolved acquisition parameters ---
     /// CCD lines per readout: 3, or 1 in single-line mode
     lines: usize,
-    /// Stage positions per interleave block; equivalently the CCD line spacing in output columns (`N = 12/k`). 1 in single-line mode
+    /// Stage positions per interleave block; equivalently the CCD line spacing in output columns, 12 dots over the stage divisor. 1 in single-line mode, and 1 in a preview, where the stage steps exactly one line spacing per column
     block: usize,
     /// Multi-sample repeats per stage position
     multisample: usize,

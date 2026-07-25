@@ -238,7 +238,13 @@ const SG_IO: u16 = 0x2285;
 ioctl_readwrite_bad!(sg_io, SG_IO, SgIoHdr);
 
 /// Default command timeout, in milliseconds
-const DEFAULT_TIMEOUT_MS: u32 = 20_000;
+///
+/// Generous on purpose. Several commands drive the mechanism and hold the bus while they do:
+/// SET WINDOW on a frame walks the stage to the window, autofocus takes ten seconds or so,
+/// and Nikon Scan's own UI warns a calibration can take two minutes. Timing one of those out
+/// aborts the command mid-move rather than stopping the motor, so a timeout short enough to
+/// fire on a legitimate operation is worse than no timeout at all.
+const DEFAULT_TIMEOUT_MS: u32 = 180_000;
 
 // ---- High level interface
 

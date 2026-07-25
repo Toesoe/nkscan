@@ -10,7 +10,10 @@ use cdbs::{Subcode, VendorPayload, VendorRead, VendorTrigger, VendorWrite};
 use dtc::Dtc;
 use holder::Holder;
 use status::Status;
-use std::{thread::sleep, time::Duration};
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
 use tracing::*;
 
 pub mod boundaries;
@@ -38,9 +41,26 @@ const WINDOW_COUNT: u32 = 5;
 const VENDOR_CONTROL: u8 = 0x80;
 /// Unit attentions queue up, but not without bound. Past this something is wrong.
 const MAX_QUEUED_UNIT_ATTENTIONS: usize = 8;
+/// The most tries a SCAN gets before we call it a refusal. Nikon Scan needs up to four.
+const MAX_SCAN_ATTEMPTS: usize = 8;
 /// How often [`wait_until_ready`](Ls9000ed::wait_until_ready) asks. Nikon Scan polls at
 /// roughly this rate through an autofocus.
-const POLL_INTERVAL: Duration = Duration::from_millis(200);
+pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
+/// How long [`wait_until_ready`](Ls9000ed::wait_until_ready) keeps asking before giving up.
+/// Long enough for a calibration, which Nikon Scan's own UI says can take two minutes.
+const READY_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Dots the stage advances per step it reports, 1/333 in, the same 12 dots the three CCD
+/// lines are spaced by
+const STAGE_STEP_DOTS: u32 = 12;
+/// The step the scanner reports when the stage is at y=0. Autofocus on two frames 20160 dots
+/// apart moved it by exactly 1680 steps, and both solve to this origin with no residual.
+const STAGE_HOME_STEP: u32 = 171;
+
+/// Stage steps as [`ScanArea`] dots
+fn stage_dots(steps: u16) -> u32 {
+    u32::from(steps).saturating_sub(STAGE_HOME_STEP) * STAGE_STEP_DOTS
+}
 
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
 pub struct Ls9000ed<T> {
@@ -134,6 +154,7 @@ where
     /// one out: an autofocus, a scan, a calibration. Losing the holder mid-pass is an error
     /// rather than something to keep waiting on.
     pub fn wait_until_ready(&mut self) -> Result<(), scsi::Error> {
+        let deadline = Instant::now() + READY_TIMEOUT;
         loop {
             match self.status()? {
                 Status::Ready => return Ok(()),
@@ -141,6 +162,9 @@ where
                     return Err(scsi::Error::InvalidResponse("the film holder was removed"));
                 }
                 state => trace!(?state, "Waiting"),
+            }
+            if Instant::now() >= deadline {
+                return Err(scsi::Error::InvalidResponse("scanner never became ready"));
             }
             sleep(POLL_INTERVAL);
         }
@@ -211,6 +235,45 @@ where
         Ok(focus)
     }
 
+    /// Where the stage currently sits, in the same 1/4000-in dots as [`ScanArea`]
+    ///
+    /// Read back off vendor subcode 0x42, which reports the position in stage steps. Only
+    /// legible at rest: the scanner refuses every vendor read while a pass is pending.
+    pub fn stage_position(&mut self) -> Result<u32, scsi::Error> {
+        let bytes = self.probe_vendor(0x42, 11)?;
+        let steps = bytes
+            .get(3..5)
+            .map(|b| u16::from_be_bytes([b[0], b[1]]))
+            .ok_or(scsi::Error::InvalidResponse("0x42 read too short"))?;
+        Ok(stage_dots(steps))
+    }
+
+    /// Read an uncharacterized vendor register, for working out what the firmware exposes
+    ///
+    /// Reads only. Nothing here commands the mechanism.
+    pub fn probe_vendor(&mut self, subcode: u8, length: u32) -> Result<Vec<u8>, scsi::Error> {
+        match self
+            .transport
+            .send(&VendorRead::new(Subcode::Other(subcode), length))?
+        {
+            VendorPayload::Raw(bytes) => Ok(bytes),
+            // Subcode::Other always decodes to Raw, see VendorRead::parse_response
+            _ => unreachable!(),
+        }
+    }
+
+    /// Read an uncharacterized vendor data structure, the DTC counterpart to
+    /// [`probe_vendor`](Self::probe_vendor)
+    pub fn probe_dtc(
+        &mut self,
+        code: u8,
+        qualifier: u8,
+        channel: Option<Channel>,
+        length: u32,
+    ) -> Result<Vec<u8>, scsi::Error> {
+        self.read_dtc(Dtc::Other { code, qualifier }, channel, length)
+    }
+
     /// Scan parameters
     ///
     /// Only readable while a scan is pending: once the pass finishes this returns
@@ -222,27 +285,31 @@ where
 
     /// Trigger a scan using the given channels' previously-configured windows
     ///
-    /// The scanner often rejects the first SCAN with a vendor sense code (0x80/0x01) and only
-    /// accepts it once the scan parameters have been read. Nikon Scan does the same
-    /// read-and-retry, and the payload it gets back is sometimes all zeros, so it's the read
-    /// itself that clears the condition rather than anything in it.
+    /// The scanner works up to accepting a SCAN over several tries, rejecting each with a
+    /// vendor sense whose ASCQ advances as it goes (0x80/0x01, then 0x04, then 0x07). Nikon
+    /// Scan just keeps issuing it, reading the scan parameters in between: an 83-DPI overview
+    /// takes two tries, a 666x333 prescan up to four. The parameter payload is sometimes all
+    /// zeros, so it's the read itself that moves things along rather than anything in it.
     pub fn scan(&mut self, channels: &[Channel]) -> Result<(), scsi::Error> {
         let window_ids: Vec<_> = channels.iter().map(|c| c.to_id()).collect();
 
-        match self.transport.send(&Scan::new(0, window_ids.clone(), 0x00)) {
-            Err(scsi::Error::Status {
-                sense: Some(sense), ..
-            }) if sense.sense_key() == SenseKey::VendorSpecific => {
-                debug!(
-                    ?sense,
-                    "SCAN rejected, reading scan parameters and retrying"
-                );
-                let parameters = self.scan_parameters()?;
-                trace!(?parameters, "Scan parameters");
-                self.transport.send(&Scan::new(0, window_ids, 0x00))
+        for attempt in 0..MAX_SCAN_ATTEMPTS {
+            match self.transport.send(&Scan::new(0, window_ids.clone(), 0x00)) {
+                Err(scsi::Error::Status {
+                    sense: Some(sense), ..
+                }) if sense.sense_key() == SenseKey::VendorSpecific => {
+                    debug!(attempt, ?sense, "SCAN rejected, retrying");
+                    // Only readable in some of these states, and a refusal is not itself a
+                    // reason to give up on the scan
+                    match self.scan_parameters() {
+                        Ok(parameters) => trace!(?parameters, "Scan parameters"),
+                        Err(err) => trace!(?err, "Scan parameters unreadable"),
+                    }
+                }
+                other => return other,
             }
-            other => other,
         }
+        Err(scsi::Error::InvalidResponse("scanner kept rejecting SCAN"))
     }
 }
 
@@ -314,7 +381,7 @@ where
             VendorPayload::Focus(focus) => Ok(focus),
             // A VendorRead built with Subcode::Focus always decodes to
             // VendorPayload::Focus - see VendorRead::parse_response.
-            VendorPayload::AutoFocus { .. } => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
@@ -324,5 +391,28 @@ where
             .send(&VendorWrite::new(VendorPayload::Focus(focus)))?;
         self.transport.send(&VendorTrigger)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Both autofocus points land exactly on their target, which is what fixes the mapping
+    #[test]
+    fn stage_steps_match_the_probed_positions() {
+        assert_eq!(stage_dots(738), 6804);
+        assert_eq!(stage_dots(2418), 26964);
+        // The first probe run caught it sitting at the origin
+        assert_eq!(stage_dots(171), 0);
+        // A thumbnail leaves it one step short of full travel
+        assert_eq!(stage_dots(3055), ScanArea::STRIP_DOTS - 36);
+    }
+
+    /// A reading below the origin would otherwise wrap into a huge position
+    #[test]
+    fn steps_below_home_clamp_to_zero() {
+        assert_eq!(stage_dots(0), 0);
+        assert_eq!(stage_dots(STAGE_HOME_STEP as u16 - 1), 0);
     }
 }
