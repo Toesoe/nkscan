@@ -1,4 +1,4 @@
-//! Platform-agnostic SCSI interactions
+//! Platform-agnostic SCSI interactions following the SCSI-2 scanner specification
 
 use std::{fmt, io};
 

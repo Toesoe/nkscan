@@ -1,6 +1,7 @@
 //! Decoding the LS-9000's raw scan stream into an image.
 
-use super::ScanSettings;
+use super::{ScanSettings, Window};
+use crate::decode::StreamDecoder;
 use image::{ImageBuffer, Luma, Rgb};
 
 /// Sensor pixels processed per inner tile, chosen so both the input runs and the output tile stay in L2 during the transpose
@@ -52,6 +53,122 @@ pub struct Frame {
     pub rgb: Image,
     /// The optional IR mask for dust removal
     pub ir: Option<IrMask>,
+}
+
+/// Decoder for the 83-DPI overview pass
+///
+/// Values seem to come back in linear ADC counts.
+/// So, you'd need to apply some gamma curve to make it "look" right
+pub struct OverviewDecoder {
+    width: usize,
+    height: usize,
+    rgb: Vec<u16>,
+    /// Bytes of a row that arrived split across chunks
+    partial: Vec<u8>,
+    /// Rows decoded so far
+    rows: usize,
+    received: u64,
+}
+
+impl Default for OverviewDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OverviewDecoder {
+    pub fn new() -> Self {
+        let (width, height) = Window::overview_dims();
+        let (width, height) = (width as usize, height as usize);
+        Self {
+            width,
+            height,
+            rgb: vec![0; width * height * 3],
+            partial: Vec::with_capacity(width * 6),
+            rows: 0,
+            received: 0,
+        }
+    }
+
+    fn row_bytes(&self) -> usize {
+        self.width * 3 * 2
+    }
+
+    /// One row is three consecutive planes of `width` samples, one per channel, which the output wants interleaved per pixel instead
+    fn emit_row(&mut self, row: &[u8]) {
+        let y = self.rows;
+        for (channel, plane) in row.chunks_exact(self.width * 2).enumerate() {
+            for (x, sample) in plane.chunks_exact(2).enumerate() {
+                self.rgb[(y * self.width + x) * 3 + channel] =
+                    u16::from_be_bytes([sample[0], sample[1]]);
+            }
+        }
+        self.rows += 1;
+    }
+}
+
+impl StreamDecoder for OverviewDecoder {
+    type Output<'a> = ImageBuffer<Rgb<u16>, &'a [u16]>;
+    type Error = Error;
+
+    fn expected_bytes(&self) -> u64 {
+        (self.row_bytes() * self.height) as u64
+    }
+
+    fn push(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        self.received += bytes.len() as u64;
+        if self.received > self.expected_bytes() {
+            return Err(Error::LengthMismatch {
+                got: self.received,
+                expected: self.expected_bytes(),
+            });
+        }
+
+        let row_bytes = self.row_bytes();
+        let mut rest = bytes;
+
+        // Top up a row left half-finished by the previous chunk
+        if !self.partial.is_empty() {
+            let take = (row_bytes - self.partial.len()).min(rest.len());
+            self.partial.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+            if self.partial.len() == row_bytes {
+                let row = std::mem::take(&mut self.partial);
+                self.emit_row(&row);
+                self.partial = row;
+                self.partial.clear();
+            }
+        }
+
+        // Whole rows straight out of the caller's buffer, then stash the tail
+        let mut rows = rest.chunks_exact(row_bytes);
+        for row in &mut rows {
+            self.emit_row(row);
+        }
+        self.partial.extend_from_slice(rows.remainder());
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<Self::Output<'_>, Error> {
+        if self.received != self.expected_bytes() {
+            return Err(Error::LengthMismatch {
+                got: self.received,
+                expected: self.expected_bytes(),
+            });
+        }
+        Ok(
+            ImageBuffer::from_raw(self.width as u32, self.height as u32, &self.rgb[..])
+                .expect("buffer is sized from the dims"),
+        )
+    }
+}
+
+/// Decode a complete overview pass already held in memory
+pub fn decode_overview(bytes: &[u8]) -> Result<Image, Error> {
+    let mut decoder = OverviewDecoder::new();
+    decoder.push(bytes)?;
+    let view = decoder.finish()?;
+    Ok(Image::from_raw(view.width(), view.height(), view.to_vec()).expect("view is well formed"))
 }
 
 /// Streaming decoder.
@@ -274,4 +391,117 @@ impl FrameDecoder {
 #[inline(always)]
 fn sample_at(buf: &[u8], i: usize) -> u16 {
     u16::from_be_bytes([buf[2 * i], buf[2 * i + 1]])
+}
+
+impl StreamDecoder for FrameDecoder {
+    type Output<'a> = FrameView<'a>;
+    type Error = Error;
+
+    fn expected_bytes(&self) -> u64 {
+        self.expected
+    }
+
+    fn push(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        FrameDecoder::push(self, bytes)
+    }
+
+    fn finish(&mut self) -> Result<FrameView<'_>, Error> {
+        FrameDecoder::finish(self)
+    }
+}
+
+#[cfg(test)]
+mod overview_tests {
+    use super::*;
+
+    /// Build a stream where every sample encodes its own (x, y, channel), so any
+    /// transposition shows up as a wrong value rather than a plausible-looking image.
+    fn tagged_stream(width: usize, height: usize) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(width * height * 6);
+        for y in 0..height {
+            for channel in 0..3 {
+                for x in 0..width {
+                    let sample = ((y * width + x) * 3 + channel) as u16 & 0x3FFF;
+                    bytes.extend_from_slice(&sample.to_be_bytes());
+                }
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn matches_the_hardware_overview_size() {
+        let (width, height) = Window::overview_dims();
+        assert_eq!((width, height), (186, 721));
+        // The exact byte count read back off the scanner
+        assert_eq!(2 * 3 * width * height, 804_636);
+    }
+
+    #[test]
+    fn deinterleaves_line_sequential_rows() {
+        let (width, height) = Window::overview_dims();
+        let image = decode_overview(&tagged_stream(width as usize, height as usize)).unwrap();
+
+        assert_eq!(image.dimensions(), (width, height));
+        for (x, y, pixel) in image.enumerate_pixels() {
+            let base = (y as usize * width as usize + x as usize) * 3;
+            let tag = |channel: usize| ((base + channel) as u16) & 0x3FFF;
+            assert_eq!(pixel.0, [tag(0), tag(1), tag(2)], "at {x},{y}");
+        }
+    }
+
+    #[test]
+    fn samples_are_big_endian() {
+        let (width, height) = Window::overview_dims();
+        let mut bytes = vec![0u8; (width * height * 6) as usize];
+        // First sample of the first red row
+        bytes[0] = 0x12;
+        bytes[1] = 0x34;
+        let image = decode_overview(&bytes).unwrap();
+        assert_eq!(image.get_pixel(0, 0).0[0], 0x1234);
+    }
+
+    /// The scanner's chunks have no reason to land on row boundaries, so pushing the same
+    /// stream in awkward sizes has to give the same image as one big push
+    #[test]
+    fn chunking_does_not_change_the_result() {
+        let (width, height) = Window::overview_dims();
+        let stream = tagged_stream(width as usize, height as usize);
+        let expected = decode_overview(&stream).unwrap();
+
+        // A row is 1116 bytes: sizes that divide it, straddle it, and dwarf it
+        for size in [1, 7, 1115, 1116, 1117, 32_364, 500_000] {
+            let mut decoder = OverviewDecoder::new();
+            for chunk in stream.chunks(size) {
+                decoder.push(chunk).unwrap();
+            }
+            let got = decoder.finish().unwrap();
+            assert_eq!(got.dimensions(), expected.dimensions(), "chunk size {size}");
+            assert!(
+                got.iter().eq(expected.iter()),
+                "chunk size {size} decoded differently"
+            );
+        }
+    }
+
+    #[test]
+    fn finish_before_the_stream_completes_is_an_error() {
+        let mut decoder = OverviewDecoder::new();
+        decoder.push(&[0u8; 1116]).unwrap();
+        assert!(matches!(
+            decoder.finish(),
+            Err(Error::LengthMismatch { got: 1116, .. })
+        ));
+    }
+
+    #[test]
+    fn wrong_length_is_an_error() {
+        assert!(matches!(
+            decode_overview(&[0u8; 100]),
+            Err(Error::LengthMismatch {
+                got: 100,
+                expected: 804_636
+            })
+        ));
+    }
 }
