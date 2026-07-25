@@ -48,8 +48,6 @@ fn main() -> anyhow::Result<()> {
     let exposures = scanner.channel_exposures()?;
     info!(?exposures, "Exposures staged in the scanner");
 
-    // Nothing is known about the frames yet, so calibrate with the same nominal table Nikon
-    // Scan uses. The real one comes from the thumbnail below.
     scanner.calibrate(exposures)?;
     info!("Calibrated");
 
@@ -99,8 +97,8 @@ fn main() -> anyhow::Result<()> {
     image.write_to(&mut out, ImageFormat::Tiff)?;
     info!(dimensions = ?image.dimensions(), "Wrote thumbnail.tiff");
 
-    // Where the frames actually landed, which is what the nominal table above was standing in
-    // for. Nikon Scan writes this same table once its own overview has located them.
+    // Where the frames actually landed, replacing the nominal table calibration wrote. Nikon
+    // Scan does the same once its own overview has located them.
     let Some(found) = FrameBoundaries::detect(&image, FRAME_COUNT) else {
         anyhow::bail!("no frames found on the strip");
     };
