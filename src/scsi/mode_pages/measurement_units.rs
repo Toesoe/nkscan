@@ -3,15 +3,15 @@
 //! Reported via MODE SENSE(6); tells the initiator what unit and divisor a
 //! scanner device's dimension-bearing commands (e.g. the scan window) are in.
 
-use crate::scsi::cdbs::ModeSenseResponse;
+use crate::scsi::mode_pages::ModePage;
 
-/// Basic measurement unit, mode page 03h byte 2.
+/// Basic measurement unit, mode page 03h byte 2
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BasicUnit {
     Inches,
     Millimetres,
     Points,
-    /// A code byte the spec reserves and we haven't seen used.
+    /// A code byte the spec reserves and we haven't seen used
     Unknown(u8),
 }
 
@@ -35,7 +35,7 @@ impl BasicUnit {
     }
 }
 
-/// Decoded contents of the Measurement Units mode page (page code 0x03).
+/// Decoded contents of the Measurement Units mode page (page code 0x03)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MeasurementUnits {
     pub basic_unit: BasicUnit,
@@ -44,35 +44,20 @@ pub struct MeasurementUnits {
     pub divisor: u16,
 }
 
-impl MeasurementUnits {
-    pub const PAGE_CODE: u8 = 0x03;
-    /// 4-byte mode parameter header + this page's fixed 8-byte body, with no
-    /// block descriptors (DBD set) getting in between.
-    pub const ALLOCATION_LENGTH: u8 = 12;
+impl ModePage for MeasurementUnits {
+    const PAGE_CODE: u8 = 0x03;
+    const BODY_LEN: u8 = 0x06;
 
-    /// Decode a MODE SENSE(6) response for page 0x03. Returns `None` if the
-    /// page data is missing, too short, or doesn't start with page code 0x03
-    /// - the caller should treat that as a real error, not a units state.
-    pub fn from_response(response: &ModeSenseResponse) -> Option<Self> {
-        let page = response
-            .data
-            .get(response.header.block_descriptor_length as usize..)?;
-        if page.len() < 8 || page[0] & 0x3F != Self::PAGE_CODE {
-            return None;
-        }
+    fn decode_body(body: &[u8]) -> Option<Self> {
         Some(Self {
-            basic_unit: BasicUnit::from_byte(page[2]),
-            divisor: u16::from_be_bytes([page[4], page[5]]),
+            basic_unit: BasicUnit::from_byte(*body.first()?),
+            divisor: u16::from_be_bytes([*body.get(2)?, *body.get(3)?]),
         })
     }
 
-    /// Encode this page's fixed 8-byte body (page code/PS, length, basic
-    /// unit, divisor), for use in a MODE SELECT parameter list.
-    pub fn page_bytes(&self) -> [u8; 8] {
+    fn encode_body(&self) -> Vec<u8> {
         let [divisor_msb, divisor_lsb] = self.divisor.to_be_bytes();
-        [
-            Self::PAGE_CODE,
-            0x06,
+        vec![
             self.basic_unit.to_byte(),
             0x00,
             divisor_msb,
@@ -86,7 +71,7 @@ impl MeasurementUnits {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scsi::cdbs::ModeParameterHeader;
+    use crate::scsi::cdbs::{ModeParameterHeader, ModeSenseResponse};
 
     fn response(block_descriptor_length: u8, data: Vec<u8>) -> ModeSenseResponse {
         ModeSenseResponse {

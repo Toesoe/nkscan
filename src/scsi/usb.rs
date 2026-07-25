@@ -11,7 +11,7 @@
 
 use super::{DataDirection, Error, Transport};
 
-/// A SCSI device reachable over USB bulk endpoints.
+/// A SCSI device reachable over USB bulk endpoints
 pub struct UsbTransport {
     // TODO: nusb::Interface + bulk endpoint addresses
 }

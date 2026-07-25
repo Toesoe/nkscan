@@ -41,7 +41,7 @@ impl Command for Inquiry {
         CommandData::Read(self.allocation_length as usize)
     }
 
-    fn decode(&self, data: &[u8]) -> Result<InquiryResponse, Error> {
+    fn parse_response(&self, data: &[u8]) -> Result<InquiryResponse, Error> {
         if data.len() < 36 {
             return Err(Error::InvalidResponse(
                 "standard INQUIRY response shorter than 36 bytes",
@@ -62,7 +62,7 @@ fn ascii_field(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).trim_end().to_string()
 }
 
-/// A Vital Product Data page, as returned by INQUIRY with EVPD=1.
+/// A Vital Product Data page, as returned by INQUIRY with EVPD=1
 ///
 /// The page's contents are vendor- or device-specific (page 0x00 is the one
 /// exception: it's the list of page codes the device supports), so this just
@@ -109,7 +109,7 @@ impl Command for VpdInquiry {
         CommandData::Read(self.allocation_length as usize)
     }
 
-    fn decode(&self, data: &[u8]) -> Result<VpdPage, Error> {
+    fn parse_response(&self, data: &[u8]) -> Result<VpdPage, Error> {
         if data.len() < 4 {
             return Err(Error::InvalidResponse(
                 "VPD page response shorter than the 4-byte header",
@@ -126,6 +126,15 @@ impl Command for VpdInquiry {
             data: data[4..end].to_vec(),
         })
     }
+}
+
+/// One Vital Product Data page, keyed by the code it answers to
+pub trait VendorPage: Sized {
+    const PAGE_CODE: u8;
+    /// How many bytes to ask for, which has to cover the largest response we expect
+    const ALLOCATION_LENGTH: u8;
+
+    fn from_page(page: &VpdPage) -> Option<Self>;
 }
 
 #[cfg(test)]
@@ -161,7 +170,7 @@ mod tests {
         data[16..24].copy_from_slice(b"COOLSCAN");
         data[32..36].copy_from_slice(b"1.00");
 
-        let response = Inquiry::new().decode(&data).unwrap();
+        let response = Inquiry::new().parse_response(&data).unwrap();
 
         assert_eq!(response.peripheral, 0x05);
         assert_eq!(response.vendor, "NIKON");
@@ -172,7 +181,7 @@ mod tests {
     #[test]
     fn decode_rejects_short_response() {
         let data = [0u8; 35];
-        let err = Inquiry::new().decode(&data).unwrap_err();
+        let err = Inquiry::new().parse_response(&data).unwrap_err();
         assert!(matches!(err, Error::InvalidResponse(_)));
     }
 
@@ -194,7 +203,7 @@ mod tests {
     fn vpd_decode_parses_page_code_and_trims_to_page_length() {
         // peripheral=0x00, page_code=0xC8, page_length=2, then payload + padding
         let data = [0x00, 0xC8, 0x00, 0x02, 0xAA, 0xBB, 0x00, 0x00];
-        let page = VpdInquiry::new(0xC8, 8).decode(&data).unwrap();
+        let page = VpdInquiry::new(0xC8, 8).parse_response(&data).unwrap();
         assert_eq!(page.page_code, 0xC8);
         assert_eq!(page.data, vec![0xAA, 0xBB]);
     }
@@ -203,14 +212,14 @@ mod tests {
     fn vpd_decode_clamps_to_available_data() {
         // page_length claims 10 bytes but only 4 are actually present
         let data = [0x00, 0xC8, 0x00, 0x0A, 0xAA, 0xBB, 0xCC, 0xDD];
-        let page = VpdInquiry::new(0xC8, 8).decode(&data).unwrap();
+        let page = VpdInquiry::new(0xC8, 8).parse_response(&data).unwrap();
         assert_eq!(page.data, vec![0xAA, 0xBB, 0xCC, 0xDD]);
     }
 
     #[test]
     fn vpd_decode_rejects_short_response() {
         let data = [0u8; 3];
-        let err = VpdInquiry::new(0xC8, 3).decode(&data).unwrap_err();
+        let err = VpdInquiry::new(0xC8, 3).parse_response(&data).unwrap_err();
         assert!(matches!(err, Error::InvalidResponse(_)));
     }
 }

@@ -10,7 +10,7 @@
 
 use super::{DataDirection, Error, Transport};
 
-/// A SCSI device reachable through IOKit's SCSI Architecture Model.
+/// A SCSI device reachable through IOKit's SCSI Architecture Model
 pub struct ScsiTaskDevice {
     // TODO: IOKit plugin interface / SCSITaskDeviceInterface
 }

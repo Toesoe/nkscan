@@ -11,13 +11,13 @@
 
 use crate::scsi::{SenseData, SenseKey, asc::AdditionalSenseCode};
 
-/// Scanner state, as reported by TEST UNIT READY.
+/// Scanner state, as reported by TEST UNIT READY
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Ready,
-    /// NotReady 0x04/0x01, warming up / initializing.
+    /// NotReady 0x04/0x01, warming up / initializing
     Initializing,
-    /// NotReady 0x3A/0x00, no film holder loaded.
+    /// NotReady 0x3A/0x00, no film holder loaded
     NoFilmHolder,
     /// UnitAttention 0x3F/0x04, "microcode has been changed". Seen on the
     /// first command after SBP-2 login; clear and retry.
@@ -30,13 +30,14 @@ pub enum Status {
     HolderChanged,
     /// A NotReady or UnitAttention condition without a variant of its own
     /// above - still not a hard failure per the sense key alone, just one we
-    /// haven't specifically named yet. Carries the decoded condition so
-    /// callers/logs get a name instead of raw ASC/ASCQ bytes.
-    Other(AdditionalSenseCode),
+    /// haven't specifically named yet. Carries the sense key so callers can
+    /// still tell the two apart, and the decoded condition so logs get a name
+    /// instead of raw ASC/ASCQ bytes.
+    Other(SenseKey, AdditionalSenseCode),
 }
 
 impl Status {
-    /// Classify a CHECK CONDITION's sense data as a readiness state.
+    /// Classify a CHECK CONDITION's sense data as a readiness state
     /// Returns `None` only for sense keys that are genuine errors (anything
     /// other than NOT READY / UNIT ATTENTION); the caller should treat that
     /// as a real `Err`.
@@ -47,11 +48,25 @@ impl Status {
             (SenseKey::UnitAttention, 0x3F, 0x04) => Some(Self::Reset),
             (SenseKey::UnitAttention, 0x3F, 0x03) => Some(Self::MediumChanged),
             (SenseKey::UnitAttention, 0x28, 0x00) => Some(Self::HolderChanged),
-            (SenseKey::NotReady | SenseKey::UnitAttention, ..) => {
-                Some(Self::Other(sense.condition()))
+            (key @ (SenseKey::NotReady | SenseKey::UnitAttention), ..) => {
+                Some(Self::Other(key, sense.condition()))
             }
             _ => None,
         }
+    }
+
+    /// Whether this state came from a unit attention
+    ///
+    /// The device queues these and reports one per command, clearing it as it goes, so a
+    /// caller has to keep asking until it gets something else.
+    pub fn is_unit_attention(self) -> bool {
+        matches!(
+            self,
+            Self::Reset
+                | Self::MediumChanged
+                | Self::HolderChanged
+                | Self::Other(SenseKey::UnitAttention, _)
+        )
     }
 }
 
@@ -122,8 +137,35 @@ mod tests {
         assert_eq!(
             Status::from_sense(&sense(0x06, 0x3F, 0x00)),
             Some(Status::Other(
+                SenseKey::UnitAttention,
                 AdditionalSenseCode::TargetOperatingConditionsHaveChanged
             ))
+        );
+    }
+
+    /// Only the unit attentions clear themselves by being reported, so only those may be
+    /// drained. Draining a NotReady would spin until the limit.
+    #[test]
+    fn only_unit_attentions_are_drainable() {
+        for state in [Status::Reset, Status::MediumChanged, Status::HolderChanged] {
+            assert!(state.is_unit_attention(), "{state:?}");
+        }
+        for state in [Status::Ready, Status::Initializing, Status::NoFilmHolder] {
+            assert!(!state.is_unit_attention(), "{state:?}");
+        }
+        assert!(
+            Status::Other(
+                SenseKey::UnitAttention,
+                AdditionalSenseCode::TargetOperatingConditionsHaveChanged
+            )
+            .is_unit_attention()
+        );
+        assert!(
+            !Status::Other(
+                SenseKey::NotReady,
+                AdditionalSenseCode::LogicalUnitNotReadyCauseNotReportable
+            )
+            .is_unit_attention()
         );
     }
 
@@ -135,6 +177,7 @@ mod tests {
         assert_eq!(
             Status::from_sense(&sense(0x02, 0x04, 0x00)),
             Some(Status::Other(
+                SenseKey::NotReady,
                 AdditionalSenseCode::LogicalUnitNotReadyCauseNotReportable
             ))
         );

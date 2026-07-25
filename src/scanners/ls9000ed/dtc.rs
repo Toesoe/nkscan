@@ -1,17 +1,17 @@
 //! Vendor data-type codes
 //!
-//! READ(10) and SEND(10) address a vendor structure with a data-type code and  a 16-bit qualifier.
+//! READ(10) and SEND(10) address a vendor structure with a data-type code and a 16-bit qualifier.
 
 use super::{Channel, Ls9000ed};
 use crate::scsi::{
-    Error as ScsiError, Transport,
+    self as scsi, Transport, TransportExt,
     cdbs::{DataTypeCode, Read, Send},
 };
 
 /// Vendor DTC reads are framed by a fixed 6-byte header
 pub const HEADER_LEN: u32 = 6;
 
-/// A vendor data structure on this scanner.
+/// A vendor data structure on this scanner
 ///
 /// Sizes below are the payload the scanner reported, excluding the 6-byte framing header
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +28,7 @@ pub enum Dtc {
     FrameSetup,
     /// Film adapter info
     AdapterInfo,
-    /// Something we haven't characterised; qualifier is the caller's problem.
+    /// Something we haven't characterised; qualifier is the caller's problem
     Other { code: u8, qualifier: u8 },
 }
 
@@ -82,9 +82,14 @@ where
         dtc: Dtc,
         channel: Option<Channel>,
         length: u32,
-    ) -> Result<Vec<u8>, ScsiError> {
-        self.transport
-            .send(&Read::new(0, dtc.into(), dtc.dtq(channel), length, 0x80))
+    ) -> Result<Vec<u8>, scsi::Error> {
+        self.transport.send(&Read::new(
+            0,
+            dtc.into(),
+            dtc.dtq(channel),
+            length,
+            super::VENDOR_CONTROL,
+        ))
     }
 
     /// Read a whole vendor data structure, probing `probe` bytes for the payload length first
@@ -93,12 +98,12 @@ where
         dtc: Dtc,
         channel: Option<Channel>,
         probe: u32,
-    ) -> Result<Vec<u8>, ScsiError> {
+    ) -> Result<Vec<u8>, scsi::Error> {
         let header = self.read_dtc(dtc, channel, probe)?;
         let length = header
             .get(4..6)
             .map(|l| u16::from_be_bytes([l[0], l[1]]))
-            .ok_or(ScsiError::InvalidResponse(
+            .ok_or(scsi::Error::InvalidResponse(
                 "vendor DTC read shorter than its 6-byte header",
             ))?;
         self.read_dtc(dtc, channel, HEADER_LEN + u32::from(length))
@@ -110,7 +115,7 @@ where
         dtc: Dtc,
         channel: Option<Channel>,
         parameters: Vec<u8>,
-    ) -> Result<(), ScsiError> {
+    ) -> Result<(), scsi::Error> {
         self.transport.send(&Send::new(
             0,
             dtc.into(),
@@ -125,7 +130,7 @@ where
 mod tests {
     use super::*;
 
-    /// Every DTC/DTQ pair observed across all five captures.
+    /// Every DTC/DTQ pair observed across all five captures
     #[test]
     fn matches_every_captured_dtq() {
         let cases = [
@@ -134,14 +139,14 @@ mod tests {
             (Dtc::DarkCurrent, Some(Channel::Red), 0x0103),
             (Dtc::DarkCurrent, Some(Channel::Green), 0x0203),
             (Dtc::DarkCurrent, Some(Channel::Blue), 0x0303),
-            (Dtc::DarkCurrent, Some(Channel::IR), 0x0903),
+            (Dtc::DarkCurrent, Some(Channel::Ir), 0x0903),
             (Dtc::ExtendedLine, Some(Channel::Red), 0x0100),
             (Dtc::ExtendedLine, Some(Channel::Green), 0x0200),
             (Dtc::ExtendedLine, Some(Channel::Blue), 0x0300),
             (Dtc::FrameSetup, Some(Channel::Red), 0x0101),
             (Dtc::FrameSetup, Some(Channel::Green), 0x0201),
             (Dtc::FrameSetup, Some(Channel::Blue), 0x0301),
-            (Dtc::FrameSetup, Some(Channel::IR), 0x0901),
+            (Dtc::FrameSetup, Some(Channel::Ir), 0x0901),
             (Dtc::AdapterInfo, None, 0x0001),
         ];
 

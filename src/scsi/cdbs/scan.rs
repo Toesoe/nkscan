@@ -1,11 +1,11 @@
 //! SCAN(6) - Requests a target begin a scan operation
 
-use crate::scsi::{Cdb, Command, CommandData, Error};
+use crate::scsi::{Cdb, Command, CommandData, Error, fields::lun_byte};
 
 pub struct Scan {
     /// Logical unit number (3 bits)
     lun: u8,
-    /// Window identifiers (as previously defined by SET WINDOW) to scan
+    /// ScanArea identifiers (as previously defined by SET WINDOW) to scan
     window_ids: Vec<u8>,
     /// Control,
     control: u8,
@@ -28,7 +28,7 @@ impl Command for Scan {
     fn cdb(&self) -> Self::Cdb {
         Cdb([
             0x1B, // opcode
-            (self.lun & 0b111) << 5,
+            lun_byte(self.lun),
             0x00, // reserved
             0x00, // reserved
             self.window_ids.len() as u8,
@@ -40,7 +40,7 @@ impl Command for Scan {
         CommandData::Write(&self.window_ids)
     }
 
-    fn decode(&self, _data: &[u8]) -> Result<(), Error> {
+    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn decode_ignores_input() {
         let scan = Scan::new(0, vec![], 0);
-        assert_eq!(scan.decode(&[]).unwrap(), ());
-        assert_eq!(scan.decode(&[1, 2, 3]).unwrap(), ());
+        assert_eq!(scan.parse_response(&[]).unwrap(), ());
+        assert_eq!(scan.parse_response(&[1, 2, 3]).unwrap(), ());
     }
 }

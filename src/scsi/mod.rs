@@ -4,6 +4,7 @@ use std::{fmt, io};
 
 pub mod asc;
 pub mod cdbs;
+pub(crate) mod fields;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
@@ -43,13 +44,18 @@ pub enum Error {
         sense: Option<SenseData>,
     },
 
+    /// The command never reached the device, or the bus faulted carrying it. Distinct from
+    /// `Status`, which means the device answered and had something to say.
+    #[error("SCSI host adapter reported status 0x{status:02x}")]
+    HostAdapter { status: u16 },
+
     #[error("invalid SCSI response: {0}")]
     InvalidResponse(&'static str),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// SPC-2 Table 69/70: the sense key's top-level category for a CHECK CONDITION
-/// This is just a coarse status, ASC/ASCQ give the actual detail.
+/// This is just a coarse status, ASC/ASCQ give the actual detail
 pub enum SenseKey {
     NoSense,
     RecoveredError,
@@ -107,7 +113,7 @@ pub struct SenseData {
 }
 
 impl SenseData {
-    /// The decoded sense key (SPC-2 Table 69/70).
+    /// The decoded sense key (SPC-2 Table 69/70)
     pub fn sense_key(&self) -> SenseKey {
         SenseKey::from_nibble(self.key)
     }
@@ -118,7 +124,7 @@ impl SenseData {
         asc::AdditionalSenseCode::from_asc_ascq(self.asc, self.ascq)
     }
 
-    /// Parse sense data, as returned by any transport's sense buffer.
+    /// Parse sense data, as returned by any transport's sense buffer
     ///
     /// SCSI defines two independent sense data layouts, distinguished by the
     /// response code in the low 7 bits of byte 0 (SPC-4 4.5 "Sense data"):
@@ -183,14 +189,14 @@ impl fmt::Debug for SenseData {
     }
 }
 
-/// The data phase of a SCSI command.
+/// The data phase of a SCSI command
 #[derive(Debug, Clone, Copy)]
 pub enum CommandData<'a> {
-    /// No data transfer.
+    /// No data transfer
     None,
-    /// Host reads this many bytes from the device.
+    /// Host reads this many bytes from the device
     Read(usize),
-    /// Host writes these bytes to the device.
+    /// Host writes these bytes to the device
     Write(&'a [u8]),
 }
 
@@ -215,13 +221,14 @@ pub trait Command {
     fn data(&self) -> CommandData<'_>;
 
     /// Decode the returned bytes
-    fn decode(&self, data: &[u8]) -> Result<Self::Response, Error>;
+    fn parse_response(&self, data: &[u8]) -> Result<Self::Response, Error>;
 }
 
-/// Default sense buffer size, shared across transports.
+/// Default sense buffer size, shared across transports
 /// Matches the Linux kernel's own `SCSI_SENSE_BUFFERSIZE`
 const SENSE_BUFFER_LEN: usize = 96;
 
+/// Somewhere to send a CDB and get bytes back
 pub trait Transport {
     fn execute(
         &mut self,
@@ -230,7 +237,11 @@ pub trait Transport {
         data: &mut [u8],
         sense: &mut [u8],
     ) -> Result<(), Error>;
+}
 
+/// The convenience layer over [`Transport::execute`], which every transport gets for free
+pub trait TransportExt: Transport {
+    /// Run one command through its data phase and decode the response
     fn send<C: Command>(&mut self, command: &C) -> Result<C::Response, Error> {
         let cdb = command.cdb();
         let mut sense = [0u8; SENSE_BUFFER_LEN];
@@ -242,8 +253,94 @@ pub trait Transport {
         };
         self.execute(cdb.as_ref(), payload.direction(), &mut data, &mut sense)?;
         match payload {
-            CommandData::None | CommandData::Write(_) => command.decode(&[]),
-            CommandData::Read(_) => command.decode(&data),
+            CommandData::None | CommandData::Write(_) => command.parse_response(&[]),
+            CommandData::Read(_) => command.parse_response(&data),
+        }
+    }
+
+    /// Fetch and decode a Vital Product Data page
+    fn vpd<P: cdbs::VendorPage>(&mut self) -> Result<P, Error> {
+        let page = self.send(&cdbs::VpdInquiry::new(P::PAGE_CODE, P::ALLOCATION_LENGTH))?;
+        P::from_page(&page).ok_or(Error::InvalidResponse("unrecognized VPD page contents"))
+    }
+
+    /// Fetch and decode a mode page
+    fn mode_page<P: mode_pages::ModePage>(&mut self) -> Result<P, Error> {
+        let response = self.send(&cdbs::ModeSense::new(
+            0,
+            false,
+            cdbs::PageControl::Current,
+            cdbs::PageCode::Page(P::PAGE_CODE),
+            P::allocation_length(),
+            0x00,
+        ))?;
+        P::from_response(&response).ok_or(Error::InvalidResponse("unrecognized mode page contents"))
+    }
+
+    /// Write a mode page back. `block_descriptor` is device-specific; most want `None`.
+    fn set_mode_page<P: mode_pages::ModePage>(
+        &mut self,
+        page: &P,
+        block_descriptor: Option<cdbs::BlockDescriptor>,
+    ) -> Result<(), Error> {
+        let header = cdbs::ModeParameterHeader {
+            mode_data_length: 0x00, // reserved for MODE SELECT
+            medium_type: 0x00,
+            device_specific: 0x00,
+            block_descriptor_length: if block_descriptor.is_some() { 8 } else { 0 },
+        };
+
+        let mut parameters = header.to_bytes().to_vec();
+        if let Some(descriptor) = block_descriptor {
+            parameters.extend_from_slice(&descriptor.to_bytes());
+        }
+        parameters.extend_from_slice(&page.page_bytes());
+
+        self.send(&cdbs::ModeSelect::new(0, true, false, parameters, 0x00))
+    }
+}
+
+impl<T: Transport + ?Sized> TransportExt for T {}
+
+impl<T: Transport + ?Sized> Transport for &mut T {
+    fn execute(
+        &mut self,
+        cdb: &[u8],
+        direction: DataDirection,
+        data: &mut [u8],
+        sense: &mut [u8],
+    ) -> Result<(), Error> {
+        (**self).execute(cdb, direction, data, sense)
+    }
+}
+
+impl<T: Transport + ?Sized> Transport for Box<T> {
+    fn execute(
+        &mut self,
+        cdb: &[u8],
+        direction: DataDirection,
+        data: &mut [u8],
+        sense: &mut [u8],
+    ) -> Result<(), Error> {
+        (**self).execute(cdb, direction, data, sense)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{scanners::ls9000ed::Ls9000ed, scsi::cdbs::TestUnitReady};
+
+    /// Picking a backend at runtime has to compile. These never run.
+    #[test]
+    fn a_boxed_transport_still_works() {
+        fn _sends(mut transport: Box<dyn Transport>) -> Result<(), Error> {
+            transport.send(&TestUnitReady::new())
+        }
+        fn _drives_a_scanner(
+            transport: Box<dyn Transport>,
+        ) -> Result<Ls9000ed<Box<dyn Transport>>, Error> {
+            Ls9000ed::new(transport)
         }
     }
 }

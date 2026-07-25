@@ -38,7 +38,7 @@ impl Multisample {
 }
 
 /// DPI mode to read out
-/// The scanner nativley operates at 4000 DPI and does firmware-level division to downsample
+/// The scanner natively operates at 4000 DPI and does firmware-level division to downsample
 #[derive(Debug, Copy, Clone)]
 pub enum Dpi {
     _4000,
@@ -65,9 +65,9 @@ impl Dpi {
 }
 
 #[derive(Debug, Copy, Clone)]
-/// A scan window in 1/4000-in dots, matching the sensor's native pitch.
-/// Resolution-independent: changing DPI reframes the same physical area.
-pub struct Window {
+/// A scan window in 1/4000-in dots, matching the sensor's native pitch
+/// Resolution-independent: changing DPI reframes the same physical area
+pub struct ScanArea {
     /// Offset along the sensor bar (0..10_000, 63.5 mm).
     pub x_pos: u32,
     /// Offset along stage travel (0..~34_644, 220 mm, a full 120 strip). This is what selects which frame.
@@ -75,11 +75,11 @@ pub struct Window {
     /// Sensor extent or image HEIGHT. This is like the first dimension in MF film, the 6 in 6x9.
     pub x_size: u32,
     /// Stage extent or image WIDTH. Distinguishes 6x4.5 / 6x6 / 6x9.
-    /// This must be a multiple of 36 (one CCD interleave block) at any resolution.
+    /// This must be a multiple of 36 (one CCD interleave block) at any resolution
     pub y_size: u32,
 }
 
-impl Window {
+impl ScanArea {
     /// How long the sensor is, in dots
     pub const SENSOR_DOTS: u32 = 10_000;
     /// The width every captured scan uses: 56.9 mm, the 56 mm of 120 film
@@ -93,7 +93,7 @@ impl Window {
     }
 
     /// 83 DPI is the 4000-dot grid divided by 48. Neither strip dimension divides evenly, and
-    /// the scanner truncates rather than rounds - a full overview is exactly 804636 bytes.
+    /// the scanner truncates rather than rounds, so a full overview is exactly 804636 bytes
     pub const OVERVIEW_DIVISOR: u32 = 48;
 
     /// Output pixels of the overview pass
@@ -126,7 +126,7 @@ pub struct ScanSettings {
     /// Multisample
     pub multisample: Multisample,
     /// The window in the scanner FoV to actually scan
-    pub window: Window,
+    pub window: ScanArea,
 }
 
 impl ScanSettings {
@@ -137,7 +137,7 @@ impl ScanSettings {
             .then(|| (self.window.y_size / k, self.window.x_size / k))
     }
 
-    /// CCD lines read per stage position.
+    /// CCD lines read per stage position
     pub fn lines(&self) -> u32 {
         match self.ccd_mode {
             CcdMode::ThreeLine => 3,
@@ -148,7 +148,7 @@ impl ScanSettings {
     /// Readouts emitted per stage position: one RGB triple per multi-sample
     /// repeat, plus a single infrared readout when enabled.
     ///
-    /// Infrared is captured once no matter the multi-sample setting.
+    /// Infrared is captured once no matter the multi-sample setting
     pub fn readouts(&self) -> u32 {
         3 * self.multisample.count() + u32::from(self.ir)
     }

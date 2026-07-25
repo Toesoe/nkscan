@@ -1,19 +1,18 @@
 //! Decoding the LS-9000's raw scan stream into an image.
 
-use super::{ScanSettings, Window};
-use crate::decode::StreamDecoder;
+use super::{ScanArea, ScanSettings};
+use crate::decode::{BlockSink, Blocked, LengthMismatch, StreamDecoder, be_u16_at};
 use image::{ImageBuffer, Luma, Rgb};
 
 /// Sensor pixels processed per inner tile, chosen so both the input runs and the output tile stay in L2 during the transpose
 const CHUNK: usize = 256;
 
-// Output iamge types
+// Output image types
 // The LS-9000 always sends BE u16 over the wire
-pub type Image = ImageBuffer<Rgb<u16>, Vec<u16>>;
-pub type IrMask = ImageBuffer<Luma<u16>, Vec<u16>>;
+pub type Rgb16 = ImageBuffer<Rgb<u16>, Vec<u16>>;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum DecodeError {
     #[error("scan window does not divide evenly at this resolution")]
     IndivisibleWindow,
 
@@ -22,53 +21,32 @@ pub enum Error {
     )]
     UnalignedStageExtent { stages: u32, block: u32 },
 
-    #[error("received {got} bytes, expected {expected}")]
-    LengthMismatch { got: u64, expected: u64 },
+    #[error(transparent)]
+    LengthMismatch(#[from] LengthMismatch),
 }
 
 /// A decoded frame that borrows the decoder's buffers
-pub struct FrameView<'a> {
+pub struct ImageView<'a> {
     /// The image data read out from the scanner
     pub rgb: ImageBuffer<Rgb<u16>, &'a [u16]>,
     /// The optional IR mask for dust removal
     pub ir: Option<ImageBuffer<Luma<u16>, &'a [u16]>>,
 }
 
-impl FrameView<'_> {
-    /// Copy into owned buffers, so the frame outlives the decoder's reuse
-    pub fn to_owned(&self) -> Frame {
-        Frame {
-            rgb: Image::from_raw(self.rgb.width(), self.rgb.height(), self.rgb.to_vec())
-                .expect("view is well formed"),
-            ir: self.ir.as_ref().map(|ir| {
-                IrMask::from_raw(ir.width(), ir.height(), ir.to_vec()).expect("view is well formed")
-            }),
-        }
-    }
-}
-
-/// An owned decoded frame
-pub struct Frame {
-    /// The image data read out from the scanner
-    pub rgb: Image,
-    /// The optional IR mask for dust removal
-    pub ir: Option<IrMask>,
-}
-
-/// Decoder for the 83-DPI overview pass
+/// Decoder for the 83-DPI overview pass, one row of pixels at a time
 ///
-/// Values seem to come back in linear ADC counts.
+/// Values seem to come back in linear ADC counts
 /// So, you'd need to apply some gamma curve to make it "look" right
-pub struct OverviewDecoder {
+pub struct OverviewRows {
     width: usize,
     height: usize,
     rgb: Vec<u16>,
-    /// Bytes of a row that arrived split across chunks
-    partial: Vec<u8>,
     /// Rows decoded so far
     rows: usize,
-    received: u64,
 }
+
+/// The 83-DPI overview pass
+pub type OverviewDecoder = Blocked<OverviewRows>;
 
 impl Default for OverviewDecoder {
     fn default() -> Self {
@@ -78,84 +56,47 @@ impl Default for OverviewDecoder {
 
 impl OverviewDecoder {
     pub fn new() -> Self {
-        let (width, height) = Window::overview_dims();
+        Self::wrap(OverviewRows::new())
+    }
+}
+
+impl OverviewRows {
+    fn new() -> Self {
+        let (width, height) = ScanArea::overview_dims();
         let (width, height) = (width as usize, height as usize);
         Self {
             width,
             height,
             rgb: vec![0; width * height * 3],
-            partial: Vec::with_capacity(width * 6),
             rows: 0,
-            received: 0,
         }
     }
+}
 
-    fn row_bytes(&self) -> usize {
+impl BlockSink for OverviewRows {
+    type Output<'a> = ImageBuffer<Rgb<u16>, &'a [u16]>;
+    type Error = DecodeError;
+
+    fn block_len(&self) -> usize {
         self.width * 3 * 2
     }
 
+    fn blocks(&self) -> u64 {
+        self.height as u64
+    }
+
     /// One row is three consecutive planes of `width` samples, one per channel, which the output wants interleaved per pixel instead
-    fn emit_row(&mut self, row: &[u8]) {
+    fn emit(&mut self, row: &[u8]) {
         let y = self.rows;
         for (channel, plane) in row.chunks_exact(self.width * 2).enumerate() {
             for (x, sample) in plane.chunks_exact(2).enumerate() {
-                self.rgb[(y * self.width + x) * 3 + channel] =
-                    u16::from_be_bytes([sample[0], sample[1]]);
+                self.rgb[(y * self.width + x) * 3 + channel] = be_u16_at(sample, 0);
             }
         }
         self.rows += 1;
     }
-}
 
-impl StreamDecoder for OverviewDecoder {
-    type Output<'a> = ImageBuffer<Rgb<u16>, &'a [u16]>;
-    type Error = Error;
-
-    fn expected_bytes(&self) -> u64 {
-        (self.row_bytes() * self.height) as u64
-    }
-
-    fn push(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        self.received += bytes.len() as u64;
-        if self.received > self.expected_bytes() {
-            return Err(Error::LengthMismatch {
-                got: self.received,
-                expected: self.expected_bytes(),
-            });
-        }
-
-        let row_bytes = self.row_bytes();
-        let mut rest = bytes;
-
-        // Top up a row left half-finished by the previous chunk
-        if !self.partial.is_empty() {
-            let take = (row_bytes - self.partial.len()).min(rest.len());
-            self.partial.extend_from_slice(&rest[..take]);
-            rest = &rest[take..];
-            if self.partial.len() == row_bytes {
-                let row = std::mem::take(&mut self.partial);
-                self.emit_row(&row);
-                self.partial = row;
-                self.partial.clear();
-            }
-        }
-
-        // Whole rows straight out of the caller's buffer, then stash the tail
-        let mut rows = rest.chunks_exact(row_bytes);
-        for row in &mut rows {
-            self.emit_row(row);
-        }
-        self.partial.extend_from_slice(rows.remainder());
-        Ok(())
-    }
-
-    fn finish(&mut self) -> Result<Self::Output<'_>, Error> {
-        if self.received != self.expected_bytes() {
-            return Err(Error::LengthMismatch {
-                got: self.received,
-                expected: self.expected_bytes(),
-            });
-        }
+    fn finish(&mut self) -> Result<Self::Output<'_>, DecodeError> {
         Ok(
             ImageBuffer::from_raw(self.width as u32, self.height as u32, &self.rgb[..])
                 .expect("buffer is sized from the dims"),
@@ -164,18 +105,17 @@ impl StreamDecoder for OverviewDecoder {
 }
 
 /// Decode a complete overview pass already held in memory
-pub fn decode_overview(bytes: &[u8]) -> Result<Image, Error> {
+pub fn decode_overview(bytes: &[u8]) -> Result<Rgb16, DecodeError> {
     let mut decoder = OverviewDecoder::new();
     decoder.push(bytes)?;
     let view = decoder.finish()?;
-    Ok(Image::from_raw(view.width(), view.height(), view.to_vec()).expect("view is well formed"))
+    Ok(Rgb16::from_raw(view.width(), view.height(), view.to_vec()).expect("view is well formed"))
 }
 
-/// Streaming decoder.
-/// Feed `READ(10)` payloads to [`push`](Self::push) in arrival order, then call [`finish`](Self::finish)
+/// Unscrambles a full-resolution frame, one CCD interleave block at a time
 ///
 /// A *sample* is one 16-bit value: one channel, at one sensor pixel, from one CCD line, in one readout
-pub struct FrameDecoder {
+pub struct FrameTranspose {
     // --- output geometry ---
     /// Output columns (stage positions x CCD lines)
     width: usize,
@@ -195,33 +135,36 @@ pub struct FrameDecoder {
     readout_samples: usize,
     /// Samples per stage position (`readouts * readout_samples`)
     stage_stride: usize,
-    /// Total stream length in bytes; the transfer is complete at this count
-    expected: u64,
+    /// Interleave blocks the pass will deliver
+    total_blocks: u64,
 
     // --- unscrambled output ---
     rgb: Vec<u16>,
     ir_plane: Vec<u16>,
-
-    // --- streaming state ---
-    /// One interleave block of raw bytes, refilled as the stream arrives.
-    staging: Vec<u8>,
-    /// Bytes currently in `staging`.
-    filled: usize,
-    /// Blocks emitted so far; the left edge of the current output strip.
+    /// Blocks emitted so far; the left edge of the current output strip
     block_index: usize,
-    /// Bytes received across all `push` calls.
-    received: u64,
 }
 
+/// A full-resolution frame
+pub type FrameDecoder = Blocked<FrameTranspose>;
+
 impl FrameDecoder {
-    pub fn new(settings: &ScanSettings) -> Result<Self, Error> {
-        let (width, height) = settings.output_dims().ok_or(Error::IndivisibleWindow)?;
+    pub fn new(settings: &ScanSettings) -> Result<Self, DecodeError> {
+        Ok(Self::wrap(FrameTranspose::new(settings)?))
+    }
+}
+
+impl FrameTranspose {
+    fn new(settings: &ScanSettings) -> Result<Self, DecodeError> {
+        let (width, height) = settings
+            .output_dims()
+            .ok_or(DecodeError::IndivisibleWindow)?;
         let (stages, block) = (
-            settings.stages().ok_or(Error::IndivisibleWindow)?,
+            settings.stages().ok_or(DecodeError::IndivisibleWindow)?,
             settings.ccd_block(),
         );
         if stages % block != 0 {
-            return Err(Error::UnalignedStageExtent { stages, block });
+            return Err(DecodeError::UnalignedStageExtent { stages, block });
         }
 
         let (width, height) = (width as usize, height as usize);
@@ -239,70 +182,14 @@ impl FrameDecoder {
             ir: settings.ir,
             readout_samples,
             stage_stride,
-            expected: settings.expected_bytes().ok_or(Error::IndivisibleWindow)?,
+            total_blocks: u64::from(stages / block),
             rgb: vec![0; px * 3],
             ir_plane: if settings.ir { vec![0; px] } else { Vec::new() },
-            staging: vec![0; block as usize * stage_stride * 2],
-            filled: 0,
             block_index: 0,
-            received: 0,
         })
     }
 
-    /// Feed the streaming decoder
-    pub fn push(&mut self, mut bytes: &[u8]) -> Result<(), Error> {
-        self.received += bytes.len() as u64;
-        if self.received > self.expected {
-            return Err(Error::LengthMismatch {
-                got: self.received,
-                expected: self.expected,
-            });
-        }
-        while !bytes.is_empty() {
-            let take = (self.staging.len() - self.filled).min(bytes.len());
-            self.staging[self.filled..self.filled + take].copy_from_slice(&bytes[..take]);
-            self.filled += take;
-            bytes = &bytes[take..];
-            if self.filled == self.staging.len() {
-                self.emit();
-                self.filled = 0;
-                self.block_index += 1;
-            }
-        }
-        Ok(())
-    }
-
-    /// Complete the current frame and borrow the decoded buffers.
-    ///
-    /// The buffers stay in the decoder, so the view is only valid until
-    /// [`reset`](Self::reset) or the next [`push`](Self::push). Call
-    /// [`FrameView::to_owned`] to keep it. `new()` guarantees the stage count
-    /// is a whole number of blocks, so there is never a trailing partial
-    /// block to flush here.
-    pub fn finish(&mut self) -> Result<FrameView<'_>, Error> {
-        if self.received != self.expected {
-            return Err(Error::LengthMismatch {
-                got: self.received,
-                expected: self.expected,
-            });
-        }
-        let (w, h) = (self.width as u32, self.height as u32);
-        Ok(FrameView {
-            rgb: ImageBuffer::from_raw(w, h, self.rgb.as_slice()).expect("buffer sized in new"),
-            ir: self.ir.then(|| {
-                ImageBuffer::from_raw(w, h, self.ir_plane.as_slice()).expect("sized in new")
-            }),
-        })
-    }
-
-    /// Prepare to decode another frame with the same settings, reusing every buffer
-    pub fn reset(&mut self) {
-        self.filled = 0;
-        self.block_index = 0;
-        self.received = 0;
-    }
-
-    /// Which readout slot holds channel `c` on repeat `s`.
+    /// Which readout slot holds channel `c` on repeat `s`
     ///
     /// Channels are `0=R, 1=G, 2=B, 3=IR`. Infrared exists only on repeat 0.
     #[inline]
@@ -316,13 +203,13 @@ impl FrameDecoder {
         }
     }
 
-    /// Transpose the freshly filled block into its output strip.
+    /// Transpose the freshly filled block into its output strip
     ///
     /// One block covers `self.block` stage positions, which in three-line mode
     /// map to a contiguous run of `self.block * lines` output columns.
     /// Iterating column-outer, sensor-inner keeps a chunk of the output column
     /// in cache while the input is read sequentially down the bar.
-    fn emit(&mut self) {
+    fn emit_block(&mut self, staging: &[u8]) {
         let first_col = self.block_index * self.block * self.lines;
         let strip_cols = self.block * self.lines;
         let rsamp = self.readout_samples;
@@ -356,9 +243,9 @@ impl FrameDecoder {
                     let rgb = if self.multisample == 1 {
                         // Readout slot for channel c is just c.
                         [
-                            sample_at(&self.staging, base),
-                            sample_at(&self.staging, base + rsamp),
-                            sample_at(&self.staging, base + 2 * rsamp),
+                            be_u16_at(staging, base),
+                            be_u16_at(staging, base + rsamp),
+                            be_u16_at(staging, base + 2 * rsamp),
                         ]
                     } else {
                         let m = self.multisample as u32;
@@ -367,7 +254,7 @@ impl FrameDecoder {
                             let mut acc = 0u32;
                             for rep in 0..self.multisample {
                                 let idx = base + self.readout_of(channel, rep) * rsamp;
-                                acc += u32::from(sample_at(&self.staging, idx));
+                                acc += u32::from(be_u16_at(staging, idx));
                             }
                             *out = (acc / m) as u16;
                         }
@@ -377,8 +264,7 @@ impl FrameDecoder {
 
                     if self.ir {
                         // IR is readout slot 3, present only on repeat 0.
-                        self.ir_plane[y * self.width + x] =
-                            sample_at(&self.staging, base + 3 * rsamp);
+                        self.ir_plane[y * self.width + x] = be_u16_at(staging, base + 3 * rsamp);
                     }
                 }
             }
@@ -387,26 +273,33 @@ impl FrameDecoder {
     }
 }
 
-/// Read one big-endian sample.
-#[inline(always)]
-fn sample_at(buf: &[u8], i: usize) -> u16 {
-    u16::from_be_bytes([buf[2 * i], buf[2 * i + 1]])
-}
+impl BlockSink for FrameTranspose {
+    type Output<'a> = ImageView<'a>;
+    type Error = DecodeError;
 
-impl StreamDecoder for FrameDecoder {
-    type Output<'a> = FrameView<'a>;
-    type Error = Error;
-
-    fn expected_bytes(&self) -> u64 {
-        self.expected
+    fn block_len(&self) -> usize {
+        self.block * self.stage_stride * 2
     }
 
-    fn push(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        FrameDecoder::push(self, bytes)
+    fn blocks(&self) -> u64 {
+        self.total_blocks
     }
 
-    fn finish(&mut self) -> Result<FrameView<'_>, Error> {
-        FrameDecoder::finish(self)
+    fn emit(&mut self, block: &[u8]) {
+        self.emit_block(block);
+        self.block_index += 1;
+    }
+
+    /// `new()` guarantees the stage count is a whole number of blocks, so there is never a
+    /// trailing partial block to flush here
+    fn finish(&mut self) -> Result<ImageView<'_>, DecodeError> {
+        let (w, h) = (self.width as u32, self.height as u32);
+        Ok(ImageView {
+            rgb: ImageBuffer::from_raw(w, h, self.rgb.as_slice()).expect("buffer sized in new"),
+            ir: self.ir.then(|| {
+                ImageBuffer::from_raw(w, h, self.ir_plane.as_slice()).expect("sized in new")
+            }),
+        })
     }
 }
 
@@ -431,7 +324,7 @@ mod overview_tests {
 
     #[test]
     fn matches_the_hardware_overview_size() {
-        let (width, height) = Window::overview_dims();
+        let (width, height) = ScanArea::overview_dims();
         assert_eq!((width, height), (186, 721));
         // The exact byte count read back off the scanner
         assert_eq!(2 * 3 * width * height, 804_636);
@@ -439,7 +332,7 @@ mod overview_tests {
 
     #[test]
     fn deinterleaves_line_sequential_rows() {
-        let (width, height) = Window::overview_dims();
+        let (width, height) = ScanArea::overview_dims();
         let image = decode_overview(&tagged_stream(width as usize, height as usize)).unwrap();
 
         assert_eq!(image.dimensions(), (width, height));
@@ -452,7 +345,7 @@ mod overview_tests {
 
     #[test]
     fn samples_are_big_endian() {
-        let (width, height) = Window::overview_dims();
+        let (width, height) = ScanArea::overview_dims();
         let mut bytes = vec![0u8; (width * height * 6) as usize];
         // First sample of the first red row
         bytes[0] = 0x12;
@@ -465,7 +358,7 @@ mod overview_tests {
     /// stream in awkward sizes has to give the same image as one big push
     #[test]
     fn chunking_does_not_change_the_result() {
-        let (width, height) = Window::overview_dims();
+        let (width, height) = ScanArea::overview_dims();
         let stream = tagged_stream(width as usize, height as usize);
         let expected = decode_overview(&stream).unwrap();
 
@@ -490,7 +383,10 @@ mod overview_tests {
         decoder.push(&[0u8; 1116]).unwrap();
         assert!(matches!(
             decoder.finish(),
-            Err(Error::LengthMismatch { got: 1116, .. })
+            Err(DecodeError::LengthMismatch(LengthMismatch {
+                got: 1116,
+                ..
+            }))
         ));
     }
 
@@ -498,10 +394,86 @@ mod overview_tests {
     fn wrong_length_is_an_error() {
         assert!(matches!(
             decode_overview(&[0u8; 100]),
-            Err(Error::LengthMismatch {
+            Err(DecodeError::LengthMismatch(LengthMismatch {
                 got: 100,
                 expected: 804_636
-            })
+            }))
+        ));
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+    use crate::scanners::ls9000ed::{CcdMode, Dpi, Multisample};
+
+    /// A deliberately tiny frame: single-line CCD, no multi-sample, no IR
+    /// 4x8 output, 3 readouts of 4 samples per stage, 8 stages, 192 bytes, 24 per block.
+    fn settings() -> ScanSettings {
+        ScanSettings {
+            ccd_mode: CcdMode::SingleLine,
+            ir: false,
+            dpi: Dpi::_4000,
+            multisample: Multisample::X1,
+            window: ScanArea {
+                x_pos: 0,
+                y_pos: 0,
+                x_size: 4,
+                y_size: 8,
+            },
+        }
+    }
+
+    fn tagged(len: usize) -> Vec<u8> {
+        (0..len / 2)
+            .flat_map(|i| ((i as u16) & 0x3FFF).to_be_bytes())
+            .collect()
+    }
+
+    fn decode_in_chunks(settings: &ScanSettings, stream: &[u8], size: usize) -> Vec<u16> {
+        let mut decoder = FrameDecoder::new(settings).unwrap();
+        for chunk in stream.chunks(size) {
+            decoder.push(chunk).unwrap();
+        }
+        decoder.finish().unwrap().rgb.iter().copied().collect()
+    }
+
+    /// The scanner's chunks have no reason to land on interleave-block boundaries
+    #[test]
+    fn chunking_does_not_change_the_result() {
+        let settings = settings();
+        let stream = tagged(settings.expected_bytes().unwrap() as usize);
+        let reference = decode_in_chunks(&settings, &stream, stream.len());
+
+        // A block is 24 bytes: sizes that divide it, straddle it, and dwarf it
+        for size in [1, 7, 23, 24, 25, 100, 191, 1000] {
+            assert_eq!(
+                decode_in_chunks(&settings, &stream, size),
+                reference,
+                "chunk size {size}"
+            );
+        }
+    }
+
+    #[test]
+    fn over_long_stream_is_an_error() {
+        let settings = settings();
+        let mut decoder = FrameDecoder::new(&settings).unwrap();
+        let too_much = tagged(settings.expected_bytes().unwrap() as usize + 2);
+        assert!(matches!(
+            decoder.push(&too_much),
+            Err(DecodeError::LengthMismatch(_))
+        ));
+    }
+
+    #[test]
+    fn finish_before_the_stream_completes_is_an_error() {
+        let settings = settings();
+        let mut decoder = FrameDecoder::new(&settings).unwrap();
+        decoder.push(&tagged(24)).unwrap();
+        assert!(matches!(
+            decoder.finish(),
+            Err(DecodeError::LengthMismatch(LengthMismatch { got: 24, .. }))
         ));
     }
 }

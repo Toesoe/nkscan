@@ -2,7 +2,10 @@
 //!
 //! Mirror images of each other: same DTC/DTQ addressing, opposite data direction.
 
-use crate::scsi::{Cdb, Command, CommandData, Error};
+use crate::scsi::{
+    Cdb, Command, CommandData, Error,
+    fields::{be_u24, lun_byte},
+};
 
 /// SCSI-2 scanner READ(10)
 ///
@@ -57,11 +60,10 @@ impl Command for Read {
 
     fn cdb(&self) -> Self::Cdb {
         let [dtq_hi, dtq_lo] = self.dtq.to_be_bytes();
-        // Transfer length is a 24-bit field, so the u32's high byte is dropped
-        let [_, length_hi, length_mid, length_lo] = self.transfer_length.to_be_bytes();
+        let [length_hi, length_mid, length_lo] = be_u24(self.transfer_length);
         Cdb([
             0x28, // opcode
-            self.lun << 5,
+            lun_byte(self.lun),
             self.dtc.to_byte(),
             0x00, // reserved
             dtq_hi,
@@ -77,7 +79,7 @@ impl Command for Read {
         CommandData::Read(self.transfer_length as usize)
     }
 
-    fn decode(&self, data: &[u8]) -> Result<Self::Response, Error> {
+    fn parse_response(&self, data: &[u8]) -> Result<Self::Response, Error> {
         Ok(data.to_vec())
     }
 }
@@ -114,11 +116,10 @@ impl Command for Send {
 
     fn cdb(&self) -> Self::Cdb {
         let [dtq_hi, dtq_lo] = self.dtq.to_be_bytes();
-        // Parameter list length is a 24-bit field, so the u32's high byte is dropped
-        let [_, length_hi, length_mid, length_lo] = (self.parameters.len() as u32).to_be_bytes();
+        let [length_hi, length_mid, length_lo] = be_u24(self.parameters.len() as u32);
         Cdb([
             0x2A, // opcode
-            self.lun << 5,
+            lun_byte(self.lun),
             self.dtc.to_byte(),
             0x00, // reserved
             dtq_hi,
@@ -134,7 +135,7 @@ impl Command for Send {
         CommandData::Write(&self.parameters)
     }
 
-    fn decode(&self, _data: &[u8]) -> Result<(), Error> {
+    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -191,6 +192,17 @@ mod tests {
         assert_eq!(cdb[3], 0x00);
     }
 
+    /// Byte 1 is nothing but the LUN here, so an over-large one used to shift straight
+    /// through it and corrupt the reserved bits
+    #[test]
+    fn out_of_range_lun_is_masked() {
+        assert_eq!(Read::new(9, DataTypeCode::Image, 0, 0, 0).cdb().0[1], 0x20);
+        assert_eq!(
+            Send::new(9, DataTypeCode::Image, 0, vec![], 0).cdb().0[1],
+            0x20
+        );
+    }
+
     #[test]
     fn cdb_encodes_dtq_big_endian() {
         let read = Read::new(0, DataTypeCode::Image, 0x1234, 0, 0x00);
@@ -236,7 +248,7 @@ mod tests {
     fn decode_returns_owned_copy_of_data() {
         let data = [0xAA, 0xBB, 0xCC];
         let response = Read::new(0, DataTypeCode::Image, 0, 3, 0x00)
-            .decode(&data)
+            .parse_response(&data)
             .unwrap();
         assert_eq!(response, vec![0xAA, 0xBB, 0xCC]);
     }

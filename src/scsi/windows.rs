@@ -9,7 +9,7 @@
 
 use super::{DataDirection, Error, Transport};
 
-/// A SCSI device reachable through Windows' SPTI passthrough.
+/// A SCSI device reachable through Windows' SPTI passthrough
 pub struct SptiDevice {
     // TODO: HANDLE obtained from CreateFileW
 }

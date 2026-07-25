@@ -1,7 +1,9 @@
 //! GET WINDOW(10) and SET WINDOW(10), SCSI-2 scanner devices, 15.2.2 / 15.2.9.
 
-use crate::scsi::{Cdb, Command, CommandData, Error};
-use tracing::*;
+use crate::scsi::{
+    Cdb, Command, CommandData, Error,
+    fields::{be_u24, lun_byte},
+};
 
 #[derive(Debug, Copy, Clone)]
 pub struct GetWindow {
@@ -9,7 +11,7 @@ pub struct GetWindow {
     lun: u8,
     /// "Single": specifies that a single window descriptor shall be returned for the specified window identifier
     single: bool,
-    /// Window identifier
+    /// ScanArea identifier
     window_identifier: u8,
     /// Transfer length (24-bits)
     transfer_length: u32,
@@ -161,7 +163,7 @@ pub struct GetWindowHeader {
 #[derive(Debug, Clone)]
 /// The 40-byte standard descriptor
 pub struct WindowDescriptor {
-    /// Window identifier
+    /// ScanArea identifier
     pub id: u8,
     pub auto: bool,
     pub x_resolution: u16,
@@ -185,15 +187,6 @@ pub struct WindowDescriptor {
 }
 
 impl WindowDescriptor {
-    /// Add vendor-specific bytes (builder pattern, ish)
-    pub fn with_vendor<T>(&mut self, vendor: T) -> &Self
-    where
-        T: Into<Vec<u8>>,
-    {
-        self.vendor = vendor.into();
-        self
-    }
-
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = vec![0u8; 40];
         buf[0] = self.id;
@@ -219,7 +212,6 @@ impl WindowDescriptor {
     }
 
     fn from_bytes(bytes: &[u8]) -> Self {
-        debug!("{}", bytes.len());
         Self {
             id: bytes[0],
             auto: bytes[1] & 1 == 1,
@@ -245,22 +237,15 @@ impl WindowDescriptor {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct GetWindowResponse {
-    pub header: GetWindowHeader,
-    pub descriptors: Vec<WindowDescriptor>,
-}
-
 impl Command for GetWindow {
     type Response = Vec<WindowDescriptor>;
     type Cdb = Cdb<10>;
 
     fn cdb(&self) -> Self::Cdb {
-        // Allocation length is a 24-bit field, so the u32's high byte is dropped
-        let [_, length_hi, length_mid, length_lo] = self.transfer_length.to_be_bytes();
+        let [length_hi, length_mid, length_lo] = be_u24(self.transfer_length);
         Cdb([
             0x25, // opcode
-            ((self.lun & 0b111) << 5) | (self.single as u8),
+            lun_byte(self.lun) | (self.single as u8),
             0x00, // reserved
             0x00, // reserved
             0x00, // reserved
@@ -276,7 +261,7 @@ impl Command for GetWindow {
         CommandData::Read(self.transfer_length as usize)
     }
 
-    fn decode(&self, data: &[u8]) -> Result<Self::Response, Error> {
+    fn parse_response(&self, data: &[u8]) -> Result<Self::Response, Error> {
         if data.len() < 8 {
             return Err(Error::InvalidResponse(
                 "GET WINDOW response shorter than the 8-byte header",
@@ -287,8 +272,6 @@ impl Command for GetWindow {
             data_length: u16::from_be_bytes([data[0], data[1]]),
             descriptor_length: u16::from_be_bytes([data[6], data[7]]),
         };
-
-        debug!("{:#?}", header);
 
         let descriptor_len = header.descriptor_length as usize;
         if descriptor_len < 40 {
@@ -375,11 +358,10 @@ impl Command for SetWindow {
     type Cdb = Cdb<10>;
 
     fn cdb(&self) -> Self::Cdb {
-        // Parameter list length is a 24-bit field, so the u32's high byte is dropped
-        let [_, length_hi, length_mid, length_lo] = (self.parameters.len() as u32).to_be_bytes();
+        let [length_hi, length_mid, length_lo] = be_u24(self.parameters.len() as u32);
         Cdb([
             0x24, // opcode
-            (self.lun & 0b111) << 5,
+            lun_byte(self.lun),
             0x00, // reserved
             0x00, // reserved
             0x00, // reserved
@@ -395,7 +377,7 @@ impl Command for SetWindow {
         CommandData::Write(&self.parameters)
     }
 
-    fn decode(&self, _data: &[u8]) -> Result<(), Error> {
+    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 }

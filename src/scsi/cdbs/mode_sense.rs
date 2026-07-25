@@ -1,7 +1,10 @@
 //! MODE SENSE has two variants, a 6 and 10 byte
 //! It seems the scanners we've used only use the 6 byte form
 
-use crate::scsi::{Cdb, Command, CommandData, Error};
+use crate::scsi::{
+    Cdb, Command, CommandData, Error,
+    fields::{be_u24, lun_byte},
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// Page control (PC) field: which set of mode parameter values to return
@@ -50,8 +53,8 @@ impl PageCode {
 pub struct ModeSense {
     /// Logical unit number
     lun: u8,
-    /// Disable block descriptors.
-    /// True specifies that the target shall not return any block descriptors.
+    /// Disable block descriptors
+    /// True specifies that the target shall not return any block descriptors
     dbd: bool,
     /// Page control
     pc: PageControl,
@@ -86,8 +89,8 @@ impl ModeSense {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// Mode parameter list header, common to MODE SENSE(6) and MODE SELECT(6)
 pub struct ModeParameterHeader {
-    /// Length in bytes of the mode data that follows, not including this byte.
-    /// Reserved (should be 0) when used with MODE SELECT.
+    /// Length in bytes of the mode data that follows, not including this byte
+    /// Reserved (should be 0) when used with MODE SELECT
     pub mode_data_length: u8,
     pub medium_type: u8,
     pub device_specific: u8,
@@ -119,15 +122,17 @@ pub struct BlockDescriptor {
 
 impl BlockDescriptor {
     pub fn to_bytes(self) -> [u8; 8] {
+        let blocks = be_u24(self.number_of_blocks);
+        let length = be_u24(self.block_length);
         [
             self.density_code,
-            ((self.number_of_blocks & 0xFF0000) >> 16) as u8,
-            ((self.number_of_blocks & 0x00FF00) >> 8) as u8,
-            (self.number_of_blocks & 0x0000FF) as u8,
+            blocks[0],
+            blocks[1],
+            blocks[2],
             0x00, // reserved
-            ((self.block_length & 0xFF0000) >> 16) as u8,
-            ((self.block_length & 0x00FF00) >> 8) as u8,
-            (self.block_length & 0x0000FF) as u8,
+            length[0],
+            length[1],
+            length[2],
         ]
     }
 }
@@ -147,7 +152,7 @@ impl Command for ModeSense {
     fn cdb(&self) -> Self::Cdb {
         Cdb([
             0x1A, // opcode
-            ((self.lun & 0b111) << 5) | ((self.dbd as u8) << 3),
+            lun_byte(self.lun) | ((self.dbd as u8) << 3),
             (self.pc.to_bits() << 6) | self.page_code.to_byte(),
             0x00, // reserved
             self.allocation_length,
@@ -159,7 +164,7 @@ impl Command for ModeSense {
         CommandData::Read(self.allocation_length as usize)
     }
 
-    fn decode(&self, data: &[u8]) -> Result<ModeSenseResponse, Error> {
+    fn parse_response(&self, data: &[u8]) -> Result<ModeSenseResponse, Error> {
         if data.len() < 4 {
             return Err(Error::InvalidResponse(
                 "MODE SENSE(6) response shorter than the 4-byte header",
@@ -228,7 +233,7 @@ mod tests {
     fn decode_parses_header_and_leaves_remainder_raw() {
         let mode_sense = ModeSense::new(0, false, PageControl::Current, PageCode::AllPages, 0, 0);
         let data = [0x0A, 0x00, 0x00, 0x08, 0xAA, 0xBB, 0xCC];
-        let response = mode_sense.decode(&data).unwrap();
+        let response = mode_sense.parse_response(&data).unwrap();
         assert_eq!(
             response.header,
             ModeParameterHeader {
@@ -245,7 +250,7 @@ mod tests {
     fn decode_rejects_short_response() {
         let mode_sense = ModeSense::new(0, false, PageControl::Current, PageCode::AllPages, 0, 0);
         let data = [0u8; 3];
-        let err = mode_sense.decode(&data).unwrap_err();
+        let err = mode_sense.parse_response(&data).unwrap_err();
         assert!(matches!(err, Error::InvalidResponse(_)));
     }
 
