@@ -78,7 +78,7 @@ pub trait Scanner {
 
 /// A scanner with removable film holders
 pub trait FilmHolder {
-    /// What holders this scanner recognises
+    /// What holders this scanner recognizes
     type Holder;
 
     /// Which holder, if any, is currently loaded

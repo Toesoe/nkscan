@@ -46,7 +46,7 @@ impl GetWindow {
 pub enum ImageCompositionCode {
     BiLevelBlackAndWhite,
     DitheredHalftoneBlackAndWhite,
-    Greyscale,
+    Grayscale,
     BiLevelRgb,
     DitheredHalftoneRgb,
     Rgb,
@@ -58,7 +58,7 @@ impl ImageCompositionCode {
         match self {
             ImageCompositionCode::BiLevelBlackAndWhite => 0x00,
             ImageCompositionCode::DitheredHalftoneBlackAndWhite => 0x01,
-            ImageCompositionCode::Greyscale => 0x02,
+            ImageCompositionCode::Grayscale => 0x02,
             ImageCompositionCode::BiLevelRgb => 0x03,
             ImageCompositionCode::DitheredHalftoneRgb => 0x04,
             ImageCompositionCode::Rgb => 0x05,
@@ -70,7 +70,7 @@ impl ImageCompositionCode {
         match byte {
             0x00 => ImageCompositionCode::BiLevelBlackAndWhite,
             0x01 => ImageCompositionCode::DitheredHalftoneBlackAndWhite,
-            0x02 => ImageCompositionCode::Greyscale,
+            0x02 => ImageCompositionCode::Grayscale,
             0x03 => ImageCompositionCode::BiLevelRgb,
             0x04 => ImageCompositionCode::DitheredHalftoneRgb,
             0x05 => ImageCompositionCode::Rgb,

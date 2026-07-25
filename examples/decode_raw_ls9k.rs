@@ -68,7 +68,7 @@ fn main() {
             _ => panic!("not a valid multisample factor"),
         },
         // The position of the window here doesn't really matter, just the size
-        window: ScanArea::centred(0, cli.x * dpi.divisor(), cli.y * dpi.divisor()),
+        window: ScanArea::centered(0, cli.x * dpi.divisor(), cli.y * dpi.divisor()),
     };
 
     // Setup the decoder state
