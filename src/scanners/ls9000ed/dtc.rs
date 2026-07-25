@@ -28,7 +28,7 @@ pub enum Dtc {
     FrameSetup,
     /// Film adapter info
     AdapterInfo,
-    /// Something we haven't characterised; qualifier is the caller's problem
+    /// Something we haven't characterized; qualifier is the caller's problem
     Other { code: u8, qualifier: u8 },
 }
 

@@ -89,7 +89,7 @@ impl ScanArea {
 
     /// The whole strip, as the 83-DPI thumbnail pass scans it
     pub fn overview() -> Self {
-        Self::centred(0, Self::FILM_WIDTH_DOTS, Self::STRIP_DOTS)
+        Self::centered(0, Self::FILM_WIDTH_DOTS, Self::STRIP_DOTS)
     }
 
     /// 83 DPI is the 4000-dot grid divided by 48. Neither strip dimension divides evenly, and
@@ -104,7 +104,7 @@ impl ScanArea {
         )
     }
 
-    pub fn centred(y_pos: u32, x_size: u32, y_size: u32) -> Self {
+    pub fn centered(y_pos: u32, x_size: u32, y_size: u32) -> Self {
         Self {
             x_pos: (Self::SENSOR_DOTS - x_size) / 2,
             y_pos,

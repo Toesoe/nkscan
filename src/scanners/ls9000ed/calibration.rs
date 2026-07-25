@@ -96,14 +96,11 @@ where
 
     /// Run the pre-scan calibration, after the holder is loaded and before the first [`scan`](Self::scan)
     ///
-    /// `boundaries` is the frame table for the format being scanned. Nikon Scan writes its nominal
-    /// table first and then overwrites it with the real format; we write only the real one.
-    pub fn calibrate(
-        &mut self,
-        boundaries: &FrameBoundaries,
-        exposures: ChannelExposures,
-    ) -> Result<(), scsi::Error> {
-        debug!(?boundaries, "Calibrating");
+    /// Writes the nominal frame table, because nothing is known about the real frames until an
+    /// overview pass has found them. Follow that with
+    /// [`set_frame_boundaries`](Self::set_frame_boundaries), as Nikon Scan does.
+    pub fn calibrate(&mut self, exposures: ChannelExposures) -> Result<(), scsi::Error> {
+        debug!("Calibrating");
 
         // Nikon Scan reads this per channel immediately before staging the windows. We don't
         // use the payload, but the read may be what latches the frame setup firmware-side.
@@ -131,7 +128,7 @@ where
         // The scanner wants its current frame table read before it accepts a new one
         let current = self.frame_boundaries()?;
         trace!(?current, "Frame boundaries before calibration");
-        self.set_frame_boundaries(boundaries)?;
+        self.set_frame_boundaries(&FrameBoundaries::nominal())?;
 
         // Nothing consumes these yet, but they're part of the observed sequence
         for channel in Channel::RGB {

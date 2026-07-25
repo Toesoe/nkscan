@@ -19,10 +19,8 @@ use nkscan::{
 use std::{fs::File, io::BufWriter, thread::sleep, time::Duration};
 use tracing::*;
 
-/// 6x9 on a 120 strip: two frames, 13176 dots each, starting at 2236
-const ORIGIN: u32 = 2236;
-const FRAME_HEIGHT: u32 = 13176;
-const FRAME_COUNT: u32 = 2;
+/// How many frames the strip holds, which is all the detector needs
+const FRAME_COUNT: usize = 3;
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -50,8 +48,9 @@ fn main() -> anyhow::Result<()> {
     let exposures = scanner.channel_exposures()?;
     info!(?exposures, "Exposures staged in the scanner");
 
-    let boundaries = FrameBoundaries::evenly_spaced(ORIGIN, FRAME_HEIGHT, FRAME_COUNT);
-    scanner.calibrate(&boundaries, exposures)?;
+    // Nothing is known about the frames yet, so calibrate with the same nominal table Nikon
+    // Scan uses. The real one comes from the thumbnail below.
+    scanner.calibrate(exposures)?;
     info!("Calibrated");
 
     // The 83-DPI thumbnail: the whole strip in one pass, single-line CCD, RGB
@@ -99,6 +98,23 @@ fn main() -> anyhow::Result<()> {
     let mut out = BufWriter::new(File::create("thumbnail.tiff")?);
     image.write_to(&mut out, ImageFormat::Tiff)?;
     info!(dimensions = ?image.dimensions(), "Wrote thumbnail.tiff");
+
+    // Where the frames actually landed, which is what the nominal table above was standing in
+    // for. Nikon Scan writes this same table once its own overview has located them.
+    let Some(found) = FrameBoundaries::detect(&image, FRAME_COUNT) else {
+        anyhow::bail!("no frames found on the strip");
+    };
+    for (i, rect) in found.0.iter().enumerate() {
+        info!(
+            frame = i,
+            y_top = rect.y_top,
+            y_bottom = rect.y_bottom,
+            length = rect.y_bottom - rect.y_top,
+            "Found frame"
+        );
+    }
+    scanner.set_frame_boundaries(&found)?;
+    info!("Frame table written");
 
     Ok(())
 }

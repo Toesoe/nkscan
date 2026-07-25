@@ -10,6 +10,8 @@ use super::{
     dtc::{self, Dtc},
 };
 use crate::scsi::{self, Transport};
+use image::{ImageBuffer, Rgb};
+use std::ops::Deref;
 
 /// One frame's extent, in the same 1/4000-in dots as [`ScanArea`](super::ScanArea)
 ///
@@ -23,20 +25,20 @@ pub struct FrameRect {
 }
 
 impl FrameRect {
-    /// A frame `height` dots tall at `y_top`, spanning the full 56 mm medium format width
+    /// A frame `length` dots along the strip at `y_top`, spanning the full 56 mm film width
     ///
     /// Only correct for holders that lay film out in a single row, which is all we have captures for
     /// A holder carrying two rows of 35 mm side by side would put each row in its own X band
-    pub fn full_width(y_top: u32, height: u32) -> Self {
+    pub fn full_width(y_top: u32, length: u32) -> Self {
         Self {
             y_top,
             x_left: Self::X_LEFT,
-            y_bottom: y_top + height,
+            y_bottom: y_top + length,
             x_right: Self::X_RIGHT,
         }
     }
 
-    /// The same centred 8964-dot span [`ScanArea::centred`](super::ScanArea::centred) produces,
+    /// The same centered 8964-dot span [`ScanArea::centered`](super::ScanArea::centered) produces,
     /// derived rather than restated so the two cannot drift
     const X_LEFT: u32 = (ScanArea::SENSOR_DOTS - ScanArea::FILM_WIDTH_DOTS) / 2;
     const X_RIGHT: u32 = Self::X_LEFT + ScanArea::FILM_WIDTH_DOTS;
@@ -63,14 +65,46 @@ impl FrameBoundaries {
         Self::evenly_spaced(2236, 6696, 4)
     }
 
-    /// `count` frames of `height` dots each, butted together from `y_top`.
+    /// `count` frames of `length` dots each, butted together from `y_top`.
     /// Single-row holders only, see [`FrameRect::full_width`]
-    pub fn evenly_spaced(y_top: u32, height: u32, count: u32) -> Self {
+    pub fn evenly_spaced(y_top: u32, length: u32, count: u32) -> Self {
         Self(
             (0..count)
-                .map(|i| FrameRect::full_width(y_top + i * height, height))
+                .map(|i| FrameRect::full_width(y_top + i * length, length))
                 .collect(),
         )
+    }
+
+    /// Find where the frames actually sit, from a decoded overview pass
+    ///
+    /// Film does not land in the holder at a fixed offset, which is what the Strip Film
+    /// Offset control in Nikon Scan exists to correct, so the nominal table is only ever a
+    /// starting point.
+    ///
+    /// `None` if the strip carries too little detail to place anything, which is the honest
+    /// answer for blank or unexposed film.
+    ///
+    /// Only `frames` is needed. Frame sizes are open-ended (6x8, 6x7, 6x12, custom holders),
+    /// so the length is solved for rather than looked up.
+    pub fn detect<C>(overview: &ImageBuffer<Rgb<u16>, C>, frames: usize) -> Option<Self>
+    where
+        C: Deref<Target = [u16]>,
+    {
+        let score = frame_score(overview)?;
+        let fit = fit_frames(&score, frames)?;
+        let extents = even_up(&frame_extents(&score, &fit, frames), score.len());
+
+        Some(Self(
+            extents
+                .iter()
+                .map(|&(start, end)| {
+                    FrameRect::full_width(
+                        start as u32 * ScanArea::OVERVIEW_DIVISOR,
+                        (end - start) as u32 * ScanArea::OVERVIEW_DIVISOR,
+                    )
+                })
+                .collect(),
+        ))
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -84,6 +118,230 @@ impl FrameBoundaries {
         }
         buf
     }
+}
+
+/// A frame layout: `frames` windows of `length` rows, the first at `offset`, `pitch` apart
+#[derive(Debug)]
+struct Fit {
+    offset: usize,
+    pitch: usize,
+    length: usize,
+    score: f32,
+}
+
+/// Per-row detail and brightness, the two ways a row can show film rather than holder
+///
+/// Detail is a high-pass along x, so a smooth illumination falloff across the sensor bar
+/// contributes nothing, and the strongest channel wins so nothing assumes which one carries
+/// the structure.
+///
+/// Brightness catches what detail cannot: a frame of clear sky or a flat color has no local
+/// variation at all, but still transmits far more light than the opaque holder between the
+/// apertures. That comparison is film against holder rather than dark against light, so it
+/// holds for negatives and positives alike.
+fn row_profiles<C>(overview: &ImageBuffer<Rgb<u16>, C>) -> (Vec<f32>, Vec<f32>)
+where
+    C: Deref<Target = [u16]>,
+{
+    let (width, height) = overview.dimensions();
+    (0..height)
+        .map(|y| {
+            let detail = (0..3)
+                .map(|channel| {
+                    let total: u64 = (1..width)
+                        .map(|x| {
+                            let here = overview.get_pixel(x, y).0[channel];
+                            let left = overview.get_pixel(x - 1, y).0[channel];
+                            u64::from(here.abs_diff(left))
+                        })
+                        .sum();
+                    total as f32 / (width - 1) as f32
+                })
+                .fold(0.0, f32::max);
+
+            let level: u64 = (0..width)
+                .map(|x| {
+                    let p = overview.get_pixel(x, y).0;
+                    (u64::from(p[0]) + u64::from(p[1]) + u64::from(p[2])) / 3
+                })
+                .sum();
+
+            (detail, level as f32 / width as f32)
+        })
+        .unzip()
+}
+
+/// How far a row's detail exceeds the noise the same row's brightness would produce anyway
+///
+/// Raw brightness cannot be used on its own: the film between frames is unexposed, which is
+/// clear base on a negative and D-max on a slide, so it sits at opposite ends of the range
+/// depending on the film. Raw detail cannot either, because photon noise grows as the square
+/// root of the signal, so bright empty base looks as textured as a dim frame.
+///
+/// Dividing one by the other measures structure beyond what noise explains. Opaque holder,
+/// dark D-max and bright clear base then all land on the same floor, whatever the film.
+fn detail_over_noise<C>(overview: &ImageBuffer<Rgb<u16>, C>) -> Vec<f32>
+where
+    C: Deref<Target = [u16]>,
+{
+    let (detail, level) = row_profiles(overview);
+    detail
+        .iter()
+        .zip(&level)
+        .map(|(d, l)| d / l.max(1.0).sqrt())
+        .collect()
+}
+
+/// How far above the noise floor a row has to sit before it counts as a frame outright
+const SATURATION: f32 = 1.0;
+/// Without at least this much above the floor somewhere there is nothing to lock onto
+const MIN_EXCESS: f32 = 0.3;
+
+/// Rescale so empty film reads 0 and anything clearly exposed reads 1
+///
+/// The floor is measured rather than assumed, since it depends on the scanner's gain. The
+/// answer wanted here is nearly binary, so this saturates rather than scaling linearly: a
+/// thin frame and a dense one should both read as "frame".
+fn frame_score<C>(overview: &ImageBuffer<Rgb<u16>, C>) -> Option<Vec<f32>>
+where
+    C: Deref<Target = [u16]>,
+{
+    let excess = detail_over_noise(overview);
+
+    let mut sorted = excess.clone();
+    sorted.sort_by(f32::total_cmp);
+    let floor = sorted[sorted.len() / 10].max(f32::MIN_POSITIVE);
+    let peak = sorted[sorted.len() * 95 / 100];
+    if peak / floor - 1.0 < MIN_EXCESS {
+        return None;
+    }
+
+    Some(
+        excess
+            .iter()
+            .map(|v| ((v / floor - 1.0) / SATURATION).clamp(0.0, 1.0))
+            .collect(),
+    )
+}
+/// A layout has to beat this to count as found. Windows covering the whole strip score
+/// around 0.5 whatever the film, so anything at or below that has found nothing.
+const MIN_FIT: f32 = 0.6;
+
+/// Solve for the layout that best explains the profile
+///
+/// Holder apertures are evenly spaced, so the whole thing is three numbers. Fitting them
+/// together is far more robust than thresholding row by row: a frame with no content, a
+/// blank sky or an unexposed shot, just contributes nothing instead of deleting a boundary.
+fn fit_frames(score: &[f32], frames: usize) -> Option<Fit> {
+    let rows = score.len();
+    if frames == 0 || rows < frames * 2 {
+        return None;
+    }
+
+    let mut prefix = vec![0.0f32; rows + 1];
+    for (i, s) in score.iter().enumerate() {
+        prefix[i + 1] = prefix[i] + s;
+    }
+    let total = prefix[rows];
+    let window = |start: usize, len: usize| prefix[start + len] - prefix[start];
+
+    // The frames plus their gaps have to fit the strip, which bounds the search on its own
+    let mut best: Option<Fit> = None;
+    for length in (rows / (2 * frames)).max(1)..=(rows / frames) {
+        let max_pitch = if frames > 1 {
+            (rows - length) / (frames - 1)
+        } else {
+            length
+        };
+        for pitch in length..=max_pitch {
+            let span = (frames - 1) * pitch + length;
+            for offset in 0..=(rows - span) {
+                let inside: f32 = (0..frames)
+                    .map(|i| window(offset + i * pitch, length))
+                    .sum();
+                let outside_rows = (rows - frames * length) as f32;
+
+                // How well the layout explains the profile, counting every row once: busy
+                // rows want to be inside a window, quiet ones outside. Averaging inside and
+                // outside separately instead lets a window swallow a gap almost for free,
+                // because the penalty is diluted across every row it covers.
+                let fit = (inside + (outside_rows - (total - inside))) / rows as f32;
+                if best.as_ref().is_none_or(|b| fit > b.score) {
+                    best = Some(Fit {
+                        offset,
+                        pitch,
+                        length,
+                        score: fit,
+                    });
+                }
+            }
+        }
+    }
+
+    let best = best.filter(|b| b.score >= MIN_FIT)?;
+    Some(best)
+}
+
+/// A row this far above the empty-film floor is inside a frame
+const EDGE_THRESHOLD: f32 = 0.5;
+
+/// Where each frame's exposed area actually starts and ends
+///
+/// The fit lands on the busy part of each frame but is only as precise as the search grid,
+/// so this measures each one directly: the first and last exposed rows anywhere in the half
+/// pitch either side of the fitted center. Taking the outermost rather than walking outwards
+/// matters because a frame can go quiet in the middle, a plain sky or a dark interior, and
+/// walking would stop there.
+fn frame_extents(score: &[f32], fit: &Fit, frames: usize) -> Vec<(usize, usize)> {
+    let rows = score.len();
+
+    (0..frames)
+        .map(|i| {
+            let start = fit.offset + i * fit.pitch;
+            let center = start + fit.length / 2;
+            let low = center.saturating_sub(fit.pitch / 2);
+            let high = (center + fit.pitch / 2).min(rows - 1);
+
+            // A run this long, so a single noisy row can't stand in for a frame edge
+            const RUN: usize = 3;
+            let exposed: Vec<usize> = (low..=high)
+                .filter(|&y| {
+                    (y.saturating_sub(RUN - 1)..=(y + RUN - 1).min(rows - 1))
+                        .collect::<Vec<_>>()
+                        .windows(RUN)
+                        .any(|w| w.iter().all(|&r| score[r] >= EDGE_THRESHOLD))
+                })
+                .collect();
+
+            match (exposed.first(), exposed.last()) {
+                // A frame with nothing on it keeps the layout's own guess
+                (Some(&first), Some(&last)) if last > first => (first, last + 1),
+                _ => (start, start + fit.length),
+            }
+        })
+        .collect()
+}
+
+/// Give every frame the same length, since they physically are the same size
+///
+/// Frames vary in how much of themselves they expose, so the median span is the best estimate
+/// of the real one. Each frame then keeps its own measured center, which tracks the small
+/// drift in film transport that a single pitch cannot.
+fn even_up(extents: &[(usize, usize)], rows: usize) -> Vec<(usize, usize)> {
+    let mut spans: Vec<usize> = extents.iter().map(|(a, b)| b - a).collect();
+    spans.sort_unstable();
+    let length = spans[spans.len() / 2];
+
+    extents
+        .iter()
+        .map(|&(first, last)| {
+            let center = (first + last) / 2;
+            let start = center
+                .saturating_sub(length / 2)
+                .min(rows.saturating_sub(length));
+            (start, start + length)
+        })
+        .collect()
 }
 
 impl<T> Ls9000ed<T>
