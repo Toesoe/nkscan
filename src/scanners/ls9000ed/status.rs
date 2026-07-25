@@ -15,7 +15,8 @@ use crate::scsi::{SenseData, SenseKey, asc::AdditionalSenseCode};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Ready,
-    /// NotReady 0x04/0x01, warming up / initializing
+    /// Still coming up: NotReady 0x04/0x01 while warming up, or AbortedCommand 0x3E/0x00
+    /// straight after power-on
     Initializing,
     /// NotReady 0x3A/0x00, no film holder loaded
     NoFilmHolder,
@@ -44,6 +45,10 @@ impl Status {
     pub(crate) fn from_sense(sense: &SenseData) -> Option<Self> {
         match (sense.sense_key(), sense.asc, sense.ascq) {
             (SenseKey::NotReady, 0x04, 0x01) => Some(Self::Initializing),
+            // The one exception to the sense-key rule above. AbortedCommand is a real fault
+            // as a key, but 0x3E/0x00 is the device saying it hasn't finished coming up, so
+            // it clears on its own. Seen on the first commands after a power cycle.
+            (SenseKey::AbortedCommand, 0x3E, 0x00) => Some(Self::Initializing),
             (SenseKey::NotReady, 0x3A, 0x00) => Some(Self::NoFilmHolder),
             (SenseKey::UnitAttention, 0x3F, 0x04) => Some(Self::Reset),
             (SenseKey::UnitAttention, 0x3F, 0x03) => Some(Self::MediumChanged),
@@ -90,6 +95,17 @@ mod tests {
             Status::from_sense(&sense(0x02, 0x04, 0x01)),
             Some(Status::Initializing)
         );
+    }
+
+    /// The named exception: this one AbortedCommand is transient, the rest are not
+    #[test]
+    fn recognizes_self_configuring_after_power_on() {
+        assert_eq!(
+            Status::from_sense(&sense(0x0B, 0x3E, 0x00)),
+            Some(Status::Initializing)
+        );
+        assert_eq!(Status::from_sense(&sense(0x0B, 0x3E, 0x01)), None);
+        assert_eq!(Status::from_sense(&sense(0x0B, 0x47, 0x00)), None);
     }
 
     #[test]

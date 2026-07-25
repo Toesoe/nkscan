@@ -9,6 +9,8 @@ use crate::scsi::{Cdb, Command, CommandData, Error, fields::be_u24};
 pub enum Subcode {
     Focus,
     AutoFocus,
+    /// Something we haven't characterized, for probing the firmware's other registers
+    Other(u8),
 }
 
 impl Subcode {
@@ -16,11 +18,12 @@ impl Subcode {
         match self {
             Subcode::Focus => 0xC1,
             Subcode::AutoFocus => 0xA0,
+            Subcode::Other(code) => code,
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VendorPayload {
     /// Focus motor target/position, arbitrary firmware units. Used as both
     /// the write payload (set) and the read response (get).
@@ -28,20 +31,24 @@ pub enum VendorPayload {
     /// Where on the film to focus, in 1/4000-in dots. Nikon Scan always aims this at the
     /// center of the frame it is about to scan.
     AutoFocus { x: u32, y: u32 },
+    /// Bytes off an uncharacterized subcode, left for the caller to make sense of
+    Raw(Vec<u8>),
 }
 
 impl VendorPayload {
-    fn subcode(self) -> Subcode {
+    fn subcode(&self) -> Subcode {
         match self {
             VendorPayload::Focus(_) => Subcode::Focus,
             VendorPayload::AutoFocus { .. } => Subcode::AutoFocus,
+            // Nothing to write back, so the subcode has to come from the caller instead
+            VendorPayload::Raw(_) => Subcode::Other(0x00),
         }
     }
 
-    fn to_bytes(self) -> [u8; 9] {
+    fn to_bytes(&self) -> [u8; 9] {
         // TODO: Will this need to be dynamically-sized?
         let mut bytes = [0u8; 9];
-        match self {
+        match *self {
             VendorPayload::Focus(focus) => bytes[3..5].copy_from_slice(&focus.to_be_bytes()),
             VendorPayload::AutoFocus { x, y } => {
                 // X runs along the sensor bar, so it never needs more than two bytes
@@ -49,6 +56,7 @@ impl VendorPayload {
                 bytes[3..5].copy_from_slice(&(x as u16).to_be_bytes());
                 bytes[5..9].copy_from_slice(&y.to_be_bytes());
             }
+            VendorPayload::Raw(_) => {}
         }
         bytes
     }
@@ -144,6 +152,7 @@ impl Command for VendorRead {
                 x: u32::from(short(3)),
                 y: long(5),
             },
+            Subcode::Other(_) => VendorPayload::Raw(data.to_vec()),
         })
     }
 }
