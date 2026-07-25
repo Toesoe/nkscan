@@ -405,7 +405,7 @@ mod overview_tests {
 #[cfg(test)]
 mod frame_tests {
     use super::*;
-    use crate::scanners::ls9000ed::{CcdMode, Dpi, Multisample};
+    use crate::scanners::ls9000ed::{BaseQuality, CcdMode, Dpi, Multisample};
 
     /// A deliberately tiny frame: single-line CCD, no multi-sample, no IR
     /// 4x8 output, 3 readouts of 4 samples per stage, 8 stages, 192 bytes, 24 per block.
@@ -414,6 +414,7 @@ mod frame_tests {
             ccd_mode: CcdMode::SingleLine,
             ir: false,
             dpi: Dpi::_4000,
+            quality: BaseQuality::Scan,
             multisample: Multisample::X1,
             window: ScanArea {
                 x_pos: 0,

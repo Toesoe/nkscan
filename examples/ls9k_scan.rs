@@ -4,11 +4,11 @@ use image::ImageFormat;
 use nkscan::{
     decode::StreamDecoder,
     scanners::{
-        FilmHolder, Scanner,
+        FilmHolder, Focus, Scanner,
         ls9000ed::{
-            CcdMode, Channel, Ls9000ed, Multisample, ScanArea,
+            CcdMode, Channel, Dpi, Ls9000ed, Multisample, ScanArea, ScanSettings,
             boundaries::FrameBoundaries,
-            decode::OverviewDecoder,
+            decode::{FrameDecoder, OverviewDecoder},
             holder::Holder,
             status::Status,
             window::{BaseQuality, WindowKind, WindowParams},
@@ -16,11 +16,13 @@ use nkscan::{
     },
     scsi::{Transport, linux::SgDevice},
 };
-use std::{fs::File, io::BufWriter, thread::sleep, time::Duration};
+use std::{fs::File, io::BufWriter};
 use tracing::*;
 
 /// How many frames the strip holds, which is all the detector needs
 const FRAME_COUNT: usize = 3;
+/// Which of them to focus on
+const FRAME: usize = 0;
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -68,10 +70,7 @@ fn main() -> anyhow::Result<()> {
     info!("Triggering thumbnail scan");
     scanner.scan(&channels)?;
 
-    // The scanner reports NotReady for the whole pass
-    while scanner.status()? != Status::Ready {
-        sleep(Duration::from_millis(200));
-    }
+    scanner.wait_until_ready()?;
     // Nikon Scan reads the windows back here before pulling the image
     info!(exposures = ?scanner.channel_exposures()?, "Scan finished");
 
@@ -113,6 +112,62 @@ fn main() -> anyhow::Result<()> {
     }
     scanner.set_frame_boundaries(&found)?;
     info!("Frame table written");
+
+    // Focus on the frame we're about to scan, which needs the table above in place.
+    // The before/after is the only confirmation the mechanism actually moved.
+    let frame = found.0.get(FRAME).expect("strip has that many frames");
+    let before = scanner.focus()?;
+    let after = scanner.autofocus(frame.center())?;
+    info!(FRAME, point = ?frame.center(), before, after, "Autofocused");
+
+    // A preview of that frame: the 666x333 geometry Nikon Scan's autoexposure prescan uses,
+    // but with the exposures the scanner already has staged rather than a metered pass
+    let settings = ScanSettings {
+        ccd_mode: CcdMode::ThreeLine,
+        ir: true,
+        dpi: Dpi::_666,
+        quality: BaseQuality::Preview,
+        multisample: Multisample::X1,
+        window: frame.scan_area(),
+    };
+    // Every 666x333 pass in the captures stages IR first and scans all four, whatever the
+    // final scan ends up using
+    let channels = [Channel::Ir, Channel::Red, Channel::Green, Channel::Blue];
+    for channel in channels {
+        let params = WindowParams {
+            ccd: settings.ccd_mode,
+            multisample: settings.multisample,
+            quality: settings.quality,
+            window_kind: WindowKind::Frame,
+            exposure: exposures.get(channel),
+        };
+        info!(?channel, "Setting preview window");
+        scanner.set_window(
+            channel,
+            params.descriptor(settings.dpi.to_dpi(), settings.window),
+        )?;
+    }
+
+    info!(?settings, "Triggering preview scan");
+    scanner.scan(&channels)?;
+    scanner.wait_until_ready()?;
+
+    let mut decoder = FrameDecoder::new(&settings)?;
+    info!(expected = decoder.expected_bytes(), "Reading preview");
+
+    let mut last_percent = 0;
+    scanner.read_into_with(&mut decoder, chunk, |received, expected| {
+        let percent = received * 100 / expected;
+        if percent >= last_percent + 10 {
+            last_percent = percent;
+            info!(percent, "Reading");
+        }
+    })?;
+
+    let preview = decoder.finish()?;
+    let mut out = BufWriter::new(File::create("preview.tiff")?);
+    preview.rgb.write_to(&mut out, ImageFormat::Tiff)?;
+    info!(dimensions = ?preview.rgb.dimensions(), "Wrote preview.tiff");
 
     Ok(())
 }

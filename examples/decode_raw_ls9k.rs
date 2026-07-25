@@ -4,7 +4,7 @@ use clap::Parser;
 use image::ImageFormat;
 use nkscan::decode::StreamDecoder;
 use nkscan::scanners::ls9000ed::{
-    CcdMode, Dpi, Multisample, ScanArea, ScanSettings,
+    BaseQuality, CcdMode, Dpi, Multisample, ScanArea, ScanSettings,
     decode::{FrameDecoder, ImageView},
 };
 use std::{
@@ -31,6 +31,9 @@ struct Args {
     /// Single-line mode
     #[arg(long)]
     single_line: bool,
+    /// Half-rate stage stepping, as the 666x333 prescan uses
+    #[arg(long)]
+    preview: bool,
     /// x-size in pixels (along sensor plane)
     #[arg(long)]
     x: u32,
@@ -47,6 +50,7 @@ fn main() {
         4000 => Dpi::_4000,
         2000 => Dpi::_2000,
         1333 => Dpi::_1333,
+        666 => Dpi::_666,
         333 => Dpi::_333,
         _ => panic!("not a valid DPI"),
     };
@@ -59,6 +63,11 @@ fn main() {
         },
         ir: cli.ir,
         dpi,
+        quality: if cli.preview {
+            BaseQuality::Preview
+        } else {
+            BaseQuality::Scan
+        },
         multisample: match cli.multisample {
             1 => Multisample::X1,
             2 => Multisample::X2,
