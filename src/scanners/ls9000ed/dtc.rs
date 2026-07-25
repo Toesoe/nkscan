@@ -1,0 +1,178 @@
+//! Vendor data-type codes
+//!
+//! READ(10) and SEND(10) address a vendor structure with a data-type code and  a 16-bit qualifier.
+
+use super::{Channel, Ls9000ed};
+use crate::scsi::{
+    Error as ScsiError, Transport,
+    cdbs::{DataTypeCode, Read, Send},
+};
+
+/// Vendor DTC reads are framed by a fixed 6-byte header
+pub const HEADER_LEN: u32 = 6;
+
+/// A vendor data structure on this scanner.
+///
+/// Sizes below are the payload the scanner reported, excluding the 6-byte framing header
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dtc {
+    /// Scan parameters, read once a SCAN has been accepted
+    ScanParameters,
+    /// Frame table, where the frames sit on the loaded film. 20 bytes read, variable written
+    FrameBoundaries,
+    /// Per-channel dark current, 4 bytes
+    DarkCurrent,
+    /// Per-channel extended line data, 27 bytes
+    ExtendedLine,
+    /// Per-channel frame/setup, including the film-frame name and the exposure seeds that feed a window descriptor's tail
+    FrameSetup,
+    /// Film adapter info
+    AdapterInfo,
+    /// Something we haven't characterised; qualifier is the caller's problem.
+    Other { code: u8, qualifier: u8 },
+}
+
+impl Dtc {
+    pub fn code(self) -> u8 {
+        match self {
+            Dtc::ScanParameters => 0x87,
+            Dtc::FrameBoundaries => 0x88,
+            Dtc::DarkCurrent => 0x8C,
+            Dtc::ExtendedLine => 0x8D,
+            Dtc::FrameSetup => 0x91,
+            Dtc::AdapterInfo => 0x93,
+            Dtc::Other { code, .. } => code,
+        }
+    }
+
+    /// The low byte of the qualifier
+    pub fn qualifier(self) -> u8 {
+        match self {
+            Dtc::ScanParameters | Dtc::ExtendedLine => 0x00,
+            Dtc::FrameSetup | Dtc::AdapterInfo => 0x01,
+            Dtc::FrameBoundaries | Dtc::DarkCurrent => 0x03,
+            Dtc::Other { qualifier, .. } => qualifier,
+        }
+    }
+
+    /// The full 16-bit qualifier. `None` addresses the structure globally, which encodes as channel 0
+    pub fn dtq(self, channel: Option<Channel>) -> u16 {
+        let channel = channel.map_or(0, Channel::to_id);
+        u16::from(channel) << 8 | u16::from(self.qualifier())
+    }
+}
+
+impl From<Dtc> for DataTypeCode {
+    fn from(dtc: Dtc) -> Self {
+        DataTypeCode::Vendor(dtc.code())
+    }
+}
+
+/// READ(10)/SEND(10) plumbing for vendor structures
+///
+/// The commands are spec, but every binding here is this scanner's: which codes exist, the
+/// qualifier split, the framing header, and the control bytes. So it stays out of `scsi`.
+impl<T> Ls9000ed<T>
+where
+    T: Transport,
+{
+    /// Read `length` bytes of a vendor data structure
+    pub(super) fn read_dtc(
+        &mut self,
+        dtc: Dtc,
+        channel: Option<Channel>,
+        length: u32,
+    ) -> Result<Vec<u8>, ScsiError> {
+        self.transport
+            .send(&Read::new(0, dtc.into(), dtc.dtq(channel), length, 0x80))
+    }
+
+    /// Read a whole vendor data structure, probing `probe` bytes for the payload length first
+    pub(super) fn read_framed_dtc(
+        &mut self,
+        dtc: Dtc,
+        channel: Option<Channel>,
+        probe: u32,
+    ) -> Result<Vec<u8>, ScsiError> {
+        let header = self.read_dtc(dtc, channel, probe)?;
+        let length = header
+            .get(4..6)
+            .map(|l| u16::from_be_bytes([l[0], l[1]]))
+            .ok_or(ScsiError::InvalidResponse(
+                "vendor DTC read shorter than its 6-byte header",
+            ))?;
+        self.read_dtc(dtc, channel, HEADER_LEN + u32::from(length))
+    }
+
+    /// Write a vendor data structure
+    pub(super) fn write_dtc(
+        &mut self,
+        dtc: Dtc,
+        channel: Option<Channel>,
+        parameters: Vec<u8>,
+    ) -> Result<(), ScsiError> {
+        self.transport.send(&Send::new(
+            0,
+            dtc.into(),
+            dtc.dtq(channel),
+            parameters,
+            0x00,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every DTC/DTQ pair observed across all five captures.
+    #[test]
+    fn matches_every_captured_dtq() {
+        let cases = [
+            (Dtc::ScanParameters, None, 0x0000),
+            (Dtc::FrameBoundaries, None, 0x0003),
+            (Dtc::DarkCurrent, Some(Channel::Red), 0x0103),
+            (Dtc::DarkCurrent, Some(Channel::Green), 0x0203),
+            (Dtc::DarkCurrent, Some(Channel::Blue), 0x0303),
+            (Dtc::DarkCurrent, Some(Channel::IR), 0x0903),
+            (Dtc::ExtendedLine, Some(Channel::Red), 0x0100),
+            (Dtc::ExtendedLine, Some(Channel::Green), 0x0200),
+            (Dtc::ExtendedLine, Some(Channel::Blue), 0x0300),
+            (Dtc::FrameSetup, Some(Channel::Red), 0x0101),
+            (Dtc::FrameSetup, Some(Channel::Green), 0x0201),
+            (Dtc::FrameSetup, Some(Channel::Blue), 0x0301),
+            (Dtc::FrameSetup, Some(Channel::IR), 0x0901),
+            (Dtc::AdapterInfo, None, 0x0001),
+        ];
+
+        for (dtc, channel, expected) in cases {
+            assert_eq!(dtc.dtq(channel), expected, "{dtc:?} on {channel:?}");
+        }
+    }
+
+    /// SCSI-2 reserves 0x00-0x7F, so nothing here may collide with a spec data-type code
+    #[test]
+    fn every_code_is_in_the_vendor_range() {
+        for dtc in [
+            Dtc::ScanParameters,
+            Dtc::FrameBoundaries,
+            Dtc::DarkCurrent,
+            Dtc::ExtendedLine,
+            Dtc::FrameSetup,
+            Dtc::AdapterInfo,
+        ] {
+            assert!(dtc.code() >= 0x80, "{dtc:?} is not a vendor code");
+            assert_eq!(DataTypeCode::from(dtc), DataTypeCode::Vendor(dtc.code()));
+        }
+    }
+
+    #[test]
+    fn other_passes_code_and_qualifier_through() {
+        let dtc = Dtc::Other {
+            code: 0x8A,
+            qualifier: 0x02,
+        };
+        assert_eq!(DataTypeCode::from(dtc), DataTypeCode::Vendor(0x8A));
+        assert_eq!(dtc.dtq(Some(Channel::Green)), 0x0202);
+    }
+}

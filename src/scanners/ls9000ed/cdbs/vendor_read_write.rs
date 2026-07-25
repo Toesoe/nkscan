@@ -1,9 +1,4 @@
-//! Nikon vendor-specific WRITE(10)/READ(10).
-//!
-//! Not part of any public SCSI spec — the `0xC0`-`0xFF` opcode range is
-//! reserved "Vendor Specific" by T10, and Nikon uses it for a proprietary
-//! register read/write interface. Layout reverse-engineered from Nikon's
-//! Windows driver + wire captures, not from documentation.
+//! Nikon vendor-specific WRITE(10)/READ(10)
 //!
 //! These writes send a value to RAM but don't actually take effect until the
 //! vendor TRIGGER is applied.
@@ -70,7 +65,8 @@ impl Command for VendorWrite {
     type Cdb = Cdb<10>;
 
     fn cdb(&self) -> Self::Cdb {
-        let length_bytes = (self.bytes.len() as u32).to_be_bytes();
+        // Transfer length is a 24-bit field, so the u32's high byte is dropped
+        let [_, length_hi, length_mid, length_lo] = (self.bytes.len() as u32).to_be_bytes();
         Cdb([
             0xE0,
             0x00,
@@ -78,9 +74,9 @@ impl Command for VendorWrite {
             0x00,
             0x00,
             0x00,
-            length_bytes[1],
-            length_bytes[2],
-            length_bytes[3],
+            length_hi,
+            length_mid,
+            length_lo,
             0x00,
         ])
     }
@@ -114,7 +110,8 @@ impl Command for VendorRead {
     type Cdb = Cdb<10>;
 
     fn cdb(&self) -> Self::Cdb {
-        let length_bytes = self.transfer_length.to_be_bytes();
+        // Transfer length is a 24-bit field, so the u32's high byte is dropped
+        let [_, length_hi, length_mid, length_lo] = self.transfer_length.to_be_bytes();
         Cdb([
             0xE1,
             0x00,
@@ -122,9 +119,9 @@ impl Command for VendorRead {
             0x00,
             0x00,
             0x00,
-            length_bytes[1],
-            length_bytes[2],
-            length_bytes[3],
+            length_hi,
+            length_mid,
+            length_lo,
             0x00,
         ])
     }

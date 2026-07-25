@@ -1,10 +1,10 @@
 //! Nikon vendor TRIGGER(6)
+//!
+//! This seems to be a "commit" payload
 
 use crate::scsi::{Cdb, Command, CommandData, Error};
 
 /// Nikon vendor TRIGGER(6)
-///
-/// Commits whatever was last staged by a preceding [`VendorWrite`].
 #[derive(Debug, Default, Copy, Clone)]
 pub struct VendorTrigger;
 
