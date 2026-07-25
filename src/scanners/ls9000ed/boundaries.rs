@@ -38,6 +38,40 @@ impl FrameRect {
         }
     }
 
+    /// Like [`full_width`](Self::full_width), with the length rounded down to something the
+    /// scanner will take a window in
+    pub fn aligned(y_top: u32, length: u32) -> Self {
+        Self::full_width(y_top, length / Self::BLOCK_DOTS * Self::BLOCK_DOTS)
+    }
+
+    /// The window that scans just this frame
+    ///
+    /// The length has to match the frame table entry, so this rounds the same way
+    /// [`aligned`](Self::aligned) does rather than trimming further
+    pub fn scan_area(self) -> ScanArea {
+        ScanArea {
+            x_pos: self.x_left,
+            y_pos: self.y_top,
+            x_size: self.x_right - self.x_left,
+            y_size: (self.y_bottom - self.y_top) / Self::BLOCK_DOTS * Self::BLOCK_DOTS,
+        }
+    }
+
+    /// The stage extent the scanner will accept a window in
+    ///
+    /// 36 is all the three-line interleave needs, at any resolution. This is 72 only because
+    /// every length in the captures is, and no preview pass has been accepted yet to say
+    /// whether 36 is enough. Drop it to 36 once one has.
+    const BLOCK_DOTS: u32 = 72;
+
+    /// The middle of the frame, which is where [`autofocus`](Ls9000ed::autofocus) wants aiming
+    pub fn center(self) -> (u32, u32) {
+        (
+            self.x_left + (self.x_right - self.x_left) / 2,
+            self.y_top + (self.y_bottom - self.y_top) / 2,
+        )
+    }
+
     /// The same centered 8964-dot span [`ScanArea::centered`](super::ScanArea::centered) produces,
     /// derived rather than restated so the two cannot drift
     const X_LEFT: u32 = (ScanArea::SENSOR_DOTS - ScanArea::FILM_WIDTH_DOTS) / 2;
@@ -81,11 +115,10 @@ impl FrameBoundaries {
     /// Offset control in Nikon Scan exists to correct, so the nominal table is only ever a
     /// starting point.
     ///
-    /// `None` if the strip carries too little detail to place anything, which is the honest
-    /// answer for blank or unexposed film.
+    /// `None` if the strip carries too little detail to place anything
     ///
-    /// Only `frames` is needed. Frame sizes are open-ended (6x8, 6x7, 6x12, custom holders),
-    /// so the length is solved for rather than looked up.
+    /// Lengths come back already aligned to what [`FrameRect::scan_area`] will scan, because
+    /// every capture has the two agreeing exactly and the scanner appears to check
     pub fn detect<C>(overview: &ImageBuffer<Rgb<u16>, C>, frames: usize) -> Option<Self>
     where
         C: Deref<Target = [u16]>,
@@ -98,7 +131,7 @@ impl FrameBoundaries {
             extents
                 .iter()
                 .map(|&(start, end)| {
-                    FrameRect::full_width(
+                    FrameRect::aligned(
                         start as u32 * ScanArea::OVERVIEW_DIVISOR,
                         (end - start) as u32 * ScanArea::OVERVIEW_DIVISOR,
                     )
@@ -412,6 +445,39 @@ mod tests {
                 bytes.len()
             );
             assert_eq!(bytes[2] as u32, count);
+        }
+    }
+
+    /// Every captured autofocus aims at the middle of the frame about to be scanned,
+    /// which for a single-row holder is always the sensor center in X
+    #[test]
+    fn centers_match_the_captured_autofocus_points() {
+        // (frame, expected point): singleline frame 2 of 6x9, then 8x frame 4 of 6x4.5
+        for (rect, expected) in [
+            (FrameRect::full_width(18672, 13176), (5000, 25260)),
+            (FrameRect::full_width(26160, 6696), (5000, 29508)),
+        ] {
+            assert_eq!(rect.center(), expected);
+        }
+    }
+
+    /// The 6x9 window Nikon Scan scanned frame 2 through, which the detector can only get
+    /// to within a block of
+    #[test]
+    fn scan_area_takes_whole_interleave_blocks() {
+        let area = FrameRect::full_width(18672, 13176).scan_area();
+        assert_eq!((area.x_pos, area.x_size), (518, 8964));
+        assert_eq!((area.y_pos, area.y_size), (18672, 13176));
+
+        // A detected boundary lands on the 48-dot overview grid, which 72 doesn't divide.
+        // Aligning at detection is what keeps the table and the window agreeing.
+        let detected = FrameRect::aligned(2112, 9840);
+        assert_eq!(detected.y_bottom - detected.y_top, 9792);
+        assert_eq!(detected.scan_area().y_size, 9792);
+
+        // Both captured lengths are already whole groups and must come through untouched
+        for length in [13176, 6696] {
+            assert_eq!(FrameRect::full_width(0, length).scan_area().y_size, length);
         }
     }
 

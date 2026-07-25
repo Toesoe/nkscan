@@ -69,9 +69,6 @@ impl From<Dtc> for DataTypeCode {
 }
 
 /// READ(10)/SEND(10) plumbing for vendor structures
-///
-/// The commands are spec, but every binding here is this scanner's: which codes exist, the
-/// qualifier split, the framing header, and the control bytes. So it stays out of `scsi`.
 impl<T> Ls9000ed<T>
 where
     T: Transport,

@@ -3,6 +3,8 @@
 //! Everything is in 1/4000-in dots, the sensor's native pitch, since `new()` pins the
 //! measurement units to a 4000 divisor at open.
 
+use super::window::BaseQuality;
+
 /// CCD read mode
 #[derive(Debug, Copy, Clone)]
 pub enum CcdMode {
@@ -44,6 +46,7 @@ pub enum Dpi {
     _4000,
     _2000,
     _1333,
+    _666,
     _333,
 }
 
@@ -54,6 +57,7 @@ impl Dpi {
             Dpi::_4000 => 1,
             Dpi::_2000 => 2,
             Dpi::_1333 => 3,
+            Dpi::_666 => 6,
             Dpi::_333 => 12,
         }
     }
@@ -123,6 +127,8 @@ pub struct ScanSettings {
     pub ir: bool,
     /// Scan resolution in DPI
     pub dpi: Dpi,
+    /// Square sampling, or the half-rate stage stepping of a preview
+    pub quality: BaseQuality,
     /// Multisample
     pub multisample: Multisample,
     /// The window in the scanner FoV to actually scan
@@ -130,11 +136,23 @@ pub struct ScanSettings {
 }
 
 impl ScanSettings {
+    /// Dots per output column along stage travel
+    ///
+    /// A preview halves the stage rate without touching the sensor, so it is the one mode
+    /// where the two axes don't share a divisor
+    pub fn stage_divisor(&self) -> u32 {
+        self.dpi.divisor()
+            * match self.quality {
+                BaseQuality::Scan => 1,
+                BaseQuality::Preview => 2,
+            }
+    }
+
     /// `None` if the window doesn't divide evenly at this resolution.
     pub fn output_dims(&self) -> Option<(u32, u32)> {
-        let k = self.dpi.divisor();
-        (self.window.x_size.is_multiple_of(k) && self.window.y_size.is_multiple_of(k))
-            .then(|| (self.window.y_size / k, self.window.x_size / k))
+        let (k, stage) = (self.dpi.divisor(), self.stage_divisor());
+        (self.window.x_size.is_multiple_of(k) && self.window.y_size.is_multiple_of(stage))
+            .then(|| (self.window.y_size / stage, self.window.x_size / k))
     }
 
     /// CCD lines read per stage position
@@ -154,9 +172,12 @@ impl ScanSettings {
     }
 
     /// Spacing between the CCD's lines, in output columns
+    ///
+    /// The lines sit 12 dots apart along stage travel, so this is against the stage divisor
+    /// rather than the sensor one
     pub fn ccd_block(&self) -> u32 {
         match self.ccd_mode {
-            CcdMode::ThreeLine => 12 / self.dpi.divisor(),
+            CcdMode::ThreeLine => (12 / self.stage_divisor()).max(1),
             CcdMode::SingleLine => 1,
         }
     }
@@ -171,5 +192,75 @@ impl ScanSettings {
         let (_, height) = self.output_dims()?;
         let per_stage = u64::from(self.readouts()) * u64::from(height) * u64::from(self.lines());
         Some(2 * u64::from(self.stages()?) * per_stage)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The 666x333 prescan of a 6x9 frame, pinned to the byte count summed off the wire
+    /// in singleline_ccd. Sensor and stage divide by 6 and 12 respectively.
+    fn prescan(multisample: Multisample) -> ScanSettings {
+        ScanSettings {
+            ccd_mode: CcdMode::ThreeLine,
+            ir: true,
+            dpi: Dpi::_666,
+            quality: BaseQuality::Preview,
+            multisample,
+            window: ScanArea::centered(18672, ScanArea::FILM_WIDTH_DOTS, 13176),
+        }
+    }
+
+    #[test]
+    fn preview_halves_only_the_stage_axis() {
+        let settings = prescan(Multisample::X1);
+        assert_eq!(settings.stage_divisor(), 12);
+        assert_eq!(settings.output_dims(), Some((1098, 1494)));
+        assert_eq!(settings.stages(), Some(366));
+    }
+
+    /// A preview steps the stage at the 12-dot CCD spacing, so the lines land in
+    /// adjacent output columns rather than 12 apart
+    #[test]
+    fn preview_collapses_the_interleave_block() {
+        assert_eq!(prescan(Multisample::X1).ccd_block(), 1);
+        assert_eq!(
+            ScanSettings {
+                dpi: Dpi::_4000,
+                quality: BaseQuality::Scan,
+                ..prescan(Multisample::X1)
+            }
+            .ccd_block(),
+            12
+        );
+    }
+
+    #[test]
+    fn prescan_byte_counts_match_the_captures() {
+        assert_eq!(prescan(Multisample::X1).expected_bytes(), Some(13_123_296));
+        assert_eq!(
+            prescan(Multisample::X16).expected_bytes(),
+            Some(160_760_376)
+        );
+
+        // The 6x4.5 prescan from 8x_multisampling
+        let short = ScanSettings {
+            window: ScanArea::centered(26160, ScanArea::FILM_WIDTH_DOTS, 6696),
+            ..prescan(Multisample::X1)
+        };
+        assert_eq!(short.expected_bytes(), Some(6_669_216));
+    }
+
+    /// The full-resolution single-line pass from the same session
+    #[test]
+    fn full_resolution_byte_count_matches_the_capture() {
+        let settings = ScanSettings {
+            ccd_mode: CcdMode::SingleLine,
+            dpi: Dpi::_4000,
+            quality: BaseQuality::Scan,
+            ..prescan(Multisample::X1)
+        };
+        assert_eq!(settings.expected_bytes(), Some(944_877_312));
     }
 }

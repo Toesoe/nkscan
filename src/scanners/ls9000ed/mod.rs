@@ -10,6 +10,7 @@ use cdbs::{Subcode, VendorPayload, VendorRead, VendorTrigger, VendorWrite};
 use dtc::Dtc;
 use holder::Holder;
 use status::Status;
+use std::{thread::sleep, time::Duration};
 use tracing::*;
 
 pub mod boundaries;
@@ -37,6 +38,9 @@ const WINDOW_COUNT: u32 = 5;
 const VENDOR_CONTROL: u8 = 0x80;
 /// Unit attentions queue up, but not without bound. Past this something is wrong.
 const MAX_QUEUED_UNIT_ATTENTIONS: usize = 8;
+/// How often [`wait_until_ready`](Ls9000ed::wait_until_ready) asks. Nikon Scan polls at
+/// roughly this rate through an autofocus.
+const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
 pub struct Ls9000ed<T> {
@@ -124,6 +128,24 @@ where
         ))
     }
 
+    /// Block until the scanner finishes whatever it's doing
+    ///
+    /// Mechanical passes report NotReady for their whole duration, so this is how you wait
+    /// one out: an autofocus, a scan, a calibration. Losing the holder mid-pass is an error
+    /// rather than something to keep waiting on.
+    pub fn wait_until_ready(&mut self) -> Result<(), scsi::Error> {
+        loop {
+            match self.status()? {
+                Status::Ready => return Ok(()),
+                Status::NoFilmHolder => {
+                    return Err(scsi::Error::InvalidResponse("the film holder was removed"));
+                }
+                state => trace!(?state, "Waiting"),
+            }
+            sleep(POLL_INTERVAL);
+        }
+    }
+
     /// Set our working units to "points" in 4000DPI increments
     ///
     /// NOTE: We will hard-code a set to 4000dpi as then we don't have to do math later
@@ -170,6 +192,23 @@ where
         descriptor.id = channel.to_id();
         self.transport
             .send(&SetWindow::new(0, &[descriptor], VENDOR_CONTROL))
+    }
+
+    /// Focus on one point of the film, in 1/4000-in dots, and report where it landed
+    ///
+    /// Blocks for the ten or so seconds the mechanism takes. Nikon Scan runs this once per
+    /// frame before scanning it, aimed at [`FrameRect::center`](boundaries::FrameRect::center),
+    /// and needs the frame table written first.
+    pub fn autofocus(&mut self, (x, y): (u32, u32)) -> Result<u16, scsi::Error> {
+        debug!(x, y, "Autofocusing");
+        self.transport
+            .send(&VendorWrite::new(VendorPayload::AutoFocus { x, y }))?;
+        self.transport.send(&VendorTrigger)?;
+        self.wait_until_ready()?;
+
+        let focus = self.focus()?;
+        debug!(focus, "Autofocus finished");
+        Ok(focus)
     }
 
     /// Scan parameters
@@ -274,8 +313,8 @@ where
         match self.transport.send(&VendorRead::new(Subcode::Focus, 9))? {
             VendorPayload::Focus(focus) => Ok(focus),
             // A VendorRead built with Subcode::Focus always decodes to
-            // VendorPayload::Focus - see VendorRead::decode.
-            VendorPayload::Preheat => unreachable!(),
+            // VendorPayload::Focus - see VendorRead::parse_response.
+            VendorPayload::AutoFocus { .. } => unreachable!(),
         }
     }
 
