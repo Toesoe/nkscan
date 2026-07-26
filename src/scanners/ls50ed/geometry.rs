@@ -1,0 +1,232 @@
+//! Scan geometry and sampling settings
+//!
+//! Everything is in 1/4000-in dots, the sensor's native pitch, since
+//! [`Ls50ed::new`](super::Ls50ed::new) pins the measurement units to a 4000 divisor at open.
+
+use super::capabilities::Capabilities;
+
+/// The working units, also this sensor's optical resolution. Only for millimeter conversion;
+/// anything scaling with the device takes it from [`Capabilities`].
+const UNIT_DIVISOR: f32 = 4000.0;
+
+/// A window on the film, in 1/4000-in dots
+///
+/// Y runs along the feed, X along the sensor bar. There is no host feed command: `y_pos` is
+/// what selects a frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanArea {
+    pub x_pos: u32,
+    pub y_pos: u32,
+    pub x_size: u32,
+    pub y_size: u32,
+}
+
+impl ScanArea {
+    /// One whole frame at `y_pos`, spanning the adapter's full scan area
+    ///
+    /// [`max_y`](Capabilities::max_y) rather than the boundary itself, since the firmware
+    /// refuses a descriptor whose length reaches it.
+    pub fn frame(y_pos: u32, capabilities: Capabilities) -> Self {
+        Self {
+            x_pos: 0,
+            y_pos,
+            x_size: capabilities.max_x(),
+            y_size: capabilities.max_y(),
+        }
+    }
+}
+
+/// 16-bit linear RGB (plus infrared) over one window
+#[derive(Debug, Clone, Copy)]
+pub struct ScanSettings {
+    /// The scanner only scans at `base_res / pitch`, so this snaps to that grid:
+    /// 300 becomes 307
+    pub dpi: u16,
+    /// Capture channel 0x09 as a 4th planar channel
+    pub ir: bool,
+    /// Only 1 works: a higher count arms a multi-pass scan that never streams
+    pub samples: u8,
+    /// What to scan, which is also what picks the frame out of a strip
+    pub window: ScanArea,
+    pub capabilities: Capabilities,
+}
+
+impl ScanSettings {
+    /// Native dots per output pixel
+    pub fn pitch(&self) -> u32 {
+        (f64::from(self.optical()) / f64::from(self.dpi))
+            .round()
+            .max(1.0) as u32
+    }
+
+    /// The sensor's own resolution, which is the grid every scan snaps to
+    fn optical(&self) -> u16 {
+        self.capabilities.x_resolution.optical
+    }
+
+    pub fn n_colors(&self) -> usize {
+        3 + usize::from(self.ir)
+    }
+
+    /// Grid-snapped resolution, as the window descriptor carries it
+    pub fn res(&self) -> u16 {
+        (u32::from(self.optical()) / self.pitch()) as u16
+    }
+
+    pub fn output_dims(&self) -> (u32, u32) {
+        let pitch = self.pitch();
+        (self.window.x_size / pitch, self.window.y_size / pitch)
+    }
+
+    /// Window dimensions, which the descriptor takes in native units rather than
+    /// output pixels
+    pub fn native_dims(&self) -> (u32, u32) {
+        let pitch = self.pitch();
+        let (w, h) = self.output_dims();
+        (w * pitch, h * pitch)
+    }
+
+    /// Where [`autofocus`](super::Ls50ed::autofocus) wants aiming
+    ///
+    /// Against [`native_dims`](Self::native_dims), not the window's own size: the descriptor
+    /// carries the pitch-rounded extent and that is what the scanner covers.
+    pub fn center(&self) -> (u32, u32) {
+        let (width, length) = self.native_dims();
+        (
+            self.window.x_pos + width / 2,
+            self.window.y_pos + length / 2,
+        )
+    }
+
+    /// Each plane is padded to an even sample count, then the line to a 512 multiple
+    pub fn bytes_per_line(&self) -> usize {
+        let (width, _) = self.output_dims();
+        let even_width = width as usize + (width as usize & 1);
+        (self.n_colors() * even_width * 2).div_ceil(512) * 512
+    }
+
+    pub fn expected_bytes(&self) -> u64 {
+        let (_, height) = self.output_dims();
+        self.bytes_per_line() as u64 * u64::from(height)
+    }
+}
+
+/// The offset for frame `index`, in 1/4000-in dots, the last value repeating
+///
+/// Per frame because the feed does not place them evenly: the first advance under-travels while
+/// the rest match the reported pitch, so frame 0 and the rest want different figures. The
+/// numbers are the caller's to measure; where film sits belongs to the load, not the scanner.
+pub fn frame_offset(offsets: &[f32], index: u32) -> u32 {
+    match offsets.len().checked_sub(1) {
+        Some(last) => native_dots(offsets[(index as usize).min(last)]),
+        None => 0,
+    }
+}
+
+/// A millimeter figure in 1/4000-in dots. Negative input floors at zero: a window cannot start
+/// before the film does.
+pub fn native_dots(millimeters: f32) -> u32 {
+    (millimeters * UNIT_DIVISOR / 25.4).round().max(0.0) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(dpi: u16, ir: bool) -> ScanSettings {
+        let capabilities = super::super::capabilities::fixture::capabilities();
+        ScanSettings {
+            dpi,
+            ir,
+            samples: 1,
+            window: ScanArea::frame(0, capabilities),
+            capabilities,
+        }
+    }
+
+    /// The last value repeats, so two figures cover a strip of any length
+    #[test]
+    fn frame_offsets_repeat_their_last_value() {
+        let measured = [0.0, 5.6];
+        assert_eq!(frame_offset(&measured, 0), 0);
+        assert_eq!(frame_offset(&measured, 1), native_dots(5.6));
+        assert_eq!(frame_offset(&measured, 5), native_dots(5.6));
+        assert_eq!(frame_offset(&[2.0], 3), native_dots(2.0));
+        assert_eq!(frame_offset(&[], 0), 0);
+    }
+
+    #[test]
+    fn geometry_snaps_dpi_to_grid() {
+        let s = settings(300, false);
+        assert_eq!(s.res(), 307);
+        assert_eq!(s.output_dims(), (303, 458));
+        assert_eq!(s.native_dims(), (3939, 5954));
+        // 3 planes * even(303) * 2 bytes = 1824, padded to 2048
+        assert_eq!(s.bytes_per_line(), 2048);
+        assert_eq!(s.expected_bytes(), 2048 * 458);
+    }
+
+    #[test]
+    fn infrared_adds_a_fourth_plane() {
+        let s = settings(300, true);
+        assert_eq!(s.n_colors(), 4);
+        // 4 * 304 * 2 = 2432, padded to 2560
+        assert_eq!(s.bytes_per_line(), 2560);
+        assert_eq!(s.expected_bytes(), 2560 * 458);
+    }
+
+    #[test]
+    fn geometry_follows_the_reported_capabilities() {
+        // A device claiming half the scan area, so nothing here can be a constant
+        let capabilities = Capabilities {
+            boundary_x: 2001,
+            boundary_y: 4001,
+            ..super::super::capabilities::fixture::capabilities()
+        };
+        let s = ScanSettings {
+            capabilities,
+            window: ScanArea::frame(0, capabilities),
+            ..settings(4000, false)
+        };
+        assert_eq!(s.pitch(), 1);
+        assert_eq!(s.output_dims(), (2000, 4000));
+        assert_eq!(s.native_dims(), (2000, 4000));
+    }
+
+    /// The window selects the frame, so its size stays put as it moves
+    #[test]
+    fn a_window_further_down_the_strip_scans_the_same_size() {
+        let capabilities = super::super::capabilities::fixture::capabilities();
+        let s = ScanSettings {
+            window: ScanArea::frame(2 * capabilities.frame_pitch, capabilities),
+            ..settings(300, false)
+        };
+        assert_eq!(s.output_dims(), settings(300, false).output_dims());
+        assert_eq!(s.window.y_pos, 2 * capabilities.frame_pitch);
+    }
+
+    /// Tracks the window and the rounded extent, not the adapter
+    #[test]
+    fn the_center_moves_with_the_window() {
+        let capabilities = super::super::capabilities::fixture::capabilities();
+        let at_origin = settings(300, false);
+        // native_dims is (3939, 5954), which is what the descriptor carries
+        assert_eq!(at_origin.center(), (1969, 2977));
+
+        let pitch = capabilities.frame_pitch;
+        let further_down = ScanSettings {
+            window: ScanArea::frame(pitch, capabilities),
+            ..at_origin
+        };
+        assert_eq!(further_down.center(), (1969, pitch + 2977));
+    }
+
+    /// One inch is the unit divisor by definition, which is what fixes the rest
+    #[test]
+    fn millimeters_convert_to_native_dots() {
+        assert_eq!(native_dots(25.4), 4000);
+        assert_eq!(native_dots(0.0), 0);
+        assert_eq!(native_dots(1.0), 157);
+        assert_eq!(native_dots(-1.0), 0);
+    }
+}
