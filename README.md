@@ -37,6 +37,14 @@ Options:
   -V, --version                    Print version
 ```
 
+## TODO
+
+- Exercise the driver for the 9000 to make sure the shapes of data match what the scanner expects
+- Run through many test scans to make sure the result looks ok
+- Fix frame detection. It's not great right now, I might just make a little popup GUI for selecting each frame.
+- Create PyO3 wrapper to connect up to NegPy
+- Add support for other Nikon scanners
+
 ## License
 
 Dual licensed under either of
