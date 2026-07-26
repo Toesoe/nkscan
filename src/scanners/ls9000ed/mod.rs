@@ -556,6 +556,14 @@ where
             } else {
                 calibration::meter(&image.rgb, gain, metering.percentile, metering.target)
             };
+            // Only when the pass carried infrared, and never under the white balance lock,
+            // which holds the visible channels together and has nothing to say about this one
+            let metered = match &image.ir {
+                Some(ir) => {
+                    calibration::meter_ir(ir, metered, metering.percentile, metering.target)
+                }
+                None => metered,
+            };
             debug!(pass, ?gain, ?metered, "Metered");
             gain = metered;
             preview = Some(image);
@@ -599,7 +607,7 @@ where
             lock_white_balance: false,
             ..*metering
         };
-        let settings = ScanSettings::autoexposure(white_balance_area());
+        let settings = ScanSettings::autoexposure(white_balance_area(), false);
         // The visible channels start low and get metered up. Infrared is not in the preview to
         // measure, and `meter` leaves it alone, so it has to start where it should end up
         // rather than carrying the search's starting point out with it.
@@ -673,7 +681,7 @@ mod tests {
     #[test]
     fn the_white_balance_window_is_scannable() {
         let area = white_balance_area();
-        let settings = ScanSettings::autoexposure(area);
+        let settings = ScanSettings::autoexposure(area, false);
         assert!(
             settings.output_dims().is_some(),
             "{area:?} does not divide evenly at the metering resolution"

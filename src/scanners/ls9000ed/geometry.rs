@@ -195,10 +195,13 @@ impl ScanSettings {
     }
 
     /// The base settings used for autoexposure passes
-    pub fn autoexposure(window: ScanArea) -> Self {
+    ///
+    /// `ir` should match the scan being metered for. It costs one extra readout per stage, and
+    /// it is the only way the infrared gain gets measured rather than assumed.
+    pub fn autoexposure(window: ScanArea, ir: bool) -> Self {
         Self {
             ccd_mode: CcdMode::ThreeLine,
-            ir: false,
+            ir,
             dpi: Dpi::_666,
             quality: BaseQuality::Preview,
             multisample: Multisample::X1,
