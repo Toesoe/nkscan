@@ -475,6 +475,19 @@ impl<T> Ls9000ed<T>
 where
     T: Transport,
 {
+    /// Send the film holder back out
+    ///
+    /// Staged and triggered the same way focus is. The holder leaving raises a holder change
+    /// and a reset, so anything reusing this handle afterwards wants
+    /// [`drain_unit_attentions`](Self::drain_unit_attentions) first.
+    pub fn eject(&mut self) -> Result<(), scsi::Error> {
+        debug!("Ejecting the holder");
+        self.transport
+            .send(&VendorWrite::new(VendorPayload::Eject))?;
+        self.transport.send(&VendorTrigger)?;
+        Ok(())
+    }
+
     /// Stage the channels this pass needs, scan, and decode what comes back
     ///
     /// `settings.ir` adds the infrared readout, which every capture stages first and lists

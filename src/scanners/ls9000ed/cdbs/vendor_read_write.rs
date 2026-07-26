@@ -9,6 +9,7 @@ use crate::scsi::{Cdb, Command, CommandData, Error, fields::be_u24};
 pub enum Subcode {
     Focus,
     AutoFocus,
+    Eject,
     /// Something we haven't characterized, for probing the firmware's other registers
     Other(u8),
 }
@@ -18,6 +19,7 @@ impl Subcode {
         match self {
             Subcode::Focus => 0xC1,
             Subcode::AutoFocus => 0xA0,
+            Subcode::Eject => 0xD0,
             Subcode::Other(code) => code,
         }
     }
@@ -31,6 +33,9 @@ pub enum VendorPayload {
     /// Where on the film to focus, in 1/4000-in dots. Nikon Scan always aims this at the
     /// center of the frame it is about to scan.
     AutoFocus { x: u32, y: u32 },
+    /// Send the film holder back out. Carries no parameters: Nikon Scan leaves the nine bytes
+    /// as whatever was in the buffer, and they differ every time, so nothing reads them.
+    Eject,
     /// Bytes off an uncharacterized subcode, left for the caller to make sense of
     Raw(Vec<u8>),
 }
@@ -40,6 +45,7 @@ impl VendorPayload {
         match self {
             VendorPayload::Focus(_) => Subcode::Focus,
             VendorPayload::AutoFocus { .. } => Subcode::AutoFocus,
+            VendorPayload::Eject => Subcode::Eject,
             // Nothing to write back, so the subcode has to come from the caller instead
             VendorPayload::Raw(_) => Subcode::Other(0x00),
         }
@@ -56,7 +62,7 @@ impl VendorPayload {
                 bytes[3..5].copy_from_slice(&(x as u16).to_be_bytes());
                 bytes[5..9].copy_from_slice(&y.to_be_bytes());
             }
-            VendorPayload::Raw(_) => {}
+            VendorPayload::Eject | VendorPayload::Raw(_) => {}
         }
         bytes
     }
@@ -152,7 +158,8 @@ impl Command for VendorRead {
                 x: u32::from(short(3)),
                 y: long(5),
             },
-            Subcode::Other(_) => VendorPayload::Raw(data.to_vec()),
+            // Write-only, so a read of it is just bytes
+            Subcode::Eject | Subcode::Other(_) => VendorPayload::Raw(data.to_vec()),
         })
     }
 }
@@ -185,6 +192,18 @@ mod tests {
             write.bytes,
             [0x00, 0x00, 0x00, 0x00, 0xB2, 0x00, 0x00, 0x00, 0x00]
         );
+    }
+
+    /// Nikon Scan sends nine bytes of whatever was in the buffer, different every session, so
+    /// only the subcode carries meaning. Zeros are the honest version of that.
+    #[test]
+    fn eject_is_a_bare_subcode() {
+        let write = VendorWrite::new(VendorPayload::Eject);
+        assert_eq!(
+            write.cdb().0,
+            [0xE0, 0x00, 0xD0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00]
+        );
+        assert_eq!(write.bytes, [0x00; 9]);
     }
 
     #[test]
