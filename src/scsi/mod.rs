@@ -241,6 +241,14 @@ pub trait Transport {
         data: &mut [u8],
         sense: &mut [u8],
     ) -> Result<(), Error>;
+
+    /// Largest single transfer this transport can carry
+    ///
+    /// What a caller reading an image should chunk at. The default is the 32 KB a Linux sg
+    /// device starts with, which any transport that knows better should override.
+    fn max_transfer(&self) -> u32 {
+        32 * 1024
+    }
 }
 
 /// The convenience layer over [`Transport::execute`], which every transport gets for free
@@ -316,6 +324,10 @@ impl<T: Transport + ?Sized> Transport for &mut T {
     ) -> Result<(), Error> {
         (**self).execute(cdb, direction, data, sense)
     }
+
+    fn max_transfer(&self) -> u32 {
+        (**self).max_transfer()
+    }
 }
 
 impl<T: Transport + ?Sized> Transport for Box<T> {
@@ -327,6 +339,10 @@ impl<T: Transport + ?Sized> Transport for Box<T> {
         sense: &mut [u8],
     ) -> Result<(), Error> {
         (**self).execute(cdb, direction, data, sense)
+    }
+
+    fn max_transfer(&self) -> u32 {
+        (**self).max_transfer()
     }
 }
 

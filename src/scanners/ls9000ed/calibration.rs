@@ -145,13 +145,39 @@ where
     }
 }
 
+/// The `percentile` brightest sample of one channel
+fn tail<C>(image: &ImageBuffer<Rgb<u16>, C>, channel: usize, percentile: f32) -> Option<u16>
+where
+    C: Deref<Target = [u16]>,
+{
+    let mut samples: Vec<u16> = image.pixels().map(|p| p.0[channel]).collect();
+    samples.sort_unstable();
+    let at = (samples.len().saturating_sub(1) as f32 * percentile.clamp(0.0, 1.0)) as usize;
+    samples.get(at).copied()
+}
+
+/// Gain that would put `level` at `target`, or `None` if it cannot be known from this level
+///
+/// A channel pinned to 65535 says nothing about how far over it is, so it is halved and wants
+/// another pass. A channel reading zero has nothing to scale against.
+fn step(level: u16, target: u16) -> Option<f64> {
+    match level {
+        u16::MAX => Some(0.5),
+        0 => None,
+        _ => Some(f64::from(target) / f64::from(level)),
+    }
+}
+
 /// Gain that puts the `percentile` brightest sample of each channel at `target`
 ///
 /// Gain is linear in the value, so one proportional step lands it. Nikon Scan's Analog Gain
 /// palette is the same knob in EV, where 1 EV is a factor of two.
 ///
-/// A channel pinned to 65535 says nothing about how far over it is, so it is halved and wants
-/// another pass. Visible channels only, IR is left alone.
+/// Each channel is scaled on its own, which equalises their full-scale points: on a negative
+/// that neutralises the orange mask, since the brightest thing there is the film base. Use
+/// [`meter_locked`] to keep the channels' relative gains instead.
+///
+/// Visible channels only, IR is left alone.
 pub fn meter<C>(
     image: &ImageBuffer<Rgb<u16>, C>,
     current: ChannelExposures,
@@ -163,22 +189,44 @@ where
 {
     let mut metered = current;
     for (index, channel) in Channel::RGB.into_iter().enumerate() {
-        let mut samples: Vec<u16> = image.pixels().map(|p| p.0[index]).collect();
-        samples.sort_unstable();
-        let at = (samples.len().saturating_sub(1) as f32 * percentile.clamp(0.0, 1.0)) as usize;
-        let Some(&level) = samples.get(at) else {
+        let Some(scale) = tail(image, index, percentile).and_then(|level| step(level, target))
+        else {
             continue;
         };
-
-        let scale = if level == u16::MAX {
-            0.5
-        } else if level == 0 {
-            continue;
-        } else {
-            f64::from(target) / f64::from(level)
-        };
-
         let scaled = (f64::from(current.get(channel)) * scale).round();
+        metered.set(channel, scaled.clamp(1.0, f64::from(u32::MAX)) as u32);
+    }
+    metered
+}
+
+/// Like [`meter`], but one factor for all three channels, so their relative gains survive
+///
+/// The factor is the smallest any channel asks for, so the most constrained one lands on
+/// `target` and none go past it. That leaves whatever cast the film has, which is what you
+/// want for slides, or for negatives you intend to invert and balance yourself.
+///
+/// Visible channels only, IR is left alone.
+pub fn meter_locked<C>(
+    image: &ImageBuffer<Rgb<u16>, C>,
+    current: ChannelExposures,
+    percentile: f32,
+    target: u16,
+) -> ChannelExposures
+where
+    C: Deref<Target = [u16]>,
+{
+    let factor = Channel::RGB
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, _)| tail(image, index, percentile).and_then(|l| step(l, target)))
+        .fold(f64::INFINITY, f64::min);
+    if !factor.is_finite() {
+        return current;
+    }
+
+    let mut metered = current;
+    for channel in Channel::RGB {
+        let scaled = (f64::from(current.get(channel)) * factor).round();
         metered.set(channel, scaled.clamp(1.0, f64::from(u32::MAX)) as u32);
     }
     metered
@@ -237,5 +285,73 @@ mod meter_tests {
     fn a_dark_channel_is_left_alone() {
         let metered = meter(&flat(0, 0, 0), exposures(777), 1.0, 60000);
         assert_eq!((metered.red, metered.green, metered.blue), (777, 777, 777));
+    }
+
+    /// The most constrained channel lands on target and the others stay under it
+    #[test]
+    fn locked_scales_every_channel_by_the_same_factor() {
+        let metered = meter_locked(&flat(8000, 8000, 16000), exposures(1000), 1.0, 32000);
+        assert_eq!(
+            (metered.red, metered.green, metered.blue),
+            (2000, 2000, 2000)
+        );
+    }
+
+    /// Which is the whole point: the gains keep their ratios
+    #[test]
+    fn locked_preserves_the_ratios_between_channels() {
+        let current = ChannelExposures {
+            red: 71_890,
+            green: 50_732,
+            blue: 41_419,
+            ir: 93_634,
+        };
+        let metered = meter_locked(&flat(4000, 8000, 16000), current, 1.0, 32000);
+
+        let before = f64::from(current.red) / f64::from(current.blue);
+        let after = f64::from(metered.red) / f64::from(metered.blue);
+        assert!((before - after).abs() < 1e-4, "{before} became {after}");
+
+        // Blue asked for the smallest step, so it is the one that lands on target
+        assert_eq!(metered.blue, current.blue * 2);
+    }
+
+    /// A clipped channel drags everything down together, ratios intact
+    #[test]
+    fn locked_halves_when_a_channel_is_pinned() {
+        let metered = meter_locked(&flat(u16::MAX, 8000, 8000), exposures(1000), 1.0, 60000);
+        assert_eq!((metered.red, metered.green, metered.blue), (500, 500, 500));
+    }
+
+    #[test]
+    fn locked_leaves_a_dark_frame_alone() {
+        let metered = meter_locked(&flat(0, 0, 0), exposures(777), 1.0, 60000);
+        assert_eq!((metered.red, metered.green, metered.blue), (777, 777, 777));
+    }
+}
+
+/// How to meter a frame
+#[derive(Debug, Clone, Copy)]
+pub struct Metering {
+    /// Where to put each channel's high tail. The ADC saturates at 65535, and the second pass
+    /// can overshoot a small correction by a few percent, so leave headroom.
+    pub target: u16,
+    /// Which sample counts as the high tail, so a few blown pixels do not set the gain
+    pub percentile: f32,
+    /// One pass lands 3-10 percent under, a second measures from where it got to
+    pub passes: usize,
+    /// Scale the channels together, keeping their relative gains and whatever cast the film
+    /// has. Off means each fills the range on its own, which neutralises a negative's mask.
+    pub lock_white_balance: bool,
+}
+
+impl Default for Metering {
+    fn default() -> Self {
+        Self {
+            target: 58_000,
+            percentile: 0.999,
+            passes: 2,
+            lock_white_balance: false,
+        }
     }
 }

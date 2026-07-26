@@ -1,4 +1,5 @@
 use crate::{
+    decode::StreamDecoder,
     scanners::{FilmHolder, Focus, Scanner},
     scsi::{
         self as scsi, SenseKey, Transport, TransportExt,
@@ -27,7 +28,7 @@ pub mod holder;
 pub mod status;
 pub mod window;
 
-pub use calibration::ChannelExposures;
+pub use calibration::{ChannelExposures, Metering};
 pub use capabilities::Capabilities;
 pub use geometry::{CcdMode, Dpi, Multisample, ScanArea, ScanSettings};
 pub use window::{BaseQuality, WindowKind, WindowParams};
@@ -471,5 +472,141 @@ mod tests {
         assert_eq!(stage_target(9792), 2870);
         assert_eq!(stage_target(13176), 1178);
         assert!(stage_target(16560) < 0);
+    }
+}
+
+/// Either half of a scan can fail: the transport, or decoding what came back
+pub type ScanError = crate::scanners::ReadError<decode::DecodeError>;
+
+impl<T> Ls9000ed<T>
+where
+    T: Transport,
+{
+    /// Stage the channels this pass needs, scan, and decode what comes back
+    ///
+    /// `settings.ir` adds the infrared readout, which every capture stages first and lists
+    /// first in the SCAN. The decoded mask comes back in [`Image::ir`](decode::Image::ir).
+    pub fn scan_image(
+        &mut self,
+        settings: &ScanSettings,
+        gain: ChannelExposures,
+    ) -> Result<decode::Image, ScanError> {
+        self.scan_image_with(settings, gain, |_, _| {})
+    }
+
+    /// [`scan_image`](Self::scan_image), reporting (received, expected) bytes as it reads
+    pub fn scan_image_with<F: FnMut(u64, u64)>(
+        &mut self,
+        settings: &ScanSettings,
+        gain: ChannelExposures,
+        progress: F,
+    ) -> Result<decode::Image, ScanError> {
+        let channels: &[Channel] = if settings.ir {
+            &[Channel::Ir, Channel::Red, Channel::Green, Channel::Blue]
+        } else {
+            &Channel::RGB
+        };
+        for &channel in channels {
+            let params = WindowParams {
+                ccd: settings.ccd_mode,
+                multisample: settings.multisample,
+                quality: settings.quality,
+                window_kind: WindowKind::Frame,
+                exposure: gain.get(channel),
+            };
+            self.set_window(
+                channel,
+                params.descriptor(settings.dpi.to_dpi(), settings.window),
+            )?;
+        }
+
+        self.scan(channels)?;
+        self.wait_until_ready()?;
+
+        let chunk = self.transport.max_transfer();
+        let mut decoder = decode::FrameDecoder::new(settings).map_err(ScanError::Decode)?;
+        self.read_into_with(&mut decoder, chunk, progress)?;
+
+        Ok(decoder.finish().map_err(ScanError::Decode)?.to_owned())
+    }
+
+    /// Find the gain that fills the range, by scanning the window and measuring it
+    ///
+    /// Starts from `from` rather than what the scanner has staged, since gain persists across
+    /// sessions and metering relative to it compounds.
+    ///
+    /// Returns the last image alongside the gain: metering acquires a preview whether anyone
+    /// wants it or not, and it is what Nikon Scan shows the user. At least one pass runs.
+    pub fn autoexpose(
+        &mut self,
+        settings: &ScanSettings,
+        from: ChannelExposures,
+        metering: &Metering,
+    ) -> Result<(ChannelExposures, decode::Image), ScanError> {
+        self.autoexpose_with(settings, from, metering, |_, _| {})
+    }
+
+    /// [`autoexpose`](Self::autoexpose), reporting (received, expected) bytes of each pass
+    pub fn autoexpose_with<F: FnMut(u64, u64)>(
+        &mut self,
+        settings: &ScanSettings,
+        from: ChannelExposures,
+        metering: &Metering,
+        mut progress: F,
+    ) -> Result<(ChannelExposures, decode::Image), ScanError> {
+        let mut gain = from;
+        let mut preview = None;
+        for pass in 0..metering.passes.max(1) {
+            let image = self.scan_image_with(settings, gain, &mut progress)?;
+            let metered = if metering.lock_white_balance {
+                calibration::meter_locked(&image.rgb, gain, metering.percentile, metering.target)
+            } else {
+                calibration::meter(&image.rgb, gain, metering.percentile, metering.target)
+            };
+            debug!(pass, ?gain, ?metered, "Metered");
+            gain = metered;
+            preview = Some(image);
+        }
+        Ok((gain, preview.expect("at least one pass runs")))
+    }
+
+    /// The 83-DPI overview of the whole strip
+    ///
+    /// Fixed at that resolution, and what
+    /// [`FrameBoundaries::detect`](boundaries::FrameBoundaries::detect) reads to find where
+    /// the frames sit. Returned rather than consumed, since it is also what a viewer shows.
+    pub fn overview(&mut self, gain: ChannelExposures) -> Result<decode::Rgb16, ScanError> {
+        self.overview_with(gain, |_, _| {})
+    }
+
+    /// [`overview`](Self::overview), reporting (received, expected) bytes as it reads
+    pub fn overview_with<F: FnMut(u64, u64)>(
+        &mut self,
+        gain: ChannelExposures,
+        progress: F,
+    ) -> Result<decode::Rgb16, ScanError> {
+        let channels = Channel::RGB;
+        for channel in channels {
+            let params = WindowParams {
+                ccd: CcdMode::SingleLine,
+                multisample: Multisample::X1,
+                quality: BaseQuality::Scan,
+                window_kind: WindowKind::Overview,
+                exposure: gain.get(channel),
+            };
+            self.set_window(channel, params.descriptor(83, ScanArea::overview()))?;
+        }
+
+        self.scan(&channels)?;
+        self.wait_until_ready()?;
+
+        let chunk = self.transport.max_transfer();
+        let mut decoder = decode::OverviewDecoder::new();
+        self.read_into_with(&mut decoder, chunk, progress)?;
+        let view = decoder.finish().map_err(ScanError::Decode)?;
+        Ok(
+            decode::Rgb16::from_raw(view.width(), view.height(), view.to_vec())
+                .expect("view is well formed"),
+        )
     }
 }
