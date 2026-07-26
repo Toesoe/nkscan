@@ -2,7 +2,7 @@
 
 use super::{DataDirection, Error, SenseData, Transport};
 use bitflags::bitflags;
-use nix::ioctl_readwrite_bad;
+use nix::{ioctl_read_bad, ioctl_readwrite_bad, ioctl_write_ptr_bad};
 use std::{
     fmt,
     fs::{File, OpenOptions},
@@ -234,8 +234,24 @@ impl fmt::Debug for Info {
 /// convention, so it's a fixed literal rather than something built from
 /// direction/size bits - hence the "bad" ioctl flavor below.
 const SG_IO: u16 = 0x2285;
+/// Set and read back the per-fd reserved buffer, which caps a single transfer
+const SG_SET_RESERVED_SIZE: u16 = 0x2275;
+const SG_GET_RESERVED_SIZE: u16 = 0x2272;
 
 ioctl_readwrite_bad!(sg_io, SG_IO, SgIoHdr);
+ioctl_write_ptr_bad!(sg_set_reserved_size, SG_SET_RESERVED_SIZE, i32);
+ioctl_read_bad!(sg_get_reserved_size, SG_GET_RESERVED_SIZE, i32);
+
+/// What to ask the reserved buffer to be, in bytes
+///
+/// The kernel clamps this to what the queue carries, so asking for more than it will give is
+/// not an error. On an LS-9000 over SBP-2 this lands at 262144.
+///
+/// Do not expect it to be faster. A 9.8 MB preview takes ~31 s whether it comes in 300 reads
+/// of 32 KB or 37 of 256 KB, both about 310 KB/s: the rate is the scanner's, not the bus's or
+/// the command overhead. This is here so callers have one number to ask for rather than a
+/// magic constant each.
+const WANTED_RESERVED_SIZE: i32 = 512 * 1024;
 
 /// Default command timeout, in milliseconds
 ///
@@ -248,12 +264,33 @@ const DEFAULT_TIMEOUT_MS: u32 = 180_000;
 
 // ---- High level interface
 
-pub struct SgDevice(File);
+pub struct SgDevice {
+    file: File,
+    max_transfer: u32,
+}
 
 impl SgDevice {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
-        Ok(Self(file))
+        let fd = file.as_raw_fd();
+
+        // Best effort: the kernel clamps to what the queue can carry, and a refusal just
+        // leaves the default in place
+        let mut reserved = 0i32;
+        unsafe {
+            let _ = sg_set_reserved_size(fd, &WANTED_RESERVED_SIZE);
+            sg_get_reserved_size(fd, &mut reserved)
+                .map_err(|e| io::Error::other(format!("SG_GET_RESERVED_SIZE: {e}")))?;
+        }
+        let max_transfer = reserved.max(0) as u32;
+        debug!(max_transfer, "Reserved buffer");
+
+        Ok(Self { file, max_transfer })
+    }
+
+    /// Largest single transfer this handle can carry
+    pub fn max_transfer(&self) -> u32 {
+        self.max_transfer
     }
 }
 
@@ -297,13 +334,13 @@ impl Transport for SgDevice {
             info: Info(0),
         };
 
-        // SAFETY: `self.0` is an open file, so `as_raw_fd()` gives a valid fd for the
+        // SAFETY: `self.file` is an open file, so `as_raw_fd()` gives a valid fd for the
         // duration of this call. `hdr` is a fully-initialized `SgIoHdr` living on this
         // stack frame. Its `cmdp`/`sbp`/`dxferp` pointers come from `cmd`, `sense`, and
         // `data`, all of which outlive the call (they're not touched again until after
         // it returns), and `cmd_len`/`mx_sb_len`/`dxfer_len` are set from those same
         // buffers' actual lengths, so the kernel can't read or write past them.
-        unsafe { sg_io(self.0.as_raw_fd(), &mut hdr) }.map_err(io::Error::from)?;
+        unsafe { sg_io(self.file.as_raw_fd(), &mut hdr) }.map_err(io::Error::from)?;
 
         // These decode fields the kernel/adapter fill in on every completion, not
         // just failures - worth surfacing even when `info` says the command was

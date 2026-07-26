@@ -15,7 +15,7 @@ pub enum BaseQuality {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-/// What "kind" of window this window operation is for
+/// What kind of pass this window sets up
 pub enum WindowKind {
     /// A window into a particular frame
     Frame,
@@ -30,8 +30,11 @@ pub struct WindowParams {
     pub multisample: Multisample,
     pub quality: BaseQuality,
     pub window_kind: WindowKind,
-    /// Per-channel exposure, overwritten wholesale by autoexposure
-    /// Before AE runs, Nikon Scan seeds it from the scanner's own GET WINDOW readback
+    /// Per-channel analog gain, linear in the value and free in time
+    ///
+    /// 32x the value saturates the ADC while the scan still takes 889 ms, so this amplifies
+    /// rather than integrating longer. Nikon Scan's Analog Gain palette is the same knob in
+    /// EV. Persists across sessions, so a readback is whatever was last written.
     pub exposure: u32,
 }
 
@@ -81,15 +84,18 @@ impl From<WindowParams> for Vec<u8> {
         // High nibble is the multi-sample repeat count minus one
         buf[0] = ((value.multisample.count() - 1) << 4) as u8;
 
-        // Bit 7 here and bits 1/2 of buf[3] never move independently: square
-        // sampling is (0x81, 0x02) and the half-height prescan is (0x01, 0x04).
+        // Bit 7 is averaging, and tracks the sampling mode: square sampling is (0x81, 0x02),
+        // the half-height prescan (0x01, 0x04).
+        //
+        // Bit 0 is positive film on other Coolscans. Clearing it here is accepted and reads
+        // back cleared, but the image is identical, so leave it set.
         buf[1] = match value.quality {
             BaseQuality::Scan => 0x81,
             BaseQuality::Preview => 0x01,
         };
-        // 0x02 shows up only on the 83-DPI whole-strip overview
         buf[2] = match value.window_kind {
             WindowKind::Frame => 0x01,
+            // Only the 83-DPI whole-strip overview
             WindowKind::Overview => 0x02,
         };
         // Bit 4 is "multi-sampling on", always set exactly when buf[0]'s high nibble is nonzero

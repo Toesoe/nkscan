@@ -60,8 +60,9 @@ impl FrameRect {
     /// The stage extent the scanner will accept a window in
     ///
     /// 36 is all the three-line interleave needs, at any resolution. This is 72 only because
-    /// every length in the captures is, and no preview pass has been accepted yet to say
-    /// whether 36 is enough. Drop it to 36 once one has.
+    /// every length in the captures is one, and the 9792-dot preview that finally worked is a
+    /// multiple of both, so nothing has yet distinguished them. Settling it needs a length
+    /// that divides 36 but not 72.
     const BLOCK_DOTS: u32 = 72;
 
     /// The middle of the frame, which is where [`autofocus`](Ls9000ed::autofocus) wants aiming

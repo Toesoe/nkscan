@@ -6,7 +6,7 @@ use crate::{
         mode_pages::{BasicUnit, MeasurementUnits},
     },
 };
-use cdbs::{Subcode, VendorPayload, VendorRead, VendorTrigger, VendorWrite};
+use cdbs::{Subcode, VendorAbort, VendorPayload, VendorRead, VendorTrigger, VendorWrite};
 use dtc::Dtc;
 use holder::Holder;
 use status::Status;
@@ -18,6 +18,7 @@ use tracing::*;
 
 pub mod boundaries;
 pub mod calibration;
+pub mod capabilities;
 pub mod cdbs;
 pub mod decode;
 pub mod dtc;
@@ -27,6 +28,7 @@ pub mod status;
 pub mod window;
 
 pub use calibration::ChannelExposures;
+pub use capabilities::Capabilities;
 pub use geometry::{CcdMode, Dpi, Multisample, ScanArea, ScanSettings};
 pub use window::{BaseQuality, WindowKind, WindowParams};
 
@@ -50,21 +52,31 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// Long enough for a calibration, which Nikon Scan's own UI says can take two minutes.
 const READY_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Dots the stage advances per step it reports, 1/333 in, the same 12 dots the three CCD
+/// Dots the holder advances per step it reports, 1/333 in, the same 12 dots the three CCD
 /// lines are spaced by
-const STAGE_STEP_DOTS: u32 = 12;
-/// The step the scanner reports when the stage is at y=0. Autofocus on two frames 20160 dots
-/// apart moved it by exactly 1680 steps, and both solve to this origin with no residual.
-const STAGE_HOME_STEP: u32 = 171;
+const HOLDER_STEP_DOTS: u32 = 12;
+/// The step the scanner reports when the holder is at y=0. Six autofocus targets across two
+/// sessions solve to this origin with no residual.
+const HOLDER_HOME_STEP: u32 = 171;
+/// Vendor byte 2 of a window descriptor when the window is a frame, see [`WindowKind::Frame`]
+const FRAME_WINDOW_KIND: u8 = 0x01;
+/// Where a frame SET WINDOW puts the stage motor for a zero-length window
+const STAGE_FRAME_ORIGIN: i32 = 7766;
 
-/// Stage steps as [`ScanArea`] dots
-fn stage_dots(steps: u16) -> u32 {
-    u32::from(steps).saturating_sub(STAGE_HOME_STEP) * STAGE_STEP_DOTS
+/// Holder steps as [`ScanArea`] dots
+fn holder_dots(steps: u16) -> u32 {
+    u32::from(steps).saturating_sub(HOLDER_HOME_STEP) * HOLDER_STEP_DOTS
+}
+
+/// Where a frame SET WINDOW drives the stage motor, given the window length
+fn stage_target(length: u32) -> i32 {
+    STAGE_FRAME_ORIGIN - (length / 2) as i32
 }
 
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
 pub struct Ls9000ed<T> {
     pub(crate) transport: T,
+    capabilities: Capabilities,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -111,8 +123,14 @@ impl<T> Ls9000ed<T>
 where
     T: Transport,
 {
-    pub fn new(transport: T) -> Result<Self, scsi::Error> {
-        let mut scanner = Ls9000ed { transport };
+    pub fn new(mut transport: T) -> Result<Self, scsi::Error> {
+        // The geometry this will accept comes from the device
+        let capabilities = Capabilities::read(&mut transport)?;
+        debug!(?capabilities, "Scanner capabilities");
+        let mut scanner = Ls9000ed {
+            transport,
+            capabilities,
+        };
 
         // Everything below would choke on a queued unit attention, and there can be several:
         // ejecting a holder raises both a holder change and a reset.
@@ -121,6 +139,10 @@ where
 
         // We always want exclusive access for the lifetime of this handle
         scanner.reserve()?;
+
+        // A killed process leaves its pass pending, and the scanner refuses everything else
+        // until it is told to give up on it
+        scanner.abort_scan()?;
 
         // On startup, make sure we set the working units to 4000 DPI
         // We will always assume these are the units everywhere (like NikonScan)
@@ -146,6 +168,20 @@ where
         Err(scsi::Error::InvalidResponse(
             "scanner kept reporting unit attentions",
         ))
+    }
+
+    /// Throw away a pass nobody is going to read
+    ///
+    /// A program killed mid-read leaves the scanner holding the rest of the image, and every
+    /// later command comes back `CommandSequenceError`. Refusal means nothing was pending.
+    pub fn abort_scan(&mut self) -> Result<(), scsi::Error> {
+        match self.transport.send(&VendorAbort) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                trace!(?err, "Nothing to abort");
+                Ok(())
+            }
+        }
     }
 
     /// Block until the scanner finishes whatever it's doing
@@ -207,12 +243,32 @@ where
         ))
     }
 
+    /// What the scanner reported about itself when this handle was opened
+    pub fn capabilities(&self) -> Capabilities {
+        self.capabilities
+    }
+
     /// Configure `channel`'s window
     pub fn set_window(
         &mut self,
         channel: Channel,
         mut descriptor: WindowDescriptor,
     ) -> Result<(), scsi::Error> {
+        // The kind lives in the vendor tail, which is the only place it survives to
+        if descriptor.vendor.get(2) == Some(&FRAME_WINDOW_KIND)
+            && descriptor.length > self.capabilities.boundary_y
+        {
+            warn!(
+                length = descriptor.length,
+                boundary = self.capabilities.boundary_y,
+                stage_target = stage_target(descriptor.length),
+                "Refusing a frame window past the reported boundary"
+            );
+            return Err(scsi::Error::Unsupported(
+                "frame window longer than the scanner's reported Y boundary would stall the stage",
+            ));
+        }
+
         descriptor.id = channel.to_id();
         self.transport
             .send(&SetWindow::new(0, &[descriptor], VENDOR_CONTROL))
@@ -235,22 +291,25 @@ where
         Ok(focus)
     }
 
-    /// Where the stage currently sits, in the same 1/4000-in dots as [`ScanArea`]
+    /// Where the holder currently sits, in the same 1/4000-in dots as [`ScanArea`]
     ///
     /// Read back off vendor subcode 0x42, which reports the position in stage steps. Only
     /// legible at rest: the scanner refuses every vendor read while a pass is pending.
-    pub fn stage_position(&mut self) -> Result<u32, scsi::Error> {
+    pub fn holder_position(&mut self) -> Result<u32, scsi::Error> {
         let bytes = self.probe_vendor(0x42, 11)?;
         let steps = bytes
             .get(3..5)
             .map(|b| u16::from_be_bytes([b[0], b[1]]))
             .ok_or(scsi::Error::InvalidResponse("0x42 read too short"))?;
-        Ok(stage_dots(steps))
+        Ok(holder_dots(steps))
     }
 
-    /// Read an uncharacterized vendor register, for working out what the firmware exposes
-    ///
-    /// Reads only. Nothing here commands the mechanism.
+    /// Read a vital product data page. Page 0x00 lists the ones this device has.
+    pub fn vpd_page(&mut self, page_code: u8) -> Result<Vec<u8>, scsi::Error> {
+        Ok(self.transport.send(&VpdInquiry::new(page_code, 0xFF))?.data)
+    }
+
+    /// Read an uncharacterized vendor register
     pub fn probe_vendor(&mut self, subcode: u8, length: u32) -> Result<Vec<u8>, scsi::Error> {
         match self
             .transport
@@ -260,18 +319,6 @@ where
             // Subcode::Other always decodes to Raw, see VendorRead::parse_response
             _ => unreachable!(),
         }
-    }
-
-    /// Read an uncharacterized vendor data structure, the DTC counterpart to
-    /// [`probe_vendor`](Self::probe_vendor)
-    pub fn probe_dtc(
-        &mut self,
-        code: u8,
-        qualifier: u8,
-        channel: Option<Channel>,
-        length: u32,
-    ) -> Result<Vec<u8>, scsi::Error> {
-        self.read_dtc(Dtc::Other { code, qualifier }, channel, length)
     }
 
     /// Scan parameters
@@ -400,19 +447,29 @@ mod tests {
 
     /// Both autofocus points land exactly on their target, which is what fixes the mapping
     #[test]
-    fn stage_steps_match_the_probed_positions() {
-        assert_eq!(stage_dots(738), 6804);
-        assert_eq!(stage_dots(2418), 26964);
+    fn holder_steps_match_the_probed_positions() {
+        assert_eq!(holder_dots(738), 6804);
+        assert_eq!(holder_dots(2418), 26964);
         // The first probe run caught it sitting at the origin
-        assert_eq!(stage_dots(171), 0);
+        assert_eq!(holder_dots(171), 0);
         // A thumbnail leaves it one step short of full travel
-        assert_eq!(stage_dots(3055), ScanArea::STRIP_DOTS - 36);
+        assert_eq!(holder_dots(3055), ScanArea::STRIP_DOTS - 36);
     }
 
     /// A reading below the origin would otherwise wrap into a huge position
     #[test]
     fn steps_below_home_clamp_to_zero() {
-        assert_eq!(stage_dots(0), 0);
-        assert_eq!(stage_dots(STAGE_HOME_STEP as u16 - 1), 0);
+        assert_eq!(holder_dots(0), 0);
+        assert_eq!(holder_dots(HOLDER_HOME_STEP as u16 - 1), 0);
+    }
+
+    /// Every length measured on hardware, with no residual. 16560 is the one that stalled,
+    /// and it is the first of these to come out negative.
+    #[test]
+    fn stage_targets_match_the_measured_positions() {
+        assert_eq!(stage_target(6696), 4418);
+        assert_eq!(stage_target(9792), 2870);
+        assert_eq!(stage_target(13176), 1178);
+        assert!(stage_target(16560) < 0);
     }
 }
