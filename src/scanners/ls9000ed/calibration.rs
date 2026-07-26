@@ -17,10 +17,11 @@ use image::{ImageBuffer, Rgb};
 use std::ops::Deref;
 use tracing::*;
 
-/// Per-channel exposure seeds for the calibration windows
+/// Per-channel analog gain, as the window descriptor tail carries it
 ///
-/// Nikon Scan seeds these from the scanner's own window descriptors, which is what
-/// [`Ls9000ed::channel_exposures`] reads. Autoexposure overwrites them later.
+/// Persists in the scanner across sessions, so [`Ls9000ed::channel_exposures`] returns
+/// whatever was last written rather than a power-on default. Metering that starts from it
+/// compounds run over run; start from a fixed value instead.
 #[derive(Debug, Clone, Copy)]
 pub struct ChannelExposures {
     pub red: u32,
@@ -30,8 +31,8 @@ pub struct ChannelExposures {
 }
 
 impl Default for ChannelExposures {
-    /// Seeds from a capture. IR is the same in every session, RGB vary with the film,
-    /// so treat those as a starting point rather than a correct value.
+    /// One capture's values, for a channel the scanner does not report. Not a good starting
+    /// point for anything: gain depends on the film.
     fn default() -> Self {
         Self {
             red: 0x0001_14D9,
@@ -43,8 +44,8 @@ impl Default for ChannelExposures {
 }
 
 impl ChannelExposures {
-    /// The exposure staged for one channel. `Channel::All` has none of its own, so it
-    /// reports the red one the scanner leads with.
+    /// The gain staged for one channel. `Channel::All` has none of its own, so it reports the
+    /// red one the scanner leads with.
     pub fn get(&self, channel: Channel) -> u32 {
         match channel {
             Channel::Red | Channel::All => self.red,
@@ -78,9 +79,9 @@ impl<T> Ls9000ed<T>
 where
     T: Transport,
 {
-    /// The exposures the scanner currently has staged, read back off its own window descriptors
+    /// The gain the scanner currently has staged, read back off its own window descriptors
     ///
-    /// Any channel the scanner doesn't report keeps its [`Default`] value
+    /// Any channel the scanner does not report keeps its [`Default`] value
     pub fn channel_exposures(&mut self) -> Result<ChannelExposures, scsi::Error> {
         let mut exposures = ChannelExposures::default();
         for descriptor in self.get_window(None)? {
@@ -144,7 +145,7 @@ where
     }
 }
 
-/// Exposure that puts the `percentile` brightest sample of each channel at `target`
+/// Gain that puts the `percentile` brightest sample of each channel at `target`
 ///
 /// Gain is linear in the value, so one proportional step lands it. Nikon Scan's Analog Gain
 /// palette is the same knob in EV, where 1 EV is a factor of two.
