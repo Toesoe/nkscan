@@ -57,13 +57,10 @@ impl FrameRect {
         }
     }
 
-    /// The stage extent the scanner will accept a window in
+    /// One three-line interleave block: 3 CCD lines at a 12-dot pitch, so 36 dots
     ///
-    /// 36 is all the three-line interleave needs, at any resolution. This is 72 only because
-    /// every length in the captures is one, and the 9792-dot preview that finally worked is a
-    /// multiple of both, so nothing has yet distinguished them. Settling it needs a length
-    /// that divides 36 but not 72.
-    const BLOCK_DOTS: u32 = 72;
+    /// A window length has to be a whole number of these at every resolution we send.
+    const BLOCK_DOTS: u32 = 3 * 12;
 
     /// The middle of the frame, which is where [`autofocus`](Ls9000ed::autofocus) wants aiming
     pub fn center(self) -> (u32, u32) {
@@ -470,11 +467,11 @@ mod tests {
         assert_eq!((area.x_pos, area.x_size), (518, 8964));
         assert_eq!((area.y_pos, area.y_size), (18672, 13176));
 
-        // A detected boundary lands on the 48-dot overview grid, which 72 doesn't divide.
+        // A detected boundary lands on the 48-dot overview grid, which 36 doesn't divide.
         // Aligning at detection is what keeps the table and the window agreeing.
         let detected = FrameRect::aligned(2112, 9840);
-        assert_eq!(detected.y_bottom - detected.y_top, 9792);
-        assert_eq!(detected.scan_area().y_size, 9792);
+        assert_eq!(detected.y_bottom - detected.y_top, 9828);
+        assert_eq!(detected.scan_area().y_size, 9828);
 
         // Both captured lengths are already whole groups and must come through untouched
         for length in [13176, 6696] {
