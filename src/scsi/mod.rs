@@ -51,6 +51,10 @@ pub enum Error {
 
     #[error("invalid SCSI response: {0}")]
     InvalidResponse(&'static str),
+
+    /// Refused before reaching the bus, because the device reports it cannot do it
+    #[error("refused to send a command outside what the device supports: {0}")]
+    Unsupported(&'static str),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

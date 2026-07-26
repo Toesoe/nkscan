@@ -13,6 +13,8 @@ use crate::{
     scanners::Focus,
     scsi::{self, Transport},
 };
+use image::{ImageBuffer, Rgb};
+use std::ops::Deref;
 use tracing::*;
 
 /// Per-channel exposure seeds for the calibration windows
@@ -139,5 +141,100 @@ where
         }
 
         Ok(())
+    }
+}
+
+/// Exposure that puts the `percentile` brightest sample of each channel at `target`
+///
+/// Gain is linear in the value, so one proportional step lands it. Nikon Scan's Analog Gain
+/// palette is the same knob in EV, where 1 EV is a factor of two.
+///
+/// A channel pinned to 65535 says nothing about how far over it is, so it is halved and wants
+/// another pass. Visible channels only, IR is left alone.
+pub fn meter<C>(
+    image: &ImageBuffer<Rgb<u16>, C>,
+    current: ChannelExposures,
+    percentile: f32,
+    target: u16,
+) -> ChannelExposures
+where
+    C: Deref<Target = [u16]>,
+{
+    let mut metered = current;
+    for (index, channel) in Channel::RGB.into_iter().enumerate() {
+        let mut samples: Vec<u16> = image.pixels().map(|p| p.0[index]).collect();
+        samples.sort_unstable();
+        let at = (samples.len().saturating_sub(1) as f32 * percentile.clamp(0.0, 1.0)) as usize;
+        let Some(&level) = samples.get(at) else {
+            continue;
+        };
+
+        let scale = if level == u16::MAX {
+            0.5
+        } else if level == 0 {
+            continue;
+        } else {
+            f64::from(target) / f64::from(level)
+        };
+
+        let scaled = (f64::from(current.get(channel)) * scale).round();
+        metered.set(channel, scaled.clamp(1.0, f64::from(u32::MAX)) as u32);
+    }
+    metered
+}
+
+#[cfg(test)]
+mod meter_tests {
+    use super::*;
+    use image::Rgb;
+
+    fn flat(r: u16, g: u16, b: u16) -> ImageBuffer<Rgb<u16>, Vec<u16>> {
+        ImageBuffer::from_pixel(8, 8, Rgb([r, g, b]))
+    }
+
+    fn exposures(v: u32) -> ChannelExposures {
+        ChannelExposures {
+            red: v,
+            green: v,
+            blue: v,
+            ir: v,
+        }
+    }
+
+    #[test]
+    fn scales_each_channel_toward_the_target() {
+        let metered = meter(&flat(8000, 16000, 32000), exposures(1000), 1.0, 32000);
+        assert_eq!(
+            (metered.red, metered.green, metered.blue),
+            (4000, 2000, 1000)
+        );
+    }
+
+    #[test]
+    fn infrared_is_untouched() {
+        let metered = meter(&flat(8000, 8000, 8000), exposures(1234), 1.0, 32000);
+        assert_eq!(metered.ir, 1234);
+    }
+
+    /// A pinned channel says nothing about how far over it is, so back off and re-meter
+    #[test]
+    fn a_clipped_channel_is_halved() {
+        let metered = meter(&flat(u16::MAX, 8000, 8000), exposures(1000), 1.0, 60000);
+        assert_eq!(metered.red, 500);
+    }
+
+    /// One blown pixel must not cost the whole channel
+    #[test]
+    fn outliers_do_not_set_the_exposure() {
+        let mut image = flat(8000, 8000, 8000);
+        image.put_pixel(0, 0, Rgb([u16::MAX; 3]));
+        let metered = meter(&image, exposures(1000), 0.95, 32000);
+        assert_eq!(metered.red, 4000);
+    }
+
+    #[test]
+    fn a_dark_channel_is_left_alone() {
+        let metered = meter(&flat(0, 0, 0), exposures(777), 1.0, 60000);
+        assert_eq!((metered.red, metered.green, metered.blue), (777, 777, 777));
     }
 }

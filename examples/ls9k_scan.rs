@@ -1,14 +1,25 @@
-//! Drive a real LS-9000ED through calibration and a scan.
+//! Locate the frames on a strip, then meter and scan one of them.
+//!
+//! The 83-DPI overview locates frames and is fixed at that resolution, so the frame window is
+//! the only imaging path. It covers at most the device's `boundary_y`, 13176 dots or 83.7 mm.
+//!
+//! Gain persists in the scanner across sessions, so metering never starts from what is staged:
+//! it starts from [`BASE`] every time, or each run would compound the last.
 
-use image::ImageFormat;
+use image::{
+    ImageFormat,
+    imageops::{self, FilterType},
+};
 use nkscan::{
     decode::StreamDecoder,
     scanners::{
         FilmHolder, Focus, Scanner,
         ls9000ed::{
-            CcdMode, Channel, Dpi, Ls9000ed, Multisample, ScanArea, ScanSettings,
+            CcdMode, Channel, ChannelExposures, Dpi, Ls9000ed, Multisample, POLL_INTERVAL,
+            ScanArea, ScanSettings,
             boundaries::FrameBoundaries,
-            decode::{FrameDecoder, OverviewDecoder},
+            calibration::meter,
+            decode::{FrameDecoder, OverviewDecoder, Rgb16},
             holder::Holder,
             status::Status,
             window::{BaseQuality, WindowKind, WindowParams},
@@ -16,13 +27,100 @@ use nkscan::{
     },
     scsi::{Transport, linux::SgDevice},
 };
-use std::{fs::File, io::BufWriter};
+use std::{fs::File, io::BufWriter, thread::sleep};
 use tracing::*;
 
-/// How many frames the strip holds, which is all the detector needs
-const FRAME_COUNT: usize = 3;
-/// Which of them to focus on
+/// How many frames the strip holds. This is what the detector fits, not how many to scan:
+/// telling it 1 makes it return a single frame spanning everything.
+const FRAMES_ON_STRIP: usize = 3;
+/// Which of them to scan
 const FRAME: usize = 0;
+
+/// Metering geometry: cheap, and gain is what we are after rather than pixels. This is the
+/// 666x333 prescan Nikon Scan meters on.
+const METER_DPI: Dpi = Dpi::_666;
+const METER_QUALITY: BaseQuality = BaseQuality::Preview;
+
+/// Scan geometry. Nikon Scan meters at 666x333 and scans at 4000 on the same frame.
+///
+/// One 6x6 frame, RGB, no IR: 666 preview is about 7 MB, 4000 square about 523 MB. The latter
+/// takes about 3 minutes, running at 2.65 MB/s against the preview's 310 KB/s: the scanner
+/// streams as the stage steps, so more data per step is a higher rate.
+const SCAN_DPI: Dpi = Dpi::_4000;
+const SCAN_QUALITY: BaseQuality = BaseQuality::Scan;
+
+/// Where metering starts, well under clipping so the first pass is measurable
+const BASE: ChannelExposures = ChannelExposures {
+    red: 71_890,
+    green: 50_732,
+    blue: 41_419,
+    ir: 93_634,
+};
+/// Where to put the high tail of each channel. The ADC saturates at 65535.
+///
+/// Not closer: the second metering pass overshoots small corrections by about 5 percent, and
+/// 62000 once landed blue at 65033. Clipping loses data for good, which is the whole point of
+/// metering, so the margin is worth 0.1 stop.
+const TARGET: u16 = 58_000;
+/// Which sample counts as the high tail, so a few blown pixels do not set the gain
+const PERCENTILE: f32 = 0.999;
+/// One pass lands 3-10 percent under, so a second measures from where it actually got to.
+/// That one tends to overshoot by about 5 percent, which [`TARGET`] leaves room for.
+const METERING_PASSES: usize = 2;
+
+/// Scan the window at these exposures and decode it
+fn pass<T: Transport>(
+    scanner: &mut Ls9000ed<T>,
+    settings: &ScanSettings,
+    exposures: ChannelExposures,
+    chunk: u32,
+) -> anyhow::Result<Rgb16> {
+    let channels = Channel::RGB;
+    for channel in channels {
+        let params = WindowParams {
+            ccd: settings.ccd_mode,
+            multisample: settings.multisample,
+            quality: settings.quality,
+            window_kind: WindowKind::Frame,
+            exposure: exposures.get(channel),
+        };
+        scanner.set_window(
+            channel,
+            params.descriptor(settings.dpi.to_dpi(), settings.window),
+        )?;
+    }
+
+    scanner.scan(&channels)?;
+    scanner.wait_until_ready()?;
+
+    let mut decoder = FrameDecoder::new(settings)?;
+    let mut last = 0;
+    scanner.read_into_with(&mut decoder, chunk, |received, expected| {
+        let percent = received * 100 / expected;
+        if percent >= last + 25 {
+            last = percent;
+            debug!(percent, "Reading");
+        }
+    })?;
+
+    let view = decoder.finish()?;
+    Ok(
+        Rgb16::from_raw(view.rgb.width(), view.rgb.height(), view.rgb.to_vec())
+            .expect("view is well formed"),
+    )
+}
+
+/// The level `meter` saw, per channel, so the log shows what it acted on
+fn levels(image: &Rgb16, percentile: f32) -> [u16; 3] {
+    let mut out = [0u16; 3];
+    for (channel, level) in out.iter_mut().enumerate() {
+        let mut samples: Vec<u16> = image.pixels().map(|p| p.0[channel]).collect();
+        samples.sort_unstable();
+        let at = (samples.len().saturating_sub(1) as f32 * percentile) as usize;
+        *level = samples[at];
+    }
+    out
+}
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -33,8 +131,12 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     // Boxed so the backend could be chosen at runtime
-    let transport: Box<dyn Transport> = Box::new(SgDevice::open("/dev/sg4")?);
+    let sg = SgDevice::open("/dev/sg4")?;
+    let chunk = sg.max_transfer();
+    let transport: Box<dyn Transport> = Box::new(sg);
     let mut scanner = Ls9000ed::new(transport)?;
+    let capabilities = scanner.capabilities();
+    info!(?capabilities, chunk, "Scanner");
 
     // Block until we have a film holder and the scanner is ready
     info!("Waiting for scanner to be ready");
@@ -45,15 +147,14 @@ fn main() -> anyhow::Result<()> {
             info!("Scanner ready with film holder: {:#?}", holder);
             break;
         }
+        // Unlike the other waits this one has no bound, since it is waiting on a person
+        sleep(POLL_INTERVAL);
     }
 
-    let exposures = scanner.channel_exposures()?;
-    info!(?exposures, "Exposures staged in the scanner");
+    info!(staged = ?scanner.channel_exposures()?, base = ?BASE, "Gain");
+    scanner.calibrate(BASE)?;
 
-    scanner.calibrate(exposures)?;
-    info!("Calibrated");
-
-    // The 83-DPI thumbnail: the whole strip in one pass, single-line CCD, RGB
+    // The 83-DPI thumbnail, only to find where the frames sit
     let channels = Channel::RGB;
     for channel in channels {
         let params = WindowParams {
@@ -61,113 +162,88 @@ fn main() -> anyhow::Result<()> {
             multisample: Multisample::X1,
             quality: BaseQuality::Scan,
             window_kind: WindowKind::Overview,
-            exposure: exposures.get(channel),
+            exposure: BASE.get(channel),
         };
-        info!(?channel, "Setting overview window");
         scanner.set_window(channel, params.descriptor(83, ScanArea::overview()))?;
     }
-
-    info!("Triggering thumbnail scan");
+    info!("Thumbnail");
     scanner.scan(&channels)?;
-
     scanner.wait_until_ready()?;
-    // Nikon Scan reads the windows back here before pulling the image
-    info!(exposures = ?scanner.channel_exposures()?, "Scan finished");
 
-    let mut decoder = OverviewDecoder::new();
+    let mut overview = OverviewDecoder::new();
+    scanner.read_into(&mut overview, chunk)?;
+    let thumbnail = overview.finish()?;
 
-    let line = ScanArea::overview_dims().0 * 3 * 2;
-    let chunk = line * (32 * 1024 / line);
-
-    let expected = decoder.expected_bytes();
-    info!(expected, chunk, "Reading image");
-
-    let mut last_percent = 0;
-    scanner.read_into_with(&mut decoder, chunk, |received, expected| {
-        let percent = received * 100 / expected;
-        if percent >= last_percent + 10 {
-            last_percent = percent;
-            info!(percent, "Reading");
-        }
-    })?;
-
-    let image = decoder.finish()?;
-    let mut out = BufWriter::new(File::create("thumbnail.tiff")?);
-    image.write_to(&mut out, ImageFormat::Tiff)?;
-    info!(dimensions = ?image.dimensions(), "Wrote thumbnail.tiff");
-
-    // Where the frames actually landed, replacing the nominal table calibration wrote. Nikon
-    // Scan does the same once its own overview has located them.
-    let Some(found) = FrameBoundaries::detect(&image, FRAME_COUNT) else {
+    let Some(found) = FrameBoundaries::detect(&thumbnail, FRAMES_ON_STRIP) else {
         anyhow::bail!("no frames found on the strip");
     };
     for (i, rect) in found.0.iter().enumerate() {
         info!(
             frame = i,
             y_top = rect.y_top,
-            y_bottom = rect.y_bottom,
             length = rect.y_bottom - rect.y_top,
             "Found frame"
         );
     }
     scanner.set_frame_boundaries(&found)?;
-    info!("Frame table written");
 
-    // Focus on the frame we're about to scan, which needs the table above in place.
-    // The before/after is the only confirmation the mechanism actually moved.
-    let frame = found.0.get(FRAME).expect("strip has that many frames");
-    let before = scanner.focus()?;
-    let after = scanner.autofocus(frame.center())?;
-    info!(FRAME, point = ?frame.center(), before, after, "Autofocused");
-
-    // A preview of that frame: the 666x333 geometry Nikon Scan's autoexposure prescan uses,
-    // but with the exposures the scanner already has staged rather than a metered pass
-    let settings = ScanSettings {
+    let frame = *found
+        .0
+        .get(FRAME)
+        .ok_or_else(|| anyhow::anyhow!("strip has no frame {FRAME}"))?;
+    let metering = ScanSettings {
         ccd_mode: CcdMode::ThreeLine,
-        ir: true,
-        dpi: Dpi::_666,
-        quality: BaseQuality::Preview,
+        ir: false,
+        dpi: METER_DPI,
+        quality: METER_QUALITY,
         multisample: Multisample::X1,
         window: frame.scan_area(),
     };
-    // Every 666x333 pass in the captures stages IR first and scans all four, whatever the
-    // final scan ends up using
-    let channels = [Channel::Ir, Channel::Red, Channel::Green, Channel::Blue];
-    for channel in channels {
-        let params = WindowParams {
-            ccd: settings.ccd_mode,
-            multisample: settings.multisample,
-            quality: settings.quality,
-            window_kind: WindowKind::Frame,
-            exposure: exposures.get(channel),
-        };
-        info!(?channel, "Setting preview window");
-        scanner.set_window(
-            channel,
-            params.descriptor(settings.dpi.to_dpi(), settings.window),
-        )?;
+    let settings = ScanSettings {
+        dpi: SCAN_DPI,
+        quality: SCAN_QUALITY,
+        ..metering
+    };
+    info!(FRAME, ?metering, ?settings, "Windows");
+
+    let before = scanner.focus()?;
+    let after = scanner.autofocus(frame.center())?;
+    info!(point = ?frame.center(), before, after, "Autofocused");
+
+    let mut exposures = BASE;
+    for attempt in 0..METERING_PASSES {
+        let image = pass(&mut scanner, &metering, exposures, chunk)?;
+        let metered = meter(&image, exposures, PERCENTILE, TARGET);
+        info!(
+            attempt,
+            saw = ?levels(&image, PERCENTILE),
+            from = ?exposures,
+            to = ?metered,
+            "Metered"
+        );
+        exposures = metered;
     }
 
-    info!(?settings, "Triggering preview scan");
-    scanner.scan(&channels)?;
-    scanner.wait_until_ready()?;
+    // Metered at 666x333, scanned at 4000, and measured at 0.95-0.99, so gain carries between
+    // the two geometries unchanged. Logged to catch that changing.
+    let scanned = pass(&mut scanner, &settings, exposures, chunk)?;
+    let landed = levels(&scanned, PERCENTILE);
+    let correction = landed.map(|l| f32::from(TARGET) / f32::from(l.max(1)));
+    info!(?landed, target = TARGET, ?correction, "Scanned");
 
-    let mut decoder = FrameDecoder::new(&settings)?;
-    info!(expected = decoder.expected_bytes(), "Reading preview");
-
-    let mut last_percent = 0;
-    scanner.read_into_with(&mut decoder, chunk, |received, expected| {
-        let percent = received * 100 / expected;
-        if percent >= last_percent + 10 {
-            last_percent = percent;
-            info!(percent, "Reading");
-        }
-    })?;
-
-    let preview = decoder.finish()?;
-    let mut out = BufWriter::new(File::create("preview.tiff")?);
-    preview.rgb.write_to(&mut out, ImageFormat::Tiff)?;
-    info!(dimensions = ?preview.rgb.dimensions(), "Wrote preview.tiff");
+    // A preview steps the stage at half the sensor rate, so its pixels are 2:1. A square Scan
+    // needs no stretch, and at 4000 DPI resampling 39M pixels to get the same image back is
+    // worth skipping.
+    let (width, height) = scanned.dimensions();
+    let square = width * settings.stage_divisor() / settings.dpi.divisor();
+    let mut out = BufWriter::new(File::create("scan.tiff")?);
+    if square == width {
+        scanned.write_to(&mut out, ImageFormat::Tiff)?;
+    } else {
+        imageops::resize(&scanned, square, height, FilterType::Triangle)
+            .write_to(&mut out, ImageFormat::Tiff)?;
+    }
+    info!(sampled = ?(width, height), dimensions = ?(square, height), "Wrote scan.tiff");
 
     Ok(())
 }
