@@ -35,10 +35,10 @@ impl Default for ChannelExposures {
     /// point for anything: gain depends on the film.
     fn default() -> Self {
         Self {
-            red: 0x0001_14D9,
-            green: 0x0000_C4F3,
-            blue: 0x0000_A1CD,
-            ir: 0x0001_6151,
+            red: 0x0001_0000,
+            green: 0x0002_0000,
+            blue: 0x0001_0000,
+            ir: 0x0001_0000,
         }
     }
 }

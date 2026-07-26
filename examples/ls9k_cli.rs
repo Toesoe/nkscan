@@ -6,7 +6,7 @@ use image::ImageFormat;
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
     scanners::ls9000ed::{
-        BaseQuality, ChannelExposures, Dpi, Ls9000ed, Metering, ScanSettings,
+        BaseQuality, CcdMode, ChannelExposures, Dpi, Ls9000ed, Metering, Multisample, ScanSettings,
         boundaries::FrameBoundaries,
     },
     scsi::linux::SgDevice,
@@ -36,6 +36,12 @@ struct Cli {
     /// infrared mask <basename>_<n>_ir.tiff
     #[arg(long, default_value = "scan")]
     basename: PathBuf,
+    /// How much multisampling to perform. This increases scan time at the befenit of lower noise. One of 1,2,4,8,16.
+    #[arg(long, default_value_t = 1)]
+    multisample: usize,
+    /// Single-line CCD mode. Slow, but may improve banding noise
+    #[arg(long)]
+    singleline: bool,
 }
 
 /// A bar that fills as a pass is read off the scanner
@@ -71,6 +77,21 @@ fn main() -> Result<()> {
         bail!("Selected frame must lie within the number of frames");
     }
 
+    let multisample = match cli.multisample {
+        1 => Multisample::X1,
+        2 => Multisample::X2,
+        4 => Multisample::X4,
+        8 => Multisample::X8,
+        16 => Multisample::X16,
+        _ => bail!("Multisample must be one of 1,2,4,8,16"),
+    };
+
+    let ccd_mode = if cli.singleline {
+        CcdMode::SingleLine
+    } else {
+        CcdMode::ThreeLine
+    };
+
     // Open the scanner
     let sg = SgDevice::open(cli.scanner)?;
     let mut scanner = Ls9000ed::new(sg)?;
@@ -80,7 +101,8 @@ fn main() -> Result<()> {
     scanner.calibrate(ChannelExposures::default())?;
 
     // Perform the initial sweep to grab the thumbnails
-    let bar = reading("overview");
+    info!("Performing overview scan to find frames");
+    let bar = reading("Overview");
     let overview = scanner.overview_with(ChannelExposures::default(), |read, total| {
         bar.set_length(total);
         bar.set_position(read);
@@ -112,14 +134,14 @@ fn main() -> Result<()> {
         // Then perform autoexposure
         info!("Performing AE for frame {}", idx);
         let ae_settings = ScanSettings::autoexposure(frame.scan_area());
-        let bar = reading("metering");
+        let bar = reading("Metering");
         let (gain, _) = scanner.autoexpose_with(
             &ae_settings,
             ChannelExposures::default(),
             &Metering {
                 target: 58_000, // Target channel ADC counts
                 percentile: 0.999,
-                passes: 1,
+                passes: 2,
                 lock_white_balance: cli.lock_wb,
             },
             |read, total| {
@@ -128,7 +150,6 @@ fn main() -> Result<()> {
             },
         )?;
         bar.finish_and_clear();
-        info!(idx, ?gain, "Metered");
 
         // Finally perform a scan with these gains
         info!("Scanning frame {}", idx);
@@ -136,9 +157,11 @@ fn main() -> Result<()> {
             dpi: Dpi::_4000,
             quality: BaseQuality::Scan,
             ir: cli.ir,
+            multisample,
+            ccd_mode,
             ..ae_settings
         };
-        let bar = reading("scanning");
+        let bar = reading("Scanning");
         let scan = scanner.scan_image_with(&scan_settings, gain, |read, total| {
             bar.set_length(total);
             bar.set_position(read);
