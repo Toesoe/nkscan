@@ -442,39 +442,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Both autofocus points land exactly on their target, which is what fixes the mapping
-    #[test]
-    fn holder_steps_match_the_probed_positions() {
-        assert_eq!(holder_dots(738), 6804);
-        assert_eq!(holder_dots(2418), 26964);
-        // The first probe run caught it sitting at the origin
-        assert_eq!(holder_dots(171), 0);
-        // A thumbnail leaves it one step short of full travel
-        assert_eq!(holder_dots(3055), ScanArea::STRIP_DOTS - 36);
-    }
-
-    /// A reading below the origin would otherwise wrap into a huge position
-    #[test]
-    fn steps_below_home_clamp_to_zero() {
-        assert_eq!(holder_dots(0), 0);
-        assert_eq!(holder_dots(HOLDER_HOME_STEP as u16 - 1), 0);
-    }
-
-    /// Every length measured on hardware, with no residual. 16560 is the one that stalled,
-    /// and it is the first of these to come out negative.
-    #[test]
-    fn stage_targets_match_the_measured_positions() {
-        assert_eq!(stage_target(6696), 4418);
-        assert_eq!(stage_target(9792), 2870);
-        assert_eq!(stage_target(13176), 1178);
-        assert!(stage_target(16560) < 0);
-    }
-}
-
 /// Either half of a scan can fail: the transport, or decoding what came back
 pub type ScanError = crate::scanners::ReadError<decode::DecodeError>;
 
@@ -608,5 +575,38 @@ where
             decode::Rgb16::from_raw(view.width(), view.height(), view.to_vec())
                 .expect("view is well formed"),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Both autofocus points land exactly on their target, which is what fixes the mapping
+    #[test]
+    fn holder_steps_match_the_probed_positions() {
+        assert_eq!(holder_dots(738), 6804);
+        assert_eq!(holder_dots(2418), 26964);
+        // The first probe run caught it sitting at the origin
+        assert_eq!(holder_dots(171), 0);
+        // A thumbnail leaves it one step short of full travel
+        assert_eq!(holder_dots(3055), ScanArea::STRIP_DOTS - 36);
+    }
+
+    /// A reading below the origin would otherwise wrap into a huge position
+    #[test]
+    fn steps_below_home_clamp_to_zero() {
+        assert_eq!(holder_dots(0), 0);
+        assert_eq!(holder_dots(HOLDER_HOME_STEP as u16 - 1), 0);
+    }
+
+    /// Every length measured on hardware, with no residual. 16560 is the one that stalled,
+    /// and it is the first of these to come out negative.
+    #[test]
+    fn stage_targets_match_the_measured_positions() {
+        assert_eq!(stage_target(6696), 4418);
+        assert_eq!(stage_target(9792), 2870);
+        assert_eq!(stage_target(13176), 1178);
+        assert!(stage_target(16560) < 0);
     }
 }
