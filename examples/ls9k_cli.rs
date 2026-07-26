@@ -224,7 +224,7 @@ fn scan<T: nkscan::scsi::Transport>(
 
         // Then perform autoexposure
         info!("Performing AE for frame {}", idx);
-        let ae_settings = ScanSettings::autoexposure(frame.scan_area());
+        let ae_settings = ScanSettings::autoexposure(frame.scan_area(), args.ir);
         let bar = reading("Metering");
         let (gain, _) = scanner.autoexpose_with(
             &ae_settings,

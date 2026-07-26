@@ -13,7 +13,7 @@ use crate::{
     scanners::Focus,
     scsi::{self, Transport},
 };
-use image::{ImageBuffer, Rgb};
+use image::{ImageBuffer, Luma, Rgb};
 use std::ops::Deref;
 use tracing::*;
 
@@ -45,13 +45,9 @@ impl Default for ChannelExposures {
             red: 283_048,
             green: 202_864,
             blue: 166_589,
-            // Nothing meters infrared: a metering pass sets `ir: false`, so there is no plane
-            // to measure. Fixed is defensible where it was not for color, since the dyes are
-            // near transparent in infrared and transmission is base density, which barely moves
-            // between frames. It does move between stocks.
-            //
-            // Scaled from what Nikon stages on a first prescan, not from the five times smaller
-            // value it stages during the calibration preamble.
+            // Only a starting point, and only used by a pass that does not meter infrared:
+            // [`meter_ir`] measures it whenever one is captured. The dyes are near transparent
+            // in infrared, so this is base density, which barely moves between frames.
             ir: 453_477,
         }
     }
@@ -169,15 +165,20 @@ where
     }
 }
 
+/// The `percentile` brightest of some samples
+fn tail_of(samples: impl Iterator<Item = u16>, percentile: f32) -> Option<u16> {
+    let mut samples: Vec<u16> = samples.collect();
+    samples.sort_unstable();
+    let at = (samples.len().saturating_sub(1) as f32 * percentile.clamp(0.0, 1.0)) as usize;
+    samples.get(at).copied()
+}
+
 /// The `percentile` brightest sample of one channel
 fn tail<C>(image: &ImageBuffer<Rgb<u16>, C>, channel: usize, percentile: f32) -> Option<u16>
 where
     C: Deref<Target = [u16]>,
 {
-    let mut samples: Vec<u16> = image.pixels().map(|p| p.0[channel]).collect();
-    samples.sort_unstable();
-    let at = (samples.len().saturating_sub(1) as f32 * percentile.clamp(0.0, 1.0)) as usize;
-    samples.get(at).copied()
+    tail_of(image.pixels().map(|p| p.0[channel]), percentile)
 }
 
 /// Gain that would put `level` at `target`, or `None` if it cannot be known from this level
@@ -252,6 +253,35 @@ where
     for channel in Channel::RGB {
         let scaled = (f64::from(current.get(channel)) * factor).round();
         metered.set(channel, scaled.clamp(1.0, f64::from(u32::MAX)) as u32);
+    }
+    metered
+}
+
+/// Gain that puts the `percentile` brightest sample of the infrared plane at `target`
+///
+/// Most of a frame is free of dust, so the high tail is the film base, and putting that near
+/// the top of the range leaves the whole range below it to measure obstructions in.
+///
+/// Deliberately outside [`lock_white_balance`](Metering::lock_white_balance). Locking exists to
+/// hold the three visible channels in proportion so the film keeps its cast, and infrared is
+/// not a color channel: it measures what is physically in the way.
+///
+/// Only the infrared gain is touched.
+pub fn meter_ir<C>(
+    image: &ImageBuffer<Luma<u16>, C>,
+    current: ChannelExposures,
+    percentile: f32,
+    target: u16,
+) -> ChannelExposures
+where
+    C: Deref<Target = [u16]>,
+{
+    let mut metered = current;
+    if let Some(scale) =
+        tail_of(image.pixels().map(|p| p.0[0]), percentile).and_then(|level| step(level, target))
+    {
+        let scaled = (f64::from(current.ir) * scale).round();
+        metered.ir = scaled.clamp(1.0, f64::from(u32::MAX)) as u32;
     }
     metered
 }
@@ -351,6 +381,49 @@ mod meter_tests {
     fn locked_leaves_a_dark_frame_alone() {
         let metered = meter_locked(&flat(0, 0, 0), exposures(777), 1.0, 60000);
         assert_eq!((metered.red, metered.green, metered.blue), (777, 777, 777));
+    }
+
+    fn flat_ir(level: u16) -> ImageBuffer<Luma<u16>, Vec<u16>> {
+        ImageBuffer::from_pixel(8, 8, Luma([level]))
+    }
+
+    /// Most of a frame is clear of dust, so the high tail is the base and that is what lands
+    #[test]
+    fn infrared_scales_toward_the_target() {
+        let metered = meter_ir(&flat_ir(16000), exposures(1000), 1.0, 32000);
+        assert_eq!(metered.ir, 2000);
+    }
+
+    #[test]
+    fn the_visible_channels_are_untouched() {
+        let metered = meter_ir(&flat_ir(16000), exposures(1234), 1.0, 32000);
+        assert_eq!(
+            (metered.red, metered.green, metered.blue),
+            (1234, 1234, 1234)
+        );
+    }
+
+    /// Dust is what the mask is for, and it must not be mistaken for the base level
+    #[test]
+    fn dust_does_not_set_the_infrared_gain() {
+        let mut image = flat_ir(16000);
+        for x in 0..8 {
+            image.put_pixel(x, 0, Luma([200]));
+        }
+        let metered = meter_ir(&image, exposures(1000), 0.5, 32000);
+        assert_eq!(metered.ir, 2000);
+    }
+
+    #[test]
+    fn a_clipped_infrared_channel_is_halved() {
+        let metered = meter_ir(&flat_ir(u16::MAX), exposures(1000), 1.0, 60000);
+        assert_eq!(metered.ir, 500);
+    }
+
+    #[test]
+    fn a_dark_infrared_channel_is_left_alone() {
+        let metered = meter_ir(&flat_ir(0), exposures(777), 1.0, 60000);
+        assert_eq!(metered.ir, 777);
     }
 }
 
