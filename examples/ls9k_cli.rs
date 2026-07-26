@@ -3,7 +3,7 @@
 use anyhow::{Result, bail};
 use clap::Parser;
 use image::ImageFormat;
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
     scanners::ls9000ed::{
         BaseQuality, ChannelExposures, Dpi, Ls9000ed, Metering, ScanSettings,
@@ -32,6 +32,21 @@ struct Cli {
     /// Save IR alongside the main scan
     #[arg(long)]
     ir: bool,
+    /// Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its
+    /// infrared mask <basename>_<n>_ir.tiff
+    #[arg(long, default_value = "scan")]
+    basename: PathBuf,
+}
+
+/// A bar that fills as a pass is read off the scanner
+fn reading(what: &str) -> ProgressBar {
+    let bar = ProgressBar::no_length().with_message(what.to_owned());
+    bar.set_style(
+        ProgressStyle::with_template("{msg:>12} [{bar:40}] {bytes}/{total_bytes} {eta}")
+            .expect("template is valid")
+            .progress_chars("=> "),
+    );
+    bar
 }
 
 fn main() -> Result<()> {
@@ -65,7 +80,12 @@ fn main() -> Result<()> {
     scanner.calibrate(ChannelExposures::default())?;
 
     // Perform the initial sweep to grab the thumbnails
-    let overview = scanner.overview(ChannelExposures::default())?;
+    let bar = reading("overview");
+    let overview = scanner.overview_with(ChannelExposures::default(), |read, total| {
+        bar.set_length(total);
+        bar.set_position(read);
+    })?;
+    bar.finish_and_clear();
 
     // Detect the frames within the overview
     let Some(frames) = FrameBoundaries::detect(&overview, cli.frames) else {
@@ -92,7 +112,8 @@ fn main() -> Result<()> {
         // Then perform autoexposure
         info!("Performing AE for frame {}", idx);
         let ae_settings = ScanSettings::autoexposure(frame.scan_area());
-        let (gain, _) = scanner.autoexpose(
+        let bar = reading("metering");
+        let (gain, _) = scanner.autoexpose_with(
             &ae_settings,
             ChannelExposures::default(),
             &Metering {
@@ -101,7 +122,13 @@ fn main() -> Result<()> {
                 passes: 1,
                 lock_white_balance: cli.lock_wb,
             },
+            |read, total| {
+                bar.set_length(total);
+                bar.set_position(read);
+            },
         )?;
+        bar.finish_and_clear();
+        info!(idx, ?gain, "Metered");
 
         // Finally perform a scan with these gains
         info!("Scanning frame {}", idx);
@@ -111,15 +138,32 @@ fn main() -> Result<()> {
             ir: cli.ir,
             ..ae_settings
         };
-        let scan = scanner.scan_image(&scan_settings, gain)?;
+        let bar = reading("scanning");
+        let scan = scanner.scan_image_with(&scan_settings, gain, |read, total| {
+            bar.set_length(total);
+            bar.set_position(read);
+        })?;
+        bar.finish_and_clear();
 
         // Write the output
-        let mut out = BufWriter::new(File::create(format!("scan{}.tiff", idx))?);
-        scan.rgb.write_to(&mut out, ImageFormat::Tiff)?;
+        let path = cli.basename.with_file_name(format!(
+            "{}_{idx}.tiff",
+            cli.basename
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ));
+        scan.rgb
+            .write_to(&mut BufWriter::new(File::create(&path)?), ImageFormat::Tiff)?;
+        info!(?path, "Wrote");
 
         if let Some(ir) = scan.ir {
-            let mut out = BufWriter::new(File::create(format!("scan{}_ir.tiff", idx))?);
-            ir.write_to(&mut out, ImageFormat::Tiff)?;
+            let path = path.with_file_name(format!(
+                "{}_ir.tiff",
+                path.file_stem().unwrap_or_default().to_string_lossy()
+            ));
+            ir.write_to(&mut BufWriter::new(File::create(&path)?), ImageFormat::Tiff)?;
+            info!(?path, "Wrote infrared");
         }
     }
 
