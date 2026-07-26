@@ -4,13 +4,14 @@ use super::{BITS_PER_PIXEL, CcdMode, Multisample, ScanArea};
 use crate::scsi::cdbs::{CompressionType, ImageCompositionCode, PaddingType, WindowDescriptor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Sampling mode. Nikon Scan only ever pairs `Scan` with a square window and `Preview` with a half-height one so this really selects whether the stage steps at full rate.
+/// Whether the stage steps at the full sensor rate or half of it
 ///
-/// Note the 83-DPI whole-strip overview is a `Scan`, not a `Preview`, it's square-sampled at 83x83
+/// Nikon Scan pairs `Scan` with a square window and `Preview` with a half-height one. The
+/// 83-DPI whole-strip overview is a `Scan`, square-sampled at 83x83.
 pub enum BaseQuality {
     /// Square sampling: the 4000-DPI scan and the 83-DPI overview
     Scan,
-    /// Half-rate stage stepping: the 666x333 autofocus/autoexposure prescan
+    /// Half-rate stage stepping: the 666x333 metering and preview pass
     Preview,
 }
 

@@ -24,7 +24,7 @@ pub enum Dtc {
     DarkCurrent,
     /// Per-channel extended line data, 27 bytes
     ExtendedLine,
-    /// Per-channel frame/setup, including the film-frame name and the exposure seeds that feed a window descriptor's tail
+    /// Per-channel frame setup, carrying the film-frame name and the gain the window tail uses
     FrameSetup,
     /// Film adapter info
     AdapterInfo,

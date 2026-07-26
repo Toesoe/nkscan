@@ -9,13 +9,10 @@ thiserror = "2"
 bitflags = "2"
 nusb = "0.2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { version = "0.25", default-features = false, features = [
     "rayon",
     "tiff",
 ] }
-clap = { version = "4", features = ["derive"] }
-anyhow = "1.0.104"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.31", features = ["ioctl"] }
@@ -30,3 +27,9 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 io-kit-sys = "0.5"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+indicatif = "0.18"

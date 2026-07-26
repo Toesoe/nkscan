@@ -193,6 +193,18 @@ impl ScanSettings {
         let per_stage = u64::from(self.readouts()) * u64::from(height) * u64::from(self.lines());
         Some(2 * u64::from(self.stages()?) * per_stage)
     }
+
+    /// The base settings used for autoexposure passes
+    pub fn autoexposure(window: ScanArea) -> Self {
+        Self {
+            ccd_mode: CcdMode::ThreeLine,
+            ir: false,
+            dpi: Dpi::_666,
+            quality: BaseQuality::Preview,
+            multisample: Multisample::X1,
+            window,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -287,14 +287,13 @@ impl SgDevice {
 
         Ok(Self { file, max_transfer })
     }
-
-    /// Largest single transfer this handle can carry
-    pub fn max_transfer(&self) -> u32 {
-        self.max_transfer
-    }
 }
 
 impl Transport for SgDevice {
+    fn max_transfer(&self) -> u32 {
+        self.max_transfer
+    }
+
     #[instrument(skip_all, fields(cdb = ?cdb, ?direction, data_len = data.len()))]
     fn execute(
         &mut self,
