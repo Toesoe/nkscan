@@ -31,19 +31,43 @@ pub struct ChannelExposures {
 }
 
 impl Default for ChannelExposures {
-    /// One capture's values, for a channel the scanner does not report. Not a good starting
-    /// point for anything: gain depends on the film.
+    /// The scanner's white balance, off the bare backlight through an empty holder
+    ///
+    /// Equal gain does not scan neutral: the LEDs and the CCD are not equally strong across the
+    /// three bands, and red needs about 1.7x what blue does to match it.
+    ///
+    /// The ratios are what matter. [`meter`] rescales the absolute anyway, and [`meter_locked`]
+    /// scales all three by one factor and cannot touch the ratios at all. It is a property of
+    /// the hardware, so [`white_balance`](super::Ls9000ed::white_balance) re-measures it per
+    /// unit.
     fn default() -> Self {
         Self {
-            red: 0x0001_0000,
-            green: 0x0002_0000,
-            blue: 0x0001_0000,
-            ir: 0x0001_0000,
+            red: 283_048,
+            green: 202_864,
+            blue: 166_589,
+            // Nothing meters infrared: a metering pass sets `ir: false`, so there is no plane
+            // to measure. Fixed is defensible where it was not for color, since the dyes are
+            // near transparent in infrared and transmission is base density, which barely moves
+            // between frames. It does move between stocks.
+            //
+            // Scaled from what Nikon stages on a first prescan, not from the five times smaller
+            // value it stages during the calibration preamble.
+            ir: 453_477,
         }
     }
 }
 
 impl ChannelExposures {
+    /// The same gain on every channel, asserting no white balance at all
+    pub fn flat(exposure: u32) -> Self {
+        Self {
+            red: exposure,
+            green: exposure,
+            blue: exposure,
+            ir: exposure,
+        }
+    }
+
     /// The gain staged for one channel. `Channel::All` has none of its own, so it reports the
     /// red one the scanner leads with.
     pub fn get(&self, channel: Channel) -> u32 {

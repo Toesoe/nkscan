@@ -64,6 +64,32 @@ const FRAME_WINDOW_KIND: u8 = 0x01;
 /// Where a frame SET WINDOW puts the stage motor for a zero-length window
 const STAGE_FRAME_ORIGIN: i32 = 7766;
 
+/// Where the gain search of a bare-light pass starts
+///
+/// Biased low on purpose: a gain that suits film clips on bare light, and a clipped channel can
+/// only be halved and tried again, where [`meter`](calibration::meter) lands it from under in
+/// one proportional step.
+const WHITE_BALANCE_START: u32 = 0x0000_2000;
+
+/// The patch of open aperture a bare-light pass measures
+///
+/// Mid-travel and deliberately large, 45 mm of stage by the full sensor bar. Holders separate
+/// their apertures with opaque bars, in different places per format, and dead center is where a
+/// two-aperture 6x9 holder puts one. A span this wide overlaps open aperture in any of them,
+/// which is all it needs: [`meter`](calibration::meter) reads the high tail rather than the
+/// mean, so a bar across part of the window contributes nothing instead of dragging it dark.
+fn white_balance_area() -> ScanArea {
+    ScanArea::centered(
+        (ScanArea::STRIP_DOTS - WHITE_BALANCE_LENGTH) / 2,
+        ScanArea::FILM_WIDTH_DOTS,
+        WHITE_BALANCE_LENGTH,
+    )
+}
+
+/// Stage travel a bare-light pass covers, a whole number of interleave blocks like every
+/// other window length
+const WHITE_BALANCE_LENGTH: u32 = 7200;
+
 /// Holder steps as [`ScanArea`] dots
 fn holder_dots(steps: u16) -> u32 {
     u32::from(steps).saturating_sub(HOLDER_HOME_STEP) * HOLDER_STEP_DOTS
@@ -537,6 +563,55 @@ where
         Ok((gain, preview.expect("at least one pass runs")))
     }
 
+    /// The gain that makes the bare backlight read neutral, measured with no film loaded
+    ///
+    /// Each channel is scaled on its own until the three read alike, so afterwards R=G=B means
+    /// "nothing in the light path" and a scan records film transmittance rather than the
+    /// scanner's own spectral response.
+    ///
+    /// A white point and only a white point. Three gains can say what counts as neutral and
+    /// nothing else; the LEDs' narrow bands onto real colorimetry needs a 3x3 from a target.
+    ///
+    /// Pass the result as the `from` gain of [`autoexpose`](Self::autoexpose). Under
+    /// [`lock_white_balance`](Metering::lock_white_balance) these ratios are the ones every
+    /// later scan preserves.
+    ///
+    /// Load the holder **empty**. Anything left in the aperture is measured as if it were the
+    /// light source, and its cast is what becomes neutral.
+    ///
+    /// Metered to the same target a frame gets, not something conservative. Bare light is T=1,
+    /// so gains that leave it just under the ceiling cannot clip on film, and every later pass
+    /// starts unclipped. Driving all three channels to one level also cancels whatever the
+    /// response curve does near full scale out of the ratios.
+    pub fn white_balance(&mut self, metering: &Metering) -> Result<ChannelExposures, ScanError> {
+        self.white_balance_with(metering, |_, _| {})
+    }
+
+    /// [`white_balance`](Self::white_balance), reporting (received, expected) bytes of each pass
+    pub fn white_balance_with<F: FnMut(u64, u64)>(
+        &mut self,
+        metering: &Metering,
+        progress: F,
+    ) -> Result<ChannelExposures, ScanError> {
+        // Locking would defeat the point: it scales the channels together, and telling them
+        // apart is the entire measurement
+        let metering = Metering {
+            lock_white_balance: false,
+            ..*metering
+        };
+        let settings = ScanSettings::autoexposure(white_balance_area());
+        // The visible channels start low and get metered up. Infrared is not in the preview to
+        // measure, and `meter` leaves it alone, so it has to start where it should end up
+        // rather than carrying the search's starting point out with it.
+        let from = ChannelExposures {
+            ir: ChannelExposures::default().ir,
+            ..ChannelExposures::flat(WHITE_BALANCE_START)
+        };
+        let (gain, _) = self.autoexpose_with(&settings, from, &metering, progress)?;
+        debug!(?gain, "Bare-light white balance");
+        Ok(gain)
+    }
+
     /// The 83-DPI overview of the whole strip
     ///
     /// Fixed at that resolution, and what
@@ -591,6 +666,29 @@ mod tests {
         assert_eq!(holder_dots(171), 0);
         // A thumbnail leaves it one step short of full travel
         assert_eq!(holder_dots(3055), ScanArea::STRIP_DOTS - 36);
+    }
+
+    /// The bare-light window has to be a window the scanner will actually take, and it is
+    /// specified rather than derived, so nothing else checks it
+    #[test]
+    fn the_white_balance_window_is_scannable() {
+        let area = white_balance_area();
+        let settings = ScanSettings::autoexposure(area);
+        assert!(
+            settings.output_dims().is_some(),
+            "{area:?} does not divide evenly at the metering resolution"
+        );
+
+        // Long windows drive the stage backwards into its home stop
+        assert!(stage_target(area.y_size) > 0);
+        assert!(area.y_pos + area.y_size <= ScanArea::STRIP_DOTS);
+    }
+
+    /// Centered on stage travel, which is the whole point of where it sits
+    #[test]
+    fn the_white_balance_window_is_mid_travel() {
+        let area = white_balance_area();
+        assert_eq!(area.y_pos + area.y_size / 2, ScanArea::STRIP_DOTS / 2);
     }
 
     /// A reading below the origin would otherwise wrap into a huge position
