@@ -29,6 +29,8 @@ core-foundation = "0.10"
 io-kit-sys = "0.5"
 
 [dev-dependencies]
+# Examples write viewable thumbnails, which the library itself has no need to encode
+image = { version = "0.25", default-features = false, features = ["png"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
