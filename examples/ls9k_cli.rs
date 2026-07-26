@@ -2,14 +2,14 @@
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use image::ImageFormat;
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
+    output,
     scanners::{
-        Scanner,
+        FilmHolder, Scanner,
         ls9000ed::{
             BaseQuality, CcdMode, ChannelExposures, Dpi, Ls9000ed, Metering, Multisample,
-            ScanSettings, boundaries::FrameBoundaries,
+            ScanSettings, boundaries::FrameBoundaries, holder::Holder,
         },
     },
     scsi::linux::SgDevice,
@@ -18,6 +18,7 @@ use std::{
     fs::File,
     io::BufWriter,
     path::{Path, PathBuf},
+    time::Duration,
 };
 use tracing::*;
 
@@ -30,6 +31,9 @@ struct Cli {
     /// Where the bare-light white balance lives, as `calibrate` writes it and `scan` reads it
     #[arg(long, default_value = "nkscan-wb.txt")]
     wb_file: PathBuf,
+    /// Send the holder back out when everything is done
+    #[arg(long)]
+    eject: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -119,6 +123,35 @@ fn read_white_balance(path: &Path) -> Result<Option<ChannelExposures>> {
         blue,
         ..ChannelExposures::default()
     }))
+}
+
+/// How often to look for a holder while waiting on one to be pushed in
+const HOLDER_POLL: Duration = Duration::from_millis(500);
+
+/// Block until a film holder is loaded, and report which one
+///
+/// Checked once up front rather than guarded at every call, on the assumption the holder stays
+/// put for the run. Without one the scanner refuses frame windows as a bad parameter list,
+/// which gives no hint that a missing holder is the reason.
+fn wait_for_holder<T: nkscan::scsi::Transport>(scanner: &mut Ls9000ed<T>) -> Result<Holder> {
+    // INQUIRY is not blocked by a pending unit attention, so this keeps answering across the
+    // holder change that loading one raises
+    let mut holder = scanner.holder()?;
+
+    if holder == Holder::None {
+        let bar = ProgressBar::new_spinner().with_message("Waiting for a film holder");
+        bar.enable_steady_tick(HOLDER_POLL);
+        while holder == Holder::None {
+            std::thread::sleep(HOLDER_POLL);
+            holder = scanner.holder()?;
+        }
+        bar.finish_and_clear();
+    }
+
+    // Loading one raises a holder change and a reset, and those would otherwise surface as a
+    // CHECK CONDITION on whatever ran next
+    scanner.drain_unit_attentions()?;
+    Ok(holder)
 }
 
 /// Measure the bare backlight and write it out
@@ -268,8 +301,7 @@ fn scan<T: nkscan::scsi::Transport>(
                 .unwrap_or_default()
                 .to_string_lossy()
         ));
-        scan.rgb
-            .write_to(&mut BufWriter::new(File::create(&path)?), ImageFormat::Tiff)?;
+        output::write_rgb16_tiff(&mut BufWriter::new(File::create(&path)?), &scan.rgb)?;
         info!(?path, "Wrote");
 
         if let Some(ir) = scan.ir {
@@ -277,7 +309,7 @@ fn scan<T: nkscan::scsi::Transport>(
                 "{}_ir.tiff",
                 path.file_stem().unwrap_or_default().to_string_lossy()
             ));
-            ir.write_to(&mut BufWriter::new(File::create(&path)?), ImageFormat::Tiff)?;
+            output::write_luma16_tiff(&mut BufWriter::new(File::create(&path)?), &ir)?;
             info!(?path, "Wrote infrared");
         }
     }
@@ -302,11 +334,26 @@ fn main() -> Result<()> {
     let identity = scanner.identify()?;
     info!("Connected to {} {}", identity.vendor, identity.product);
 
+    let holder = wait_for_holder(&mut scanner)?;
+    info!(?holder, "Holder loaded");
+
     // Perform the inital calibration, which both passes need before their first scan
     scanner.calibrate(ChannelExposures::default())?;
 
-    match &cli.command {
+    let outcome = match &cli.command {
         Command::Scan(args) => scan(&mut scanner, &cli.wb_file, args),
         Command::Calibrate => calibrate(&mut scanner, &cli.wb_file),
+    };
+
+    // Worth getting the film back even when the pass failed, so this runs either way and
+    // whatever went wrong first is still what gets reported
+    if cli.eject {
+        match scanner.eject() {
+            Ok(()) => info!("Ejected"),
+            Err(e) if outcome.is_ok() => return Err(e.into()),
+            Err(e) => warn!(%e, "Could not eject"),
+        }
     }
+
+    outcome
 }
