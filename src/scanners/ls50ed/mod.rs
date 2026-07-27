@@ -1,13 +1,13 @@
 use crate::{
     decode::StreamDecoder,
-    scanners::{FilmHolder, Focus, Scanner},
+    scanners::{FilmHolder, Focus, Scanner, nikon::cdbs::VendorTrigger},
     scsi::{
         self as scsi, Command, Transport, TransportExt,
         cdbs::*,
         mode_pages::{BasicUnit, MeasurementUnits},
     },
 };
-use cdbs::{VendorPayload, VendorTrigger, VendorWrite};
+use cdbs::{VendorPayload, VendorWrite};
 use decode::{DecodeError, FrameDecoder, Image};
 use dtc::Dtc;
 use holder::Holder;
@@ -174,7 +174,7 @@ where
     fn set_global_units(&mut self) -> Result<(), scsi::Error> {
         let units = MeasurementUnits {
             basic_unit: BasicUnit::Inches,
-            divisor: 4000,
+            divisor: geometry::DOTS_PER_INCH as u16,
         };
         let descriptor = BlockDescriptor {
             density_code: 0x00,
@@ -311,7 +311,7 @@ where
         self.tolerate_busy(&cdbs::VendorWrite::new(cdbs::VendorPayload::Focus(
             focus.into(),
         )))?;
-        self.tolerate_busy(&cdbs::VendorTrigger)
+        self.tolerate_busy(&VendorTrigger)
     }
 }
 

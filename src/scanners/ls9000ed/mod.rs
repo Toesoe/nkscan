@@ -210,7 +210,7 @@ where
         self.transport.set_mode_page(
             &MeasurementUnits {
                 basic_unit: BasicUnit::Inches,
-                divisor: 4000,
+                divisor: geometry::DOTS_PER_INCH as u16,
             },
             Some(BlockDescriptor {
                 density_code: 0x00,
