@@ -31,7 +31,7 @@ pub mod window;
 
 pub use calibration::ChannelExposures;
 pub use capabilities::Capabilities;
-pub use geometry::{ScanArea, ScanSettings, frame_offset, native_dots};
+pub use geometry::{Dpi, ScanArea, ScanSettings, frame_offset, native_dots};
 pub use window::{ScanMode, WindowParams};
 
 /// For [`UsbTransport::open`](crate::scsi::usb::UsbTransport::open)
@@ -631,16 +631,26 @@ mod tests {
         }
     }
 
-    fn settings(dpi: u16, ir: bool) -> ScanSettings {
+    /// A 1x2 frame, which is what the scripted mock serves: four native dots across and
+    /// eight down, read out at a quarter of the optical resolution
+    fn settings(ir: bool) -> ScanSettings {
         let capabilities = capabilities::fixture::capabilities();
         ScanSettings {
-            dpi,
+            dpi: Dpi::_1000,
             ir,
             samples: 1,
-            window: ScanArea::frame(0, capabilities),
+            window: TINY,
             capabilities,
         }
     }
+
+    /// Small enough that a whole frame is two lines of one pixel
+    const TINY: ScanArea = ScanArea {
+        x_pos: 0,
+        y_pos: 0,
+        x_size: 4,
+        y_size: 8,
+    };
 
     /// Scripts a whole pass: SET WINDOW checks the mode byte and exposure, SCAN answers GOOD,
     /// READ hands back one padded line until the image runs out.
@@ -789,8 +799,8 @@ mod tests {
         }
     }
 
-    /// dpi 2 gives a 1x2 frame: two lines of one RGB pixel, each plane padded to two samples,
-    /// so R at 0, G at 2, B at 4
+    /// The 1x2 frame [`TINY`] asks for: two lines of one RGB pixel, each plane padded to two
+    /// samples, so R at 0, G at 2, B at 4
     fn rgb_image() -> Vec<u8> {
         [be_line(&[1, 0, 1, 0, 1]), be_line(&[2, 0, 2, 0, 2])].concat()
     }
@@ -806,7 +816,7 @@ mod tests {
     #[test]
     fn scan_decodes_an_rgb_frame() {
         let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
-        let frame = scan_one(&mut scanner, &settings(2, false));
+        let frame = scan_one(&mut scanner, &settings(false));
         assert_eq!(frame.rgb.dimensions(), (1, 2));
         assert!(frame.ir.is_none());
         assert_eq!(frame.rgb.get_pixel(0, 0).0, [1u16, 1, 1]);
@@ -822,7 +832,7 @@ mod tests {
         ]
         .concat();
         let mut scanner = Ls50ed::new(ScanMock::new(image, 14)).unwrap();
-        let frame = scan_one(&mut scanner, &settings(2, true));
+        let frame = scan_one(&mut scanner, &settings(true));
         assert_eq!(frame.rgb.get_pixel(0, 0).0, [1u16, 1, 1]);
         let ir = frame.ir.expect("IR plane captured");
         assert_eq!(ir.dimensions(), (1, 2));
@@ -839,7 +849,7 @@ mod tests {
         mock.measured_exposure = Some(measured);
 
         let mut scanner = Ls50ed::new(mock).unwrap();
-        let settings = settings(2, false);
+        let settings = settings(false);
         scanner.warm_up().unwrap();
         let gain = scanner
             .autoexpose(&settings, ChannelExposures::default())
@@ -866,8 +876,12 @@ mod tests {
 
         for rect in &boundaries.0 {
             let settings = ScanSettings {
-                window: rect.scan_area(capabilities),
-                ..settings(2, false)
+                // The frame's own origin, over a window the mock has data for
+                window: ScanArea {
+                    y_pos: rect.scan_area(capabilities).y_pos,
+                    ..TINY
+                },
+                ..settings(false)
             };
             // Re-declared per pass, the way the hardware was driven
             scanner.set_frame_boundaries(&boundaries).unwrap();
@@ -882,13 +896,18 @@ mod tests {
 
     #[test]
     fn autofocus_targets_the_frame_center() {
-        // dpi 2 gives native (2000, 4000), so the center of frame 0 is (1000, 2000)
+        // Nothing streams, so this can aim at a whole frame: native (3944, 5956) at 1000 DPI,
+        // centered on (1972, 2978)
         let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
-        scanner.autofocus(settings(2, false).center()).unwrap();
+        let whole_frame = ScanSettings {
+            window: ScanArea::frame(0, capabilities::fixture::capabilities()),
+            ..settings(false)
+        };
+        scanner.autofocus(whole_frame.center()).unwrap();
 
         let mut expected = vec![0u8; 9];
-        expected[1..5].copy_from_slice(&1000u32.to_be_bytes());
-        expected[5..9].copy_from_slice(&2000u32.to_be_bytes());
+        expected[1..5].copy_from_slice(&1972u32.to_be_bytes());
+        expected[5..9].copy_from_slice(&2978u32.to_be_bytes());
         assert_eq!(scanner.transport.autofocus_payload, Some(expected));
     }
 
@@ -898,7 +917,7 @@ mod tests {
         let mut scanner = Ls50ed::new(ScanMock::new(be_line(&[1, 0, 1, 0, 1]), 10)).unwrap();
         scanner.warm_up().unwrap();
         assert!(matches!(
-            scanner.scan_image(&settings(2, false), ChannelExposures::default()),
+            scanner.scan_image(&settings(false), ChannelExposures::default()),
             Err(ScanError::Scsi(scsi::Error::InvalidResponse(_)))
         ));
     }
@@ -913,7 +932,7 @@ mod tests {
                 y_size: capabilities.boundary_y * 2,
                 ..ScanArea::frame(0, capabilities)
             },
-            ..settings(2, false)
+            ..settings(false)
         };
         assert!(matches!(
             scanner.scan_image(&settings, ChannelExposures::default()),

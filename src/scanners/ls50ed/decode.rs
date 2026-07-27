@@ -260,7 +260,7 @@ mod tests {
     fn expected_bytes_follows_the_scan_geometry() {
         let capabilities = super::super::capabilities::fixture::capabilities();
         let settings = ScanSettings {
-            dpi: 300,
+            dpi: super::super::Dpi::_1000,
             ir: false,
             samples: 1,
             window: super::super::ScanArea::frame(0, capabilities),

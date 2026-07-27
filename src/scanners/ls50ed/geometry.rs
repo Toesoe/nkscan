@@ -36,12 +36,64 @@ impl ScanArea {
     }
 }
 
+/// DPI mode to read out
+///
+/// The sensor reads at its optical resolution and the firmware divides down. The divisor is
+/// what the scan is actually parameterised by, so these are the resolutions that exist rather
+/// than a request the driver rounds off behind the caller's back.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Dpi {
+    _4000,
+    _2000,
+    _1333,
+    _1000,
+    _800,
+    _500,
+    _250,
+}
+
+impl Dpi {
+    /// Firmware divisor; scan dpi = optical/k
+    ///
+    /// `_1333` is 4000/3 named to the nearest whole DPI, as
+    /// [`ls9000ed`](crate::scanners::ls9000ed::Dpi) names the same division.
+    pub fn divisor(self) -> u32 {
+        match self {
+            Dpi::_4000 => 1,
+            Dpi::_2000 => 2,
+            Dpi::_1333 => 3,
+            Dpi::_1000 => 4,
+            Dpi::_800 => 5,
+            Dpi::_500 => 8,
+            Dpi::_250 => 16,
+        }
+    }
+
+    /// The name of the mode, for a caller that has to print or parse one
+    ///
+    /// Nominal, off the LS-50's 4000-DPI sensor. What a window descriptor carries is
+    /// [`ScanSettings::res`], which divides the resolution the device reports.
+    pub fn to_dpi(self) -> u16 {
+        (4000 / self.divisor()) as u16
+    }
+
+    /// Every division the firmware offers, lowest divisor first
+    pub const ALL: [Dpi; 7] = [
+        Dpi::_4000,
+        Dpi::_2000,
+        Dpi::_1333,
+        Dpi::_1000,
+        Dpi::_800,
+        Dpi::_500,
+        Dpi::_250,
+    ];
+}
+
 /// 16-bit linear RGB (plus infrared) over one window
 #[derive(Debug, Clone, Copy)]
 pub struct ScanSettings {
-    /// The scanner only scans at `base_res / pitch`, so this snaps to that grid:
-    /// 300 becomes 307
-    pub dpi: u16,
+    /// Which of the firmware's divisions of the optical resolution to read out
+    pub dpi: Dpi,
     /// Capture channel 0x09 as a 4th planar channel
     pub ir: bool,
     /// Only 1 works: a higher count arms a multi-pass scan that never streams
@@ -54,12 +106,10 @@ pub struct ScanSettings {
 impl ScanSettings {
     /// Native dots per output pixel
     pub fn pitch(&self) -> u32 {
-        (f64::from(self.optical()) / f64::from(self.dpi))
-            .round()
-            .max(1.0) as u32
+        self.dpi.divisor()
     }
 
-    /// The sensor's own resolution, which is the grid every scan snaps to
+    /// The sensor's own resolution, which is what the firmware divides down
     fn optical(&self) -> u16 {
         self.capabilities.x_resolution.optical
     }
@@ -68,7 +118,7 @@ impl ScanSettings {
         3 + usize::from(self.ir)
     }
 
-    /// Grid-snapped resolution, as the window descriptor carries it
+    /// The divided resolution, as the window descriptor carries it
     pub fn res(&self) -> u16 {
         (u32::from(self.optical()) / self.pitch()) as u16
     }
@@ -133,7 +183,7 @@ pub fn native_dots(millimeters: f32) -> u32 {
 mod tests {
     use super::*;
 
-    fn settings(dpi: u16, ir: bool) -> ScanSettings {
+    fn settings(dpi: Dpi, ir: bool) -> ScanSettings {
         let capabilities = super::super::capabilities::fixture::capabilities();
         ScanSettings {
             dpi,
@@ -155,24 +205,40 @@ mod tests {
         assert_eq!(frame_offset(&[], 0), 0);
     }
 
+    /// Every mode names the division it actually is, and the device will do all of them
     #[test]
-    fn geometry_snaps_dpi_to_grid() {
-        let s = settings(300, false);
-        assert_eq!(s.res(), 307);
-        assert_eq!(s.output_dims(), (303, 458));
-        assert_eq!(s.native_dims(), (3939, 5954));
-        // 3 planes * even(303) * 2 bytes = 1824, padded to 2048
-        assert_eq!(s.bytes_per_line(), 2048);
-        assert_eq!(s.expected_bytes(), 2048 * 458);
+    fn every_dpi_mode_is_a_division_the_device_offers() {
+        let range = settings(Dpi::_4000, false).capabilities.x_resolution;
+        for mode in Dpi::ALL {
+            assert_eq!(mode.to_dpi(), (4000 / mode.divisor()) as u16);
+            assert!(
+                (range.min..=range.max).contains(&mode.to_dpi()),
+                "{mode:?} is outside the reported range"
+            );
+        }
+    }
+
+    /// The divisor is the whole of it: no rounding, so the mode fixes every figure below
+    #[test]
+    fn geometry_divides_by_the_dpi_mode() {
+        let s = settings(Dpi::_1000, false);
+        assert_eq!(s.pitch(), 4);
+        assert_eq!(s.res(), 1000);
+        // The 3945 by 5958 window, divided down and its remainder dropped
+        assert_eq!(s.output_dims(), (986, 1489));
+        assert_eq!(s.native_dims(), (3944, 5956));
+        // 3 planes * 986 * 2 bytes = 5916, padded to 6144
+        assert_eq!(s.bytes_per_line(), 6144);
+        assert_eq!(s.expected_bytes(), 6144 * 1489);
     }
 
     #[test]
     fn infrared_adds_a_fourth_plane() {
-        let s = settings(300, true);
+        let s = settings(Dpi::_1000, true);
         assert_eq!(s.n_colors(), 4);
-        // 4 * 304 * 2 = 2432, padded to 2560
-        assert_eq!(s.bytes_per_line(), 2560);
-        assert_eq!(s.expected_bytes(), 2560 * 458);
+        // 4 * 986 * 2 = 7888, padded to 8192
+        assert_eq!(s.bytes_per_line(), 8192);
+        assert_eq!(s.expected_bytes(), 8192 * 1489);
     }
 
     #[test]
@@ -186,7 +252,7 @@ mod tests {
         let s = ScanSettings {
             capabilities,
             window: ScanArea::frame(0, capabilities),
-            ..settings(4000, false)
+            ..settings(Dpi::_4000, false)
         };
         assert_eq!(s.pitch(), 1);
         assert_eq!(s.output_dims(), (2000, 4000));
@@ -199,9 +265,9 @@ mod tests {
         let capabilities = super::super::capabilities::fixture::capabilities();
         let s = ScanSettings {
             window: ScanArea::frame(2 * capabilities.frame_pitch, capabilities),
-            ..settings(300, false)
+            ..settings(Dpi::_1000, false)
         };
-        assert_eq!(s.output_dims(), settings(300, false).output_dims());
+        assert_eq!(s.output_dims(), settings(Dpi::_1000, false).output_dims());
         assert_eq!(s.window.y_pos, 2 * capabilities.frame_pitch);
     }
 
@@ -209,16 +275,16 @@ mod tests {
     #[test]
     fn the_center_moves_with_the_window() {
         let capabilities = super::super::capabilities::fixture::capabilities();
-        let at_origin = settings(300, false);
-        // native_dims is (3939, 5954), which is what the descriptor carries
-        assert_eq!(at_origin.center(), (1969, 2977));
+        let at_origin = settings(Dpi::_1000, false);
+        // native_dims is (3944, 5956), which is what the descriptor carries
+        assert_eq!(at_origin.center(), (1972, 2978));
 
         let pitch = capabilities.frame_pitch;
         let further_down = ScanSettings {
             window: ScanArea::frame(pitch, capabilities),
             ..at_origin
         };
-        assert_eq!(further_down.center(), (1969, pitch + 2977));
+        assert_eq!(further_down.center(), (1972, pitch + 2978));
     }
 
     /// One inch is the unit divisor by definition, which is what fixes the rest

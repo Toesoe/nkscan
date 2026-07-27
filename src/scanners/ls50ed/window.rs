@@ -27,7 +27,8 @@ impl ScanMode {
 #[derive(Debug, Copy, Clone)]
 pub struct WindowParams {
     pub mode: ScanMode,
-    /// 10 ns units. `None` zeroes the field, which is what infrared gets.
+    /// Analog gain, linear in the value and free in time. `None` zeroes the field, which is
+    /// what infrared gets.
     pub exposure: Option<u32>,
 }
 
@@ -88,9 +89,9 @@ impl From<WindowParams> for Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scanners::ls50ed::geometry::ScanArea;
+    use crate::scanners::ls50ed::geometry::{Dpi, ScanArea};
 
-    fn settings(dpi: u16) -> ScanSettings {
+    fn settings(dpi: Dpi) -> ScanSettings {
         let capabilities = crate::scanners::ls50ed::capabilities::fixture::capabilities();
         ScanSettings {
             dpi,
@@ -111,7 +112,7 @@ mod tests {
     /// The 50 bytes the scanner has actually been driven with
     #[test]
     fn descriptor_matches_the_driven_layout() {
-        let settings = settings(300);
+        let settings = settings(Dpi::_1000);
         let bytes = params(ScanMode::Normal)
             .descriptor(&settings, Channel::Red)
             .to_bytes();
@@ -141,7 +142,7 @@ mod tests {
 
     #[test]
     fn autoexposure_pass_flips_the_mode_byte() {
-        let settings = settings(300);
+        let settings = settings(Dpi::_1000);
         let ae = params(ScanMode::AutoExposure)
             .descriptor(&settings, Channel::Red)
             .to_bytes();
@@ -157,7 +158,7 @@ mod tests {
     #[test]
     fn the_sample_count_reaches_the_mode_byte_verbatim() {
         let bytes = params(ScanMode::Samples(4))
-            .descriptor(&settings(300), Channel::Red)
+            .descriptor(&settings(Dpi::_1000), Channel::Red)
             .to_bytes();
         assert_eq!(bytes[42], 0x04);
         assert_eq!(bytes[40], 0x00);
@@ -170,7 +171,7 @@ mod tests {
             exposure: None,
             ..params(ScanMode::Normal)
         }
-        .descriptor(&settings(300), Channel::Ir)
+        .descriptor(&settings(Dpi::_1000), Channel::Ir)
         .to_bytes();
         assert_eq!(bytes[0], 0x09);
         assert_eq!(&bytes[46..50], &[0u8; 4]);
@@ -182,7 +183,7 @@ mod tests {
         let pitch = capabilities.frame_pitch;
         let settings = ScanSettings {
             window: ScanArea::frame(pitch, capabilities),
-            ..settings(300)
+            ..settings(Dpi::_1000)
         };
         let bytes = params(ScanMode::Normal)
             .descriptor(&settings, Channel::Red)
