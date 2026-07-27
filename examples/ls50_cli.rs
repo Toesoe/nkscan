@@ -1,8 +1,8 @@
 //! Drive a real LS-50 ED through a scan and write 16-bit linear TIFFs.
 //!
 //! One frame by default; `--frames N` scans a loaded strip and `--frames 0` takes the count the
-//! adapter reports. Writes `OUT.tiff`, or `OUT_00.tiff` and so on for a strip, with any infrared
-//! plane beside it as `*_ir.tiff`.
+//! adapter reports. Each frame becomes `<basename>_<n>.tiff`, with any infrared plane beside it
+//! as `<basename>_<n>_ir.tiff`.
 
 use anyhow::{Result, bail};
 use clap::Parser;
@@ -28,9 +28,10 @@ use tracing::*;
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-    /// Where to write the TIFF, numbered per frame for a strip
-    #[arg(default_value = "scan.tiff")]
-    output: PathBuf,
+    /// Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its
+    /// infrared mask <basename>_<n>_ir.tiff
+    #[arg(long, default_value = "scan")]
+    basename: PathBuf,
     /// Resolution in DPI. One of the firmware's divisions of the 4000-DPI sensor.
     #[arg(long, default_value = "4000", value_parser = dpi_mode)]
     dpi: Dpi,
@@ -178,11 +179,13 @@ fn main() -> Result<()> {
         })?;
         bar.finish_and_clear();
 
-        let path = if frames == 1 {
-            args.output.clone()
-        } else {
-            suffix(&args.output, &format!("_{index:02}"))
-        };
+        let path = args.basename.with_file_name(format!(
+            "{}_{index}.tiff",
+            args.basename
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ));
         write_frame(&frame, &path)?;
     }
 
@@ -198,20 +201,12 @@ fn write_frame(frame: &Image, path: &Path) -> Result<()> {
     info!(path = %path.display(), dimensions = ?frame.rgb.dimensions(), "Wrote TIFF");
 
     if let Some(ir) = &frame.ir {
-        let ir_path = suffix(path, "_ir");
+        let ir_path = path.with_file_name(format!(
+            "{}_ir.tiff",
+            path.file_stem().unwrap_or_default().to_string_lossy()
+        ));
         output::write_luma16_tiff(&mut BufWriter::new(File::create(&ir_path)?), ir)?;
         info!(path = %ir_path.display(), "Wrote the infrared plane");
     }
     Ok(())
-}
-
-/// Insert `text` before the extension: `scan.tiff` and `_ir` gives `scan_ir.tiff`
-fn suffix(path: &Path, text: &str) -> PathBuf {
-    let mut name = path.file_stem().unwrap_or_default().to_os_string();
-    name.push(text);
-    if let Some(extension) = path.extension() {
-        name.push(".");
-        name.push(extension);
-    }
-    path.with_file_name(name)
 }
