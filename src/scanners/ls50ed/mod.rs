@@ -675,6 +675,11 @@ mod tests {
         y_size: 8,
     };
 
+    /// Answers the capability read that opening starts with
+    fn mock() -> crate::scsi::mock::MockTransport {
+        crate::scsi::mock::MockTransport::new().with_page(0xC1, capabilities::fixture::raw_page())
+    }
+
     /// Scripts a whole pass: SET WINDOW checks the mode byte and exposure, SCAN answers GOOD,
     /// READ hands back one padded line until the image runs out.
     struct ScanMock {
@@ -998,43 +1003,16 @@ mod tests {
         ));
     }
 
-    /// Keeps whatever MODE SELECT was handed
-    #[derive(Default)]
-    struct RecordingTransport {
-        mode_select: Vec<u8>,
-    }
-
-    impl Transport for RecordingTransport {
-        fn execute(
-            &mut self,
-            cdb: &[u8],
-            _direction: DataDirection,
-            data: &mut [u8],
-            _sense: &mut [u8],
-        ) -> Result<(), Error> {
-            match cdb[0] {
-                0x00 | 0x16 => Ok(()),
-                // INQUIRY: opening reads the capability page before anything else
-                0x12 => {
-                    serve_inquiry(cdb, data);
-                    Ok(())
-                }
-                0x15 => {
-                    self.mode_select = data.to_vec();
-                    Ok(())
-                }
-                other => panic!("unexpected opcode {other:#04x}"),
-            }
-        }
-    }
-
     /// Assembled from the mode page rather than held as a captured blob, so the wire bytes
     /// have to stay the ones Nikon Scan sends
     #[test]
     fn opening_pins_the_units_with_the_captured_parameter_list() {
-        let scanner = Ls50ed::new(RecordingTransport::default()).unwrap();
+        let scanner = Ls50ed::new(mock()).unwrap();
         assert_eq!(
-            scanner.transport.mode_select,
+            scanner
+                .transport
+                .data_out(0x15)
+                .expect("MODE SELECT was sent"),
             [
                 0x00, 0x00, 0x00, 0x08, // header, block descriptor length 8
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // block descriptor
@@ -1046,7 +1024,7 @@ mod tests {
     /// Opening reads the geometry off the device rather than assuming it
     #[test]
     fn opening_takes_its_geometry_from_the_device() {
-        let scanner = Ls50ed::new(RecordingTransport::default()).unwrap();
+        let scanner = Ls50ed::new(mock()).unwrap();
         assert_eq!(
             scanner.capabilities(),
             capabilities::fixture::capabilities()
@@ -1100,28 +1078,8 @@ mod tests {
     /// hardcoded constants would hide it behind plausible geometry
     #[test]
     fn opening_without_a_capability_page_fails() {
-        struct NoCapabilities;
-
-        impl Transport for NoCapabilities {
-            fn execute(
-                &mut self,
-                cdb: &[u8],
-                _direction: DataDirection,
-                data: &mut [u8],
-                _sense: &mut [u8],
-            ) -> Result<(), Error> {
-                match cdb[0] {
-                    0x00 | 0x12 => {
-                        data.fill(0);
-                        Ok(())
-                    }
-                    other => panic!("unexpected opcode {other:#04x}"),
-                }
-            }
-        }
-
         assert!(matches!(
-            Ls50ed::new(NoCapabilities),
+            Ls50ed::new(crate::scsi::mock::MockTransport::new()),
             Err(scsi::Error::InvalidResponse(_))
         ));
     }

@@ -18,11 +18,23 @@ pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Capabilit
 }
 
 #[cfg(test)]
+pub(super) mod fixture {
+    /// The whole response, header included, as a mock transport has to answer it
+    pub fn raw_page() -> Vec<u8> {
+        let body = super::tests::captured();
+        let mut raw = vec![0x06, crate::scanners::nikon::capabilities::PAGE];
+        raw.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        raw.extend_from_slice(&body);
+        raw
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     /// The page as an LS-9000 ED with a strip holder loaded reports it
-    fn captured() -> Vec<u8> {
+    pub(super) fn captured() -> Vec<u8> {
         let hex = "01 00 3B 00 0F 00 00 01 00 01 01 17 42 12 0F A0 0F A0 02 9A 00 00 23 03 \
                    00 00 00 00 00 00 00 00 00 00 23 04 0F A0 0F A0 01 4D 00 00 87 54 00 00 \
                    00 00 00 00 00 00 00 00 33 78 00 00 00 00 00 00 00 00 00 53 00 53 01 01 \

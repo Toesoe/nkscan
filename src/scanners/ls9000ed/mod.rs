@@ -677,6 +677,109 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scsi::mock::MockTransport;
+
+    /// A transport that can answer the capability read `new` starts with
+    fn mock() -> MockTransport {
+        MockTransport::new().with_page(0xC1, capabilities::fixture::raw_page())
+    }
+
+    /// The order matters and is documented as mattering: the units have to be set before any
+    /// SET WINDOW, and the abort has to clear a pass left pending by a killed process before
+    /// anything else is attempted.
+    #[test]
+    fn opening_reads_geometry_then_reserves_aborts_and_sets_units() {
+        let scanner = Ls9000ed::new(mock()).expect("opens");
+        assert_eq!(
+            scanner.transport.opcode_sequence(),
+            [
+                0x12, // INQUIRY, the capability page
+                0x00, // TEST UNIT READY, draining unit attentions
+                0x16, // RESERVE
+                0xC0, // vendor ABORT
+                0x15, // MODE SELECT, the measurement units
+            ]
+        );
+    }
+
+    /// Nikon Scan reads the frame setup before staging any window, and the staging covers
+    /// infrared as well as the visible channels
+    #[test]
+    fn calibrating_reads_frame_setup_before_staging_windows() {
+        let mut scanner = Ls9000ed::new(mock()).expect("opens");
+        scanner
+            .calibrate(ChannelExposures::default())
+            .expect("calibrates");
+
+        let sequence = &scanner.transport.opcode_sequence()[..];
+        let calibration = &sequence[sequence.len() - 8..];
+        assert_eq!(
+            calibration,
+            [
+                0x28, // READ, the frame setup per channel
+                0x24, // SET WINDOW per channel
+                0xE1, // vendor read, the staged focus
+                0xE0, // vendor write, committing it
+                0xC1, // vendor TRIGGER
+                0x28, // READ, the current frame table
+                0x2A, // SEND, the nominal one
+                0x28, // READ, the per-channel calibration
+            ]
+        );
+
+        // One window per channel, infrared included, each naming the channel it stages
+        let staged: Vec<u8> = scanner
+            .transport
+            .cdbs(0x24)
+            .iter()
+            .map(|cdb| cdb[1])
+            .collect();
+        assert_eq!(staged.len(), 4);
+    }
+
+    /// The scanner refuses SCAN until it is ready and says so with a vendor-specific key, so a
+    /// refusal is a reason to wait rather than to give up
+    #[test]
+    fn scan_retries_a_vendor_specific_refusal() {
+        let refusal = || scsi::Error::Status {
+            status: 0x02,
+            sense: Some(scsi::SenseData {
+                key: 0x09,
+                asc: 0x80,
+                ascq: 0x01,
+                ili: false,
+                deferred: false,
+            }),
+        };
+        let transport = mock().failing(0x1B, refusal()).failing(0x1B, refusal());
+        let mut scanner = Ls9000ed::new(transport).expect("opens");
+
+        scanner.scan(&Channel::RGB).expect("succeeds on the third");
+        assert_eq!(scanner.transport.count(0x1B), 3);
+    }
+
+    /// Anything other than a vendor-specific refusal is a real error, not something to sit
+    /// through eight times
+    #[test]
+    fn scan_does_not_retry_an_illegal_request() {
+        let transport = mock().failing(
+            0x1B,
+            scsi::Error::Status {
+                status: 0x02,
+                sense: Some(scsi::SenseData {
+                    key: 0x05,
+                    asc: 0x24,
+                    ascq: 0x00,
+                    ili: false,
+                    deferred: false,
+                }),
+            },
+        );
+        let mut scanner = Ls9000ed::new(transport).expect("opens");
+
+        assert!(scanner.scan(&Channel::RGB).is_err());
+        assert_eq!(scanner.transport.count(0x1B), 1);
+    }
 
     /// Both autofocus points land exactly on their target, which is what fixes the mapping
     #[test]
