@@ -1,29 +1,15 @@
-//! Nikon vendor-specific WRITE(10)/READ(10)
+//! What the LS-9000 stages in the shared vendor registers
 //!
-//! These writes send a value to RAM but don't actually take effect until the
-//! vendor TRIGGER is applied.
+//! The CDB framing, the subcode values and [`VendorWrite`] itself live in
+//! [`nikon::cdbs`](crate::scanners::nikon::cdbs). What lives here is how this model encodes a
+//! payload and decodes a read: focus is a two-byte field at offset 3.
 
-use crate::scsi::{Cdb, Command, CommandData, Error, fields::be_u24};
+use crate::{
+    scanners::nikon::cdbs::{VendorRegister, vendor_cdb},
+    scsi::{Cdb, Command, CommandData, Error},
+};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Subcode {
-    Focus,
-    AutoFocus,
-    Eject,
-    /// Something we haven't characterized, for probing the firmware's other registers
-    Other(u8),
-}
-
-impl Subcode {
-    fn to_byte(self) -> u8 {
-        match self {
-            Subcode::Focus => 0xC1,
-            Subcode::AutoFocus => 0xA0,
-            Subcode::Eject => 0xD0,
-            Subcode::Other(code) => code,
-        }
-    }
-}
+pub use crate::scanners::nikon::cdbs::{Subcode, VendorWrite};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VendorPayload {
@@ -40,7 +26,7 @@ pub enum VendorPayload {
     Raw(Vec<u8>),
 }
 
-impl VendorPayload {
+impl VendorRegister for VendorPayload {
     fn subcode(&self) -> Subcode {
         match self {
             VendorPayload::Focus(_) => Subcode::Focus,
@@ -51,9 +37,9 @@ impl VendorPayload {
         }
     }
 
-    fn to_bytes(&self) -> [u8; 9] {
-        // TODO: Will this need to be dynamically-sized?
-        let mut bytes = [0u8; 9];
+    /// Always nine bytes on this model, whatever the subcode
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = vec![0u8; 9];
         match *self {
             VendorPayload::Focus(focus) => bytes[3..5].copy_from_slice(&focus.to_be_bytes()),
             VendorPayload::AutoFocus { x, y } => {
@@ -65,55 +51,6 @@ impl VendorPayload {
             VendorPayload::Eject | VendorPayload::Raw(_) => {}
         }
         bytes
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct VendorWrite {
-    subcode: Subcode,
-    bytes: [u8; 9],
-}
-
-impl VendorWrite {
-    pub fn new(payload: VendorPayload) -> Self {
-        Self {
-            subcode: payload.subcode(),
-            bytes: payload.to_bytes(),
-        }
-    }
-}
-
-/// The two vendor opcodes share a CDB layout, differing only in direction
-fn vendor_cdb(opcode: u8, subcode: Subcode, length: u32) -> Cdb<10> {
-    let [length_hi, length_mid, length_lo] = be_u24(length);
-    Cdb([
-        opcode,
-        0x00,
-        subcode.to_byte(),
-        0x00,
-        0x00,
-        0x00,
-        length_hi,
-        length_mid,
-        length_lo,
-        0x00,
-    ])
-}
-
-impl Command for VendorWrite {
-    type Response = ();
-    type Cdb = Cdb<10>;
-
-    fn cdb(&self) -> Self::Cdb {
-        vendor_cdb(0xE0, self.subcode, self.bytes.len() as u32)
-    }
-
-    fn data(&self) -> CommandData<'_> {
-        CommandData::Write(&self.bytes)
-    }
-
-    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
-        Ok(())
     }
 }
 
@@ -158,8 +95,8 @@ impl Command for VendorRead {
                 x: u32::from(short(3)),
                 y: long(5),
             },
-            // Write-only, so a read of it is just bytes
-            Subcode::Eject | Subcode::Other(_) => VendorPayload::Raw(data.to_vec()),
+            // Write-only here, or not a register this model has, so a read is just bytes
+            Subcode::Eject | Subcode::Lamp | Subcode::Other(_) => VendorPayload::Raw(data.to_vec()),
         })
     }
 }
@@ -178,7 +115,7 @@ mod tests {
             [0xE0, 0x00, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00]
         );
         assert_eq!(
-            write.bytes,
+            write.payload(),
             [0x00, 0x00, 0x00, 0x13, 0x88, 0x00, 0x00, 0x62, 0xAC]
         );
     }
@@ -189,7 +126,7 @@ mod tests {
         let write = VendorWrite::new(VendorPayload::Focus(0x00B2));
         assert_eq!(write.cdb().0[2], 0xC1);
         assert_eq!(
-            write.bytes,
+            write.payload(),
             [0x00, 0x00, 0x00, 0x00, 0xB2, 0x00, 0x00, 0x00, 0x00]
         );
     }
@@ -203,7 +140,7 @@ mod tests {
             write.cdb().0,
             [0xE0, 0x00, 0xD0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00]
         );
-        assert_eq!(write.bytes, [0x00; 9]);
+        assert_eq!(write.payload(), [0x00; 9]);
     }
 
     #[test]

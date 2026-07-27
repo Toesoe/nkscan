@@ -10,7 +10,7 @@ use super::{
     window::{BaseQuality, WindowKind, WindowParams},
 };
 use crate::{
-    scanners::Focus,
+    scanners::{Focus, nikon},
     scsi::{self, Transport},
 };
 use image::{ImageBuffer, Luma, Rgb};
@@ -105,10 +105,9 @@ where
     pub fn channel_exposures(&mut self) -> Result<ChannelExposures, scsi::Error> {
         let mut exposures = ChannelExposures::default();
         for descriptor in self.get_window(None)? {
-            let Some(tail) = descriptor.vendor.get(6..10) else {
+            let Some(exposure) = nikon::exposure_from_vendor(&descriptor.vendor) else {
                 continue;
             };
-            let exposure = u32::from_be_bytes(tail.try_into().expect("6..10 is four bytes"));
             // ScanArea 0 is the composite and carries no exposure of its own
             if let Some(channel) = Channel::from_id(descriptor.id).filter(|c| *c != Channel::All) {
                 exposures.set(channel, exposure);

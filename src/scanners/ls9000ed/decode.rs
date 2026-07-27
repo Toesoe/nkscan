@@ -2,14 +2,14 @@
 
 use super::{ScanArea, ScanSettings};
 use crate::decode::{BlockSink, Blocked, LengthMismatch, StreamDecoder, be_u16_at};
-use image::{ImageBuffer, Luma, Rgb};
+use image::{ImageBuffer, Rgb};
+
+// Shared with every other scanner here, and re-exported so callers of this module need not
+// know that
+pub use crate::decode::{Image, ImageView, Luma16, Rgb16};
 
 /// Sensor pixels processed per inner tile, chosen so both the input runs and the output tile stay in L2 during the transpose
 const CHUNK: usize = 256;
-
-// Output image types. The LS-9000 always sends BE u16 over the wire.
-pub type Rgb16 = ImageBuffer<Rgb<u16>, Vec<u16>>;
-pub type Luma16 = ImageBuffer<Luma<u16>, Vec<u16>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
@@ -23,35 +23,6 @@ pub enum DecodeError {
 
     #[error(transparent)]
     LengthMismatch(#[from] LengthMismatch),
-}
-
-/// A decoded frame that borrows the decoder's buffers
-pub struct ImageView<'a> {
-    /// The image data read out from the scanner
-    pub rgb: ImageBuffer<Rgb<u16>, &'a [u16]>,
-    /// The optional IR mask for dust removal
-    pub ir: Option<ImageBuffer<Luma<u16>, &'a [u16]>>,
-}
-
-impl ImageView<'_> {
-    /// Copy out of the decoder, so the frame outlives it
-    pub fn to_owned(&self) -> Image {
-        Image {
-            rgb: Rgb16::from_raw(self.rgb.width(), self.rgb.height(), self.rgb.to_vec())
-                .expect("view is well formed"),
-            ir: self.ir.as_ref().map(|ir| {
-                Luma16::from_raw(ir.width(), ir.height(), ir.to_vec()).expect("view is well formed")
-            }),
-        }
-    }
-}
-
-/// A decoded frame that owns its buffers
-pub struct Image {
-    /// The image data read out from the scanner
-    pub rgb: Rgb16,
-    /// The IR mask for dust removal, when the pass asked for one
-    pub ir: Option<Luma16>,
 }
 
 /// Decoder for the 83-DPI overview pass, one row of pixels at a time

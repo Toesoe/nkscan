@@ -68,20 +68,7 @@ impl Dpi {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-/// A scan window in 1/4000-in dots, matching the sensor's native pitch
-/// Resolution-independent: changing DPI reframes the same physical area
-pub struct ScanArea {
-    /// Offset along the sensor bar (0..10_000, 63.5 mm).
-    pub x_pos: u32,
-    /// Offset along stage travel (0..~34_644, 220 mm, a full 120 strip). This is what selects which frame.
-    pub y_pos: u32,
-    /// Sensor extent or image HEIGHT. This is like the first dimension in MF film, the 6 in 6x9.
-    pub x_size: u32,
-    /// Stage extent or image WIDTH. Distinguishes 6x4.5 / 6x6 / 6x9.
-    /// This must be a multiple of 36 (one CCD interleave block) at any resolution
-    pub y_size: u32,
-}
+pub use crate::scanners::ScanArea;
 
 impl ScanArea {
     /// How long the sensor is, in dots

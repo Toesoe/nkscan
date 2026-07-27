@@ -3,102 +3,22 @@
 //! An LS-50 with an SA-21 reports 14-bit samples, 4000 DPI optical, boundaries of 3946 by 5959
 //! dots, a 5959-dot frame pitch and focus 0 to 323: everything the driver would else hardcode.
 
+use crate::scanners::nikon::capabilities as nikon;
 use crate::scsi::{self as scsi};
 use crate::scsi::{Transport, TransportExt, cdbs::VendorPage, cdbs::VpdInquiry, cdbs::VpdPage};
+
+pub use crate::scanners::nikon::capabilities::{Capabilities, ResolutionRange};
 
 const PAGE: u8 = 0xC1;
 /// Covers the last field we read, at offset 78. The unit answers with 83.
 const ALLOCATION_LENGTH: u8 = 87;
 
-/// Device-reported limits and geometry
+/// Ask the device, before there is a scanner to ask
 ///
-/// Field offsets are into the page body, after the four-byte VPD header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Capabilities {
-    /// Bits per sample the scanner produces
-    pub max_bits: u8,
-    /// Native sensor resolution, and the range it will divide down to
-    pub x_resolution: ResolutionRange,
-    /// Same along the feed
-    pub y_resolution: ResolutionRange,
-    /// Widest window along the sensor bar, in 1/4000-in dots
-    pub boundary_x: u32,
-    /// Longest window along the feed, in 1/4000-in dots. One frame's worth, not the strip.
-    pub boundary_y: u32,
-    /// How far the feed advances between frames, in 1/4000-in dots, 0 for an adapter that
-    /// does not advance
-    ///
-    /// 5959 here, one dot more than the longest window the firmware takes, so consecutive
-    /// frames tile the film exactly.
-    pub frame_pitch: u32,
-    /// The range [`focus`](crate::scanners::Focus::focus) is reported and set in
-    pub focus: (u16, u16),
-}
-
-/// An optical resolution and the range the firmware will divide it into
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ResolutionRange {
-    pub optical: u16,
-    pub min: u16,
-    pub max: u16,
-}
-
-impl Capabilities {
-    /// Ask the device, before there is a scanner to ask
-    ///
-    /// An unreadable page is an error, not a cue to fall back on constants: page 0x00
-    /// advertises 0xC1 and no healthy unit has been seen to withhold it.
-    pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Self, scsi::Error> {
-        transport.vpd::<Self>()
-    }
-
-    /// The last scannable dot along the sensor bar
-    ///
-    /// The boundaries count dots; a window is bounded by the last of them. Never underflows:
-    /// [`parse`](Self::parse) rejects a page reporting a zero boundary.
-    pub fn max_x(&self) -> u32 {
-        self.boundary_x - 1
-    }
-
-    /// The last scannable dot along the feed, one frame's worth. See [`max_x`](Self::max_x).
-    pub fn max_y(&self) -> u32 {
-        self.boundary_y - 1
-    }
-
-    fn parse(data: &[u8]) -> Option<Self> {
-        // The last field we read sits at 78, so anything shorter is not this page
-        if data.len() < 79 {
-            return None;
-        }
-        let short = |at: usize| u16::from_be_bytes([data[at], data[at + 1]]);
-        let long =
-            |at: usize| u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
-
-        // A scanner with no scannable area is not a page we can work from, and taking it at its
-        // word would underflow `max_x`/`max_y` into a window the size of the address space
-        let (boundary_x, boundary_y) = (long(32), long(54));
-        if boundary_x == 0 || boundary_y == 0 {
-            return None;
-        }
-
-        Some(Self {
-            max_bits: data[78],
-            x_resolution: ResolutionRange {
-                optical: short(14),
-                max: short(16),
-                min: short(18),
-            },
-            y_resolution: ResolutionRange {
-                optical: short(36),
-                max: short(38),
-                min: short(40),
-            },
-            boundary_x,
-            boundary_y,
-            frame_pitch: long(58),
-            focus: (short(72), short(74)),
-        })
-    }
+/// An unreadable page is an error, not a cue to fall back on constants: page 0x00 advertises
+/// 0xC1 and no healthy unit has been seen to withhold it.
+pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Capabilities, scsi::Error> {
+    nikon::read(transport, ALLOCATION_LENGTH)
 }
 
 impl VendorPage for Capabilities {
@@ -109,7 +29,7 @@ impl VendorPage for Capabilities {
         if page.page_code != PAGE {
             return None;
         }
-        Self::parse(&page.data)
+        Self::parse(&page.data).ok()
     }
 }
 

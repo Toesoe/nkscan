@@ -66,9 +66,7 @@ impl WindowParams {
 
     /// The firmware-measured exposure, out of a descriptor read back with GET WINDOW
     pub fn exposure_from_vendor(vendor: &[u8]) -> Option<u32> {
-        vendor
-            .get(6..10)
-            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+        crate::scanners::nikon::exposure_from_vendor(vendor)
     }
 }
 
