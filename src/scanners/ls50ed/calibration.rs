@@ -63,12 +63,19 @@ where
     }
 
     /// One channel's exposure, from the vendor tail of its window descriptor
+    ///
+    /// Matched on the descriptor's own id rather than taken from the front of the list: a
+    /// firmware that ignored the single-window request would otherwise report window 1's
+    /// exposure for all three channels. An absent tail is an error rather than a zero, since
+    /// zero is a gain the caller would go on to arm a black pass with.
     fn window_exposure(&mut self, channel: Channel) -> Result<u32, scsi::Error> {
-        let descriptors = self.get_window(Some(channel))?;
-        Ok(descriptors
-            .first()
+        self.get_window(Some(channel))?
+            .iter()
+            .find(|descriptor| descriptor.id == channel.to_id())
             .and_then(|descriptor| super::WindowParams::exposure_from_vendor(&descriptor.vendor))
-            .unwrap_or(0))
+            .ok_or(scsi::Error::InvalidResponse(
+                "no window descriptor carried an exposure for the channel asked for",
+            ))
     }
 
     /// Find the exposure that fills the range, by letting the firmware measure the window

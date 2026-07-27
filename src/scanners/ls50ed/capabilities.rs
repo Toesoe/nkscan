@@ -54,7 +54,8 @@ impl Capabilities {
 
     /// The last scannable dot along the sensor bar
     ///
-    /// The boundaries count dots; a window is bounded by the last of them.
+    /// The boundaries count dots; a window is bounded by the last of them. Never underflows:
+    /// [`parse`](Self::parse) rejects a page reporting a zero boundary.
     pub fn max_x(&self) -> u32 {
         self.boundary_x - 1
     }
@@ -73,6 +74,13 @@ impl Capabilities {
         let long =
             |at: usize| u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
 
+        // A scanner with no scannable area is not a page we can work from, and taking it at its
+        // word would underflow `max_x`/`max_y` into a window the size of the address space
+        let (boundary_x, boundary_y) = (long(32), long(54));
+        if boundary_x == 0 || boundary_y == 0 {
+            return None;
+        }
+
         Some(Self {
             max_bits: data[78],
             x_resolution: ResolutionRange {
@@ -85,8 +93,8 @@ impl Capabilities {
                 max: short(38),
                 min: short(40),
             },
-            boundary_x: long(32),
-            boundary_y: long(54),
+            boundary_x,
+            boundary_y,
             frame_pitch: long(58),
             focus: (short(72), short(74)),
         })
@@ -164,6 +172,20 @@ pub(super) mod fixture {
 #[cfg(test)]
 mod tests {
     use super::{fixture::captured, *};
+
+    /// `max_x`/`max_y` subtract one from these, so a zero would wrap into a window the size of
+    /// the address space rather than failing anywhere near the bad page
+    #[test]
+    fn a_zero_boundary_is_not_a_usable_page() {
+        for offset in [32, 54] {
+            let mut page = captured();
+            page.data[offset..offset + 4].fill(0);
+            assert!(
+                Capabilities::from_page(&page).is_none(),
+                "a zero boundary at {offset} should be rejected"
+            );
+        }
+    }
 
     #[test]
     fn parses_the_captured_page() {
