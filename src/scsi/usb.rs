@@ -115,6 +115,14 @@ impl UsbTransport {
 }
 
 impl Transport for UsbTransport {
+    /// Bulk transfers have no protocol ceiling, so this is a chunk size rather than a limit
+    ///
+    /// Stated only so a caller that chunks by it does not inherit the trait's default, which
+    /// is the reserved buffer of a Linux sg device and means nothing here.
+    fn max_transfer(&self) -> u32 {
+        128 * 1024
+    }
+
     #[instrument(skip_all, fields(cdb = ?cdb, ?direction, data_len = data.len()))]
     fn execute(
         &mut self,
@@ -148,7 +156,18 @@ impl Transport for UsbTransport {
         }
         match phase {
             PHASE_DATA_IN => {
-                self.read_in(data)?;
+                let got = self.read_in(data)?;
+                // Ordinary for a command whose allocation length overshoots the reply, which
+                // is most of them. On an image read it means a lost line instead, but
+                // `execute` has no residual channel to say which this was, and either way the
+                // caller's buffer keeps the zeroed tail it arrived with.
+                if got < data.len() {
+                    debug!(
+                        got,
+                        want = data.len(),
+                        "device sent less than was asked for"
+                    );
+                }
             }
             PHASE_DATA_OUT => {
                 self.write_out(data)?;

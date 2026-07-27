@@ -71,18 +71,23 @@ impl FrameBoundaries {
         )
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let count = self.0.len() as u16;
+    /// The parameter list, or `None` if it will not fit the wire format
+    ///
+    /// The header carries the count in one byte and the length in two, so past 255 frames the
+    /// header and the rectangles that follow it would disagree about how many there are, and
+    /// the scanner would read the table off the end.
+    pub fn to_bytes(&self) -> Option<Vec<u8>> {
+        let count = u8::try_from(self.0.len()).ok()?;
         let mut buf = Vec::with_capacity(4 + 16 * self.0.len());
         // Total length includes the 4-byte header itself
-        buf.extend_from_slice(&(4 + 16 * count).to_be_bytes());
-        buf.push(count as u8);
+        buf.extend_from_slice(&(4 + 16 * u16::from(count)).to_be_bytes());
+        buf.push(count);
         // Reserved in the spec, but only ever driven with the count repeated
-        buf.push(count as u8);
+        buf.push(count);
         for rect in &self.0 {
             buf.extend_from_slice(&rect.to_bytes());
         }
-        buf
+        Some(buf)
     }
 }
 
@@ -98,7 +103,10 @@ where
         &mut self,
         boundaries: &FrameBoundaries,
     ) -> Result<(), scsi::Error> {
-        self.write_dtc(Dtc::FrameBoundaries, None, boundaries.to_bytes())
+        let parameters = boundaries.to_bytes().ok_or(scsi::Error::Unsupported(
+            "more frames than the boundary table's one-byte count can carry",
+        ))?;
+        self.write_dtc(Dtc::FrameBoundaries, None, parameters)
     }
 }
 
@@ -128,7 +136,7 @@ mod tests {
         expected.extend(descriptor(0, 0));
         assert_eq!(
             FrameBoundaries::evenly_spaced(1, PITCH, &[0.0], NATIVE_X).to_bytes(),
-            expected
+            Some(expected)
         );
     }
 
@@ -145,7 +153,7 @@ mod tests {
         }
         assert_eq!(
             FrameBoundaries::evenly_spaced(6, PITCH, &[0.0, 5.6], NATIVE_X).to_bytes(),
-            expected
+            Some(expected)
         );
     }
 
@@ -167,6 +175,15 @@ mod tests {
         }
         assert_eq!(boundaries.0[0].y_top, 0);
         assert_eq!(boundaries.0[1].y_top, capabilities.frame_pitch + shift);
+    }
+
+    /// Past 255 the one-byte count would disagree with the rectangles behind it, and the
+    /// scanner would read the table off the end rather than reject it
+    #[test]
+    fn a_table_too_big_for_its_header_is_refused() {
+        let rect = FrameRect::full_width(0, PITCH, NATIVE_X);
+        assert!(FrameBoundaries(vec![rect; 255]).to_bytes().is_some());
+        assert!(FrameBoundaries(vec![rect; 256]).to_bytes().is_none());
     }
 
     #[test]

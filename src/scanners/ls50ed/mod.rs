@@ -410,9 +410,14 @@ where
         self.tolerate_busy(&VendorTrigger)?;
         // The motor runs for several seconds, reporting Ejecting the whole time. Let it
         // settle before handing the scanner back, or the release lands mid-motion.
-        let _ = self.wait_settled();
-        let _ = self.release();
-        Ok(())
+        //
+        // Whether it settled is the one part worth reporting: if it never did, the film is
+        // still somewhere inside. A failed release only leaves a stale reservation behind.
+        let settled = self.wait_settled();
+        if let Err(e) = self.release() {
+            debug!(%e, "Could not release the scanner after ejecting");
+        }
+        settled.map(|_| ())
     }
 
     /// Focus on one point of the film, in 1/4000-in dots
@@ -449,6 +454,16 @@ where
         gain: ChannelExposures,
         progress: F,
     ) -> Result<Image, ScanError> {
+        // Checked before anything is armed. A window narrower than one output pixel gives a
+        // zero-length line, and the read loop below would then never run: the SCAN would be
+        // left pending with nothing draining it, and an empty image handed back as a success.
+        if settings.bytes_per_line() == 0 {
+            return Err(scsi::Error::Unsupported(
+                "window is narrower than one output pixel at this resolution",
+            )
+            .into());
+        }
+
         self.arm(settings, gain, ScanMode::Normal)?;
         self.scan(channels(settings))?;
 
@@ -472,6 +487,14 @@ where
         gain: ChannelExposures,
         mode: ScanMode,
     ) -> Result<(), scsi::Error> {
+        // Refused rather than put on the wire: a multi-sample pass arms and then never streams,
+        // so the caller would sit through `read_line`'s idle timeout to be told nothing useful
+        if settings.samples > 1 {
+            return Err(scsi::Error::Unsupported(
+                "multi-sampling arms a pass that never streams",
+            ));
+        }
+
         let channels = channels(settings);
 
         // Identity keeps the output linear. SANE skips the table for an AE pass.
@@ -761,14 +784,17 @@ mod tests {
                     data.fill(0);
                     if data.len() >= 58 {
                         data[6..8].copy_from_slice(&50u16.to_be_bytes());
-                        if cdb[1] & 1 == 1
-                            && let Some(measured) = self.measured_exposure
-                        {
-                            let value = measured
-                                .get((cdb[5] as usize).wrapping_sub(1))
-                                .copied()
-                                .unwrap_or(0);
-                            data[54..58].copy_from_slice(&value.to_be_bytes());
+                        if cdb[1] & 1 == 1 {
+                            // The descriptor names the window it describes, which is how a
+                            // caller tells whether it got the channel it asked for
+                            data[8] = cdb[5];
+                            if let Some(measured) = self.measured_exposure {
+                                let value = measured
+                                    .get((cdb[5] as usize).wrapping_sub(1))
+                                    .copied()
+                                    .unwrap_or(0);
+                                data[54..58].copy_from_slice(&value.to_be_bytes());
+                            }
                         }
                     }
                     Ok(())
@@ -838,6 +864,38 @@ mod tests {
         assert_eq!(ir.dimensions(), (1, 2));
         assert_eq!(ir.get_pixel(0, 0).0, [90u16]);
         assert_eq!(ir.get_pixel(0, 1).0, [91u16]);
+    }
+
+    /// A zero-length line makes the read loop exit before it starts, so the SCAN would be left
+    /// pending with nothing to drain it and an empty image would come back as a success
+    #[test]
+    fn a_window_narrower_than_a_pixel_is_refused_before_arming() {
+        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let settings = ScanSettings {
+            window: ScanArea { x_size: 0, ..TINY },
+            ..settings(false)
+        };
+
+        assert!(matches!(
+            scanner.scan_image(&settings, ChannelExposures::default()),
+            Err(ScanError::Scsi(scsi::Error::Unsupported(_)))
+        ));
+    }
+
+    /// Documented as broken rather than enforced, which left the caller waiting out the idle
+    /// timeout on a pass that was never going to stream
+    #[test]
+    fn multi_sampling_is_refused_rather_than_armed() {
+        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let settings = ScanSettings {
+            samples: 2,
+            ..settings(false)
+        };
+
+        assert!(matches!(
+            scanner.scan_image(&settings, ChannelExposures::default()),
+            Err(ScanError::Scsi(scsi::Error::Unsupported(_)))
+        ));
     }
 
     #[test]

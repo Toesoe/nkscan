@@ -138,16 +138,22 @@ impl FrameBoundaries {
         ))
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
+    /// The parameter list, or `None` if it will not fit the wire format
+    ///
+    /// The header carries the count in one byte and the length in two, so past 255 frames the
+    /// header and the rectangles that follow it would disagree about how many there are, and
+    /// the scanner would read the table off the end.
+    pub fn to_bytes(&self) -> Option<Vec<u8>> {
+        let count = u8::try_from(self.0.len()).ok()?;
         let mut buf = Vec::with_capacity(4 + 16 * self.0.len());
         // Total length includes the 4-byte header itself
-        buf.extend_from_slice(&(4 + 16 * self.0.len() as u16).to_be_bytes());
-        buf.push(self.0.len() as u8);
+        buf.extend_from_slice(&(4 + 16 * u16::from(count)).to_be_bytes());
+        buf.push(count);
         buf.push(0x00); // reserved
         for rect in &self.0 {
             buf.extend_from_slice(&rect.to_bytes());
         }
-        buf
+        Some(buf)
     }
 }
 
@@ -389,7 +395,10 @@ where
         &mut self,
         boundaries: &FrameBoundaries,
     ) -> Result<(), scsi::Error> {
-        self.write_dtc(Dtc::FrameBoundaries, None, boundaries.to_bytes())
+        let parameters = boundaries.to_bytes().ok_or(scsi::Error::Unsupported(
+            "more frames than the boundary table's one-byte count can carry",
+        ))?;
+        self.write_dtc(Dtc::FrameBoundaries, None, parameters)
     }
 }
 
@@ -415,7 +424,7 @@ mod tests {
             "00 00 57 34 00 00 02 06 00 00 71 5C 00 00 25 0A",
         ]);
 
-        assert_eq!(FrameBoundaries::nominal().to_bytes(), expected);
+        assert_eq!(FrameBoundaries::nominal().to_bytes(), Some(expected));
     }
 
     /// The 6x9 write from 16x_multisample
@@ -429,14 +438,16 @@ mod tests {
 
         assert_eq!(
             FrameBoundaries::evenly_spaced(2236, 13176, 2).to_bytes(),
-            expected
+            Some(expected)
         );
     }
 
     #[test]
     fn header_length_covers_itself_and_every_rectangle() {
         for count in 1..=8u32 {
-            let bytes = FrameBoundaries::evenly_spaced(0, 100, count).to_bytes();
+            let bytes = FrameBoundaries::evenly_spaced(0, 100, count)
+                .to_bytes()
+                .expect("well under the 255 the header can carry");
             assert_eq!(bytes.len(), 4 + 16 * count as usize);
             assert_eq!(
                 u16::from_be_bytes([bytes[0], bytes[1]]) as usize,
