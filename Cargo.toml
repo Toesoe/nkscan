@@ -15,6 +15,20 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 moxcms = "0.9"
 
+# The CLI stack, which a library consumer has no use for
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+anyhow = { version = "1", optional = true }
+indicatif = { version = "0.18", optional = true }
+
+[features]
+cli = ["dep:tracing-subscriber", "dep:clap", "dep:anyhow", "dep:indicatif"]
+
+[[bin]]
+name = "nkscan"
+path = "src/bin/nkscan/main.rs"
+required-features = ["cli"]
+
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.31", features = ["ioctl"] }
 

@@ -5,9 +5,11 @@
 
 use super::capabilities::Capabilities;
 
-/// The working units, also this sensor's optical resolution. Only for millimeter conversion;
-/// anything scaling with the device takes it from [`Capabilities`].
-const UNIT_DIVISOR: f32 = 4000.0;
+/// The measurement units this driver sets at open
+///
+/// Only for converting millimeters; anything that scales with the device takes it from
+/// [`Capabilities`] instead.
+pub const DOTS_PER_INCH: u32 = 4000;
 
 /// A window on the film, in 1/4000-in dots
 ///
@@ -167,10 +169,9 @@ pub fn frame_offset(offsets: &[f32], index: u32) -> u32 {
     }
 }
 
-/// A millimeter figure in 1/4000-in dots. Negative input floors at zero: a window cannot start
-/// before the film does.
+/// A millimeter figure in this scanner's dots
 pub fn native_dots(millimeters: f32) -> u32 {
-    (millimeters * UNIT_DIVISOR / 25.4).round().max(0.0) as u32
+    crate::scanners::nikon::native_dots(millimeters, DOTS_PER_INCH)
 }
 
 #[cfg(test)]

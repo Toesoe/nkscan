@@ -39,6 +39,17 @@ impl Multisample {
     }
 }
 
+/// The measurement units this driver sets at open
+///
+/// Only for converting millimeters; anything that scales with the device takes it from
+/// [`Capabilities`](super::Capabilities) instead.
+pub const DOTS_PER_INCH: u32 = 4000;
+
+/// A millimeter figure in this scanner's dots
+pub fn native_dots(millimeters: f32) -> u32 {
+    crate::scanners::nikon::native_dots(millimeters, DOTS_PER_INCH)
+}
+
 /// DPI mode to read out
 /// The scanner natively operates at 4000 DPI and does firmware-level division to downsample
 #[derive(Debug, Copy, Clone)]

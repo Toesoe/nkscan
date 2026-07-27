@@ -8,6 +8,19 @@
 pub mod capabilities;
 pub mod cdbs;
 
+/// A millimeter figure in device dots
+///
+/// `dots_per_inch` is the measurement unit the driver set at open, which is the same number the
+/// mode page divides the inch by. It is not the scanner's optical resolution and not the same on
+/// every model, so it is a parameter rather than a constant. Negative input floors at zero: a
+/// window cannot start before the film does.
+pub fn native_dots(millimeters: f32, dots_per_inch: u32) -> u32 {
+    const MM_PER_INCH: f32 = 25.4;
+    (millimeters * dots_per_inch as f32 / MM_PER_INCH)
+        .round()
+        .max(0.0) as u32
+}
+
 /// The per-channel analog gain out of a window descriptor's vendor tail
 ///
 /// The last four bytes of the ten, big-endian. `None` if the tail is short, which is not the
