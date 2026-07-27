@@ -9,7 +9,10 @@
 //! two keys is a readiness state, not an error, whether or not we've seen
 //! its specific ASC/ASCQ before.
 
-use crate::scsi::{SenseData, SenseKey, asc::AdditionalSenseCode};
+use crate::{
+    scanners::ScannerStatus,
+    scsi::{SenseData, SenseKey, asc::AdditionalSenseCode},
+};
 
 /// Scanner state, as reported by TEST UNIT READY
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,12 +40,16 @@ pub enum Status {
     Other(SenseKey, AdditionalSenseCode),
 }
 
-impl Status {
+impl ScannerStatus for Status {
+    fn ready() -> Self {
+        Status::Ready
+    }
+
     /// Classify a CHECK CONDITION's sense data as a readiness state
     /// Returns `None` only for sense keys that are genuine errors (anything
     /// other than NOT READY / UNIT ATTENTION); the caller should treat that
     /// as a real `Err`.
-    pub(crate) fn from_sense(sense: &SenseData) -> Option<Self> {
+    fn from_sense(sense: &SenseData) -> Option<Self> {
         match (sense.sense_key(), sense.asc, sense.ascq) {
             (SenseKey::NotReady, 0x04, 0x01) => Some(Self::Initializing),
             // The one exception to the sense-key rule above. AbortedCommand is a real fault
@@ -64,7 +71,7 @@ impl Status {
     ///
     /// The device queues these and reports one per command, clearing it as it goes, so a
     /// caller has to keep asking until it gets something else.
-    pub fn is_unit_attention(self) -> bool {
+    fn is_unit_attention(&self) -> bool {
         matches!(
             self,
             Self::Reset

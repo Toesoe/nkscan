@@ -42,8 +42,6 @@ const WINDOW_COUNT: u32 = 5;
 /// SCSI-2 leaves control bits 7-6 vendor-specific, and Nikon Scan sets bit 7 on every
 /// command with a data phase. GET WINDOW reads back zeroed geometry without it.
 const VENDOR_CONTROL: u8 = 0x80;
-/// Unit attentions queue up, but not without bound. Past this something is wrong.
-const MAX_QUEUED_UNIT_ATTENTIONS: usize = 8;
 /// The most tries a SCAN gets before we call it a refusal. Nikon Scan needs up to four.
 const MAX_SCAN_ATTEMPTS: usize = 8;
 /// How often [`wait_until_ready`](Ls9000ed::wait_until_ready) asks. Nikon Scan polls at
@@ -177,24 +175,6 @@ where
         debug!("Setting global units to 4000 DPI");
         scanner.set_global_units()?;
         Ok(scanner)
-    }
-
-    /// Report the scanner's state, clearing any queued unit attentions first
-    ///
-    /// The device reports one unit attention per command and clears it as it goes, so a
-    /// single [`status`](Scanner::status) only ever sees the oldest. Anything that can't
-    /// tolerate a stray CHECK CONDITION needs this instead.
-    pub fn drain_unit_attentions(&mut self) -> Result<Status, scsi::Error> {
-        for _ in 0..MAX_QUEUED_UNIT_ATTENTIONS {
-            let status = self.status()?;
-            if !status.is_unit_attention() {
-                return Ok(status);
-            }
-            debug!(?status, "Cleared a unit attention");
-        }
-        Err(scsi::Error::InvalidResponse(
-            "scanner kept reporting unit attentions",
-        ))
     }
 
     /// Throw away a pass nobody is going to read
@@ -331,11 +311,6 @@ where
         Ok(holder_dots(steps))
     }
 
-    /// Read a vital product data page. Page 0x00 lists the ones this device has.
-    pub fn vpd_page(&mut self, page_code: u8) -> Result<Vec<u8>, scsi::Error> {
-        Ok(self.transport.send(&VpdInquiry::new(page_code, 0xFF))?.data)
-    }
-
     /// Read an uncharacterized vendor register
     pub fn probe_vendor(&mut self, subcode: u8, length: u32) -> Result<Vec<u8>, scsi::Error> {
         match self
@@ -392,34 +367,10 @@ where
     T: Transport,
 {
     type Status = Status;
+    type Transport = T;
 
-    fn identify(&mut self) -> Result<InquiryResponse, scsi::Error> {
-        self.transport.send(&Inquiry::new())
-    }
-
-    fn status(&mut self) -> Result<Status, scsi::Error> {
-        // Unfold "Errors" from the state buffer into normal ok states
-        match self.transport.send(&TestUnitReady::new()) {
-            Ok(()) => Ok(Status::Ready),
-            Err(err) => {
-                if let scsi::Error::Status {
-                    sense: Some(sense), ..
-                } = &err
-                    && let Some(state) = Status::from_sense(sense)
-                {
-                    return Ok(state);
-                }
-                Err(err)
-            }
-        }
-    }
-
-    fn reserve(&mut self) -> Result<(), scsi::Error> {
-        self.transport.send(&ReserveUnit::default())
-    }
-
-    fn release(&mut self) -> Result<(), scsi::Error> {
-        self.transport.send(&ReleaseUnit::default())
+    fn transport(&mut self) -> &mut T {
+        &mut self.transport
     }
 
     fn read_chunk(&mut self, want: u32) -> Result<Vec<u8>, scsi::Error> {

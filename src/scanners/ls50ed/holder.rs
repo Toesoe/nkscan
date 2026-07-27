@@ -5,9 +5,12 @@
 //! themselves, see [`adapter_name`](Ls50ed::adapter_name).
 
 use super::Ls50ed;
-use crate::scsi::{
-    Transport,
-    cdbs::{VendorPage, VpdPage},
+use crate::{
+    scanners::Scanner,
+    scsi::{
+        Transport,
+        cdbs::{VendorPage, VpdPage},
+    },
 };
 
 /// Carries the adapter's name on the adapters that have this page

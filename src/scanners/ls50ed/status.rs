@@ -3,7 +3,10 @@
 //! NOT READY and UNIT ATTENTION are transient by definition (SPC-2 Table 69), so anything
 //! under those keys is a readiness state, named or not.
 
-use crate::scsi::{SenseData, SenseKey, asc::AdditionalSenseCode};
+use crate::{
+    scanners::ScannerStatus,
+    scsi::{SenseData, SenseKey, asc::AdditionalSenseCode},
+};
 
 /// Scanner state, as reported by TEST UNIT READY
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,9 +33,13 @@ pub enum Status {
     Other(SenseKey, AdditionalSenseCode),
 }
 
-impl Status {
+impl ScannerStatus for Status {
+    fn ready() -> Self {
+        Status::Ready
+    }
+
     /// `None` for sense keys that are genuine errors, which the caller passes on as `Err`
-    pub(crate) fn from_sense(sense: &SenseData) -> Option<Self> {
+    fn from_sense(sense: &SenseData) -> Option<Self> {
         match (sense.sense_key(), sense.asc, sense.ascq) {
             (SenseKey::NotReady, 0x04, 0x01) => Some(Self::Initializing),
             (SenseKey::NotReady, 0x04, 0x02) => Some(Self::NeedsInit),
@@ -50,7 +57,7 @@ impl Status {
 
     /// The device queues these and reports one per command, clearing it as it goes, so a
     /// caller has to keep asking until it gets something else
-    pub fn is_unit_attention(self) -> bool {
+    fn is_unit_attention(&self) -> bool {
         matches!(
             self,
             Self::Reset
@@ -59,9 +66,10 @@ impl Status {
                 | Self::Other(SenseKey::UnitAttention, _)
         )
     }
+}
 
-    /// Whether polling can still resolve this. NeedsInit needs the self-test and NoFilm
-    /// needs film, so waiting on either just burns the retry budget.
+impl Status {
+    /// A state that clears itself given time, as opposed to one needing a caller to act
     pub fn is_transient(self) -> bool {
         !matches!(self, Self::Ready | Self::NeedsInit | Self::NoFilm)
     }
