@@ -2,6 +2,7 @@
 
 use crate::{decode::StreamDecoder, scsi};
 
+pub mod ls50ed;
 pub mod ls9000ed;
 
 /// Either half of a streamed read can fail: the transport, or the decoder consuming it
