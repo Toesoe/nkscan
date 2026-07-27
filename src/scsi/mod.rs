@@ -9,6 +9,8 @@ pub(crate) mod fields;
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(test)]
+pub mod mock;
 pub mod mode_pages;
 pub mod usb;
 #[cfg(target_os = "windows")]
