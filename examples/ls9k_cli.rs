@@ -12,8 +12,12 @@ use nkscan::{
             ScanSettings, boundaries::FrameBoundaries, holder::Holder,
         },
     },
-    scsi::linux::SgDevice,
 };
+
+#[cfg(target_os = "linux")]
+use nkscan::scsi::linux::SgDevice as Device;
+#[cfg(target_os = "windows")]
+use nkscan::scsi::windows::ScsiScanDevice as Device;
 use std::{
     fs::File,
     io::BufWriter,
@@ -24,9 +28,9 @@ use tracing::*;
 
 #[derive(Parser)]
 #[command(version, about)]
-/// Scans medium format film with the Coolscan 9000 ED on Linux
+/// Scans medium format film with the Coolscan 9000 ED
 struct Cli {
-    /// Linux /dev/sg* for the scanner
+    /// Device path for the scanner: /dev/sg* on Linux, \\.\Scanner0 on Windows
     scanner: PathBuf,
     /// Where the bare-light white balance lives, as `calibrate` writes it and `scan` reads it
     #[arg(long, default_value = "nkscan-wb.txt")]
@@ -329,7 +333,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Open the scanner
-    let sg = SgDevice::open(cli.scanner)?;
+    let sg = Device::open(cli.scanner)?;
     let mut scanner = Ls9000ed::new(sg)?;
     let identity = scanner.identify()?;
     info!("Connected to {} {}", identity.vendor, identity.product);
