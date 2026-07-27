@@ -51,12 +51,6 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// Long enough for a calibration, which Nikon Scan's own UI says can take two minutes.
 const READY_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Dots the holder advances per step it reports, 1/333 in, the same 12 dots the three CCD
-/// lines are spaced by
-const HOLDER_STEP_DOTS: u32 = 12;
-/// The step the scanner reports when the holder is at y=0. Six autofocus targets across two
-/// sessions solve to this origin with no residual.
-const HOLDER_HOME_STEP: u32 = 171;
 /// Vendor byte 2 of a window descriptor when the window is a frame, see [`WindowKind::Frame`]
 const FRAME_WINDOW_KIND: u8 = 0x01;
 /// Where a frame SET WINDOW puts the stage motor for a zero-length window
@@ -87,11 +81,6 @@ fn white_balance_area() -> ScanArea {
 /// Stage travel a bare-light pass covers, a whole number of interleave blocks like every
 /// other window length
 const WHITE_BALANCE_LENGTH: u32 = 7200;
-
-/// Holder steps as [`ScanArea`] dots
-fn holder_dots(steps: u16) -> u32 {
-    u32::from(steps).saturating_sub(HOLDER_HOME_STEP) * HOLDER_STEP_DOTS
-}
 
 /// Where a frame SET WINDOW drives the stage motor, given the window length
 fn stage_target(length: u32) -> i32 {
@@ -296,19 +285,6 @@ where
         let focus = self.focus()?;
         debug!(focus, "Autofocus finished");
         Ok(focus)
-    }
-
-    /// Where the holder currently sits, in the same 1/4000-in dots as [`ScanArea`]
-    ///
-    /// Read back off vendor subcode 0x42, which reports the position in stage steps. Only
-    /// legible at rest: the scanner refuses every vendor read while a pass is pending.
-    pub fn holder_position(&mut self) -> Result<u32, scsi::Error> {
-        let bytes = self.probe_vendor(0x42, 11)?;
-        let steps = bytes
-            .get(3..5)
-            .map(|b| u16::from_be_bytes([b[0], b[1]]))
-            .ok_or(scsi::Error::InvalidResponse("0x42 read too short"))?;
-        Ok(holder_dots(steps))
     }
 
     /// Read an uncharacterized vendor register
@@ -584,15 +560,6 @@ where
         Ok(gain)
     }
 
-    /// The 83-DPI overview of the whole strip
-    ///
-    /// Fixed at that resolution, and what
-    /// [`FrameBoundaries::detect`](boundaries::FrameBoundaries::detect) reads to find where
-    /// the frames sit. Returned rather than consumed, since it is also what a viewer shows.
-    pub fn overview(&mut self, gain: ChannelExposures) -> Result<decode::Rgb16, ScanError> {
-        self.overview_with(gain, |_, _| {})
-    }
-
     /// [`overview`](Self::overview), reporting (received, expected) bytes as it reads
     pub fn overview_with<F: FnMut(u64, u64)>(
         &mut self,
@@ -732,17 +699,6 @@ mod tests {
         assert_eq!(scanner.transport.count(0x1B), 1);
     }
 
-    /// Both autofocus points land exactly on their target, which is what fixes the mapping
-    #[test]
-    fn holder_steps_match_the_probed_positions() {
-        assert_eq!(holder_dots(738), 6804);
-        assert_eq!(holder_dots(2418), 26964);
-        // The first probe run caught it sitting at the origin
-        assert_eq!(holder_dots(171), 0);
-        // A thumbnail leaves it one step short of full travel
-        assert_eq!(holder_dots(3055), ScanArea::STRIP_DOTS - 36);
-    }
-
     /// The bare-light window has to be a window the scanner will actually take, and it is
     /// specified rather than derived, so nothing else checks it
     #[test]
@@ -764,13 +720,6 @@ mod tests {
     fn the_white_balance_window_is_mid_travel() {
         let area = white_balance_area();
         assert_eq!(area.y_pos + area.y_size / 2, ScanArea::STRIP_DOTS / 2);
-    }
-
-    /// A reading below the origin would otherwise wrap into a huge position
-    #[test]
-    fn steps_below_home_clamp_to_zero() {
-        assert_eq!(holder_dots(0), 0);
-        assert_eq!(holder_dots(HOLDER_HOME_STEP as u16 - 1), 0);
     }
 
     /// Every length measured on hardware, with no residual. 16560 is the one that stalled,

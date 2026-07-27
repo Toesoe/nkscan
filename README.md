@@ -8,33 +8,23 @@ Right now, only a library as we figure out the shapes of the data to make it eas
 However, a full scanner flow is working for the Coolscan 9000 in the ls9k_cli example on linux, and for the Coolscan V ED (LS-50) in the ls50_cli example.
 
 ``` bash
-Usage: ls9k_cli [OPTIONS] <SCANNER> <COMMAND>
-
-Commands:
-  scan       Scan every frame from the loaded strip at 4000 DPI
-  calibrate  Measure the backlight with an EMPTY holder loaded, and write the neutral gains
+Usage: ls9k_cli [OPTIONS] --frames <FRAMES> <SCANNER>
 
 Arguments:
-  <SCANNER>  Linux /dev/sg* for the scanner
-
-Options:
-      --wb-file <WB_FILE>  Where the bare-light white balance lives, as `calibrate` writes it and `scan` reads it [default: nkscan-wb.txt]
-  -h, --help               Print help
-  -V, --version            Print version
-```
-
-``` bash
-Usage: ls9k_cli <SCANNER> scan [OPTIONS] --frames <FRAMES>
+  <SCANNER>  Device path for the scanner: /dev/sg* on Linux, \\.\Scanner0 on Windows
 
 Options:
       --frames <FRAMES>            How many frames to expect in the film holder (needed for frame recognition)
-      --lock-wb                    Whether to lock the white balance during autoexposure
       --frame <FRAME>              Optional frame number (zero-indexed) to scan, otherwise scan all of them
+      --gain <R,G,B[,IR]>          Fixed per-channel analog gain as `red,green,blue[,ir]`, which turns autoexposure off
+      --lock-wb                    Whether to lock the white balance during autoexposure. Ignored with --gain
       --ir                         Save IR alongside the main scan
       --basename <BASENAME>        Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its infrared mask <basename>_<n>_ir.tiff [default: scan]
       --multisample <MULTISAMPLE>  How much multisampling to perform. This increases scan time at the befenit of lower noise. One of 1,2,4,8,16 [default: 1]
       --singleline                 Single-line CCD mode. Slow, but may improve banding noise
-  -h, --help                       Print help
+      --eject                      Send the holder back out when everything is done
+  -h, --help                       Print help (see more with '--help')
+  -V, --version                    Print version
 ```
 
 The LS-50 is USB rather than SCSI, so it takes no device path: the example finds the scanner by
@@ -60,6 +50,28 @@ Options:
   -V, --version              Print version
 ```
 
+On Windows the scanner is reached through the scanner class driver, and opening that device
+path needs an elevated prompt. Without one it fails to open at all rather than reporting a
+denial.
+
+### Scanning a roll under one exposure
+
+Autoexposure meters every frame on its own, which is what you want for a single frame and not
+what you want across a roll: two strips of the same film come back matched to their own
+contents rather than to each other. For roll analysis, meter once and reuse the result.
+
+``` bash
+# Meter one representative frame and note the gains it logs
+ls9k_cli /dev/sg0 --frames 3 --frame 0
+
+# ... INFO ls9k_cli: Metered idx=0 gain=ChannelExposures { red: 679831, green: 487244, ... }
+
+# Scan everything else at exactly that exposure
+ls9k_cli /dev/sg0 --frames 3 --gain 679831,487244,400117
+```
+
+`--gain` turns autoexposure off entirely. Autofocus still runs per frame, since film does not
+sit flat and focus is not a property of the roll the way gain is.
 
 ## TODO
 
