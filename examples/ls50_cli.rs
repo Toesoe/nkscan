@@ -4,7 +4,7 @@
 //! adapter reports. Writes `OUT.tiff`, or `OUT_00.tiff` and so on for a strip, with any infrared
 //! plane beside it as `*_ir.tiff`.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
@@ -34,9 +34,15 @@ struct Args {
     /// Resolution in DPI. One of the firmware's divisions of the 4000-DPI sensor.
     #[arg(long, default_value = "4000", value_parser = dpi_mode)]
     dpi: Dpi,
-    /// Frames to scan: 1 for a single frame, 0 to take the adapter's count
+    /// Frames on the loaded strip: 1 for a single frame, 0 to take the adapter's count
+    ///
+    /// Every one of them is declared to the scanner whether or not it gets scanned, since a
+    /// pass that cannot see the whole table leaves the feed where it is.
     #[arg(long, default_value_t = 1)]
     frames: u32,
+    /// Which of those frames to actually scan, zero-indexed, comma separated. All by default.
+    #[arg(long, value_delimiter = ',')]
+    frame: Vec<usize>,
     /// Capture the infrared plane for dust removal
     #[arg(long)]
     ir: bool,
@@ -121,18 +127,28 @@ fn main() -> Result<()> {
     let boundaries =
         FrameBoundaries::evenly_spaced(frames, pitch, &args.offset, capabilities.max_x());
 
-    // Measured once on the first frame, reused for the rest of the strip
+    // Which frames to take windows from. The table above still declares all of them.
+    let selected: Vec<usize> = if args.frame.is_empty() {
+        (0..boundaries.0.len()).collect()
+    } else {
+        args.frame.clone()
+    };
+    if let Some(past_end) = selected.iter().find(|&&i| i >= boundaries.0.len()) {
+        bail!("frame {past_end} is not on a {frames}-frame strip");
+    }
+
+    // Measured once on the first frame scanned, reused for the rest of the strip
     let mut gain = ChannelExposures::default();
 
-    for (index, frame) in boundaries.0.iter().enumerate() {
+    for (nth, &index) in selected.iter().enumerate() {
         let settings = ScanSettings {
             dpi: args.dpi,
             ir: args.ir,
             samples: 1,
-            window: frame.scan_area(capabilities),
+            window: boundaries.0[index].scan_area(capabilities),
             capabilities,
         };
-        if index == 0 {
+        if nth == 0 {
             info!(
                 resolution = settings.res(),
                 dimensions = ?settings.output_dims(),
@@ -150,7 +166,7 @@ fn main() -> Result<()> {
             scanner.set_focus(args.focus.unwrap_or(0))?;
         }
 
-        if args.ae && index == 0 {
+        if args.ae && nth == 0 {
             info!("Metering");
             gain = scanner.autoexpose(&settings, gain)?;
         }
