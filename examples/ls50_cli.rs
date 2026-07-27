@@ -116,6 +116,24 @@ fn main() -> Result<()> {
         adapter = ?scanner.adapter_name(),
         "Scanner open"
     );
+
+    let outcome = scan(&mut scanner, &args);
+
+    // Worth getting the film back even when the pass failed, so this runs either way and
+    // whatever went wrong first is still what gets reported
+    if args.eject {
+        match scanner.eject() {
+            Ok(()) => info!("Ejected"),
+            Err(e) if outcome.is_ok() => return Err(e.into()),
+            Err(e) => warn!(%e, "Could not eject"),
+        }
+    }
+
+    outcome
+}
+
+/// Place the frames on the loaded film, then focus, meter, scan and write each one asked for
+fn scan(scanner: &mut Ls50ed<UsbTransport>, args: &Args) -> Result<()> {
     let capabilities = scanner.capabilities();
     let frames = match args.frames {
         0 => scanner.sensed_frames().max(1),
@@ -187,11 +205,6 @@ fn main() -> Result<()> {
                 .to_string_lossy()
         ));
         write_frame(&frame, &path)?;
-    }
-
-    if args.eject {
-        scanner.eject()?;
-        info!("Ejected");
     }
     Ok(())
 }
