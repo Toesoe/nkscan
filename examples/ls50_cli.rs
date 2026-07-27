@@ -6,13 +6,13 @@
 
 use anyhow::Result;
 use clap::Parser;
-use image::ImageFormat;
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
+    output,
     scanners::{
         FilmHolder, Focus, Scanner,
         ls50ed::{
-            ChannelExposures, Ls50ed, PRODUCT_ID, ScanSettings, VENDOR_ID,
+            ChannelExposures, Dpi, Ls50ed, PRODUCT_ID, ScanSettings, VENDOR_ID,
             boundaries::FrameBoundaries, decode::Image, native_dots,
         },
     },
@@ -31,9 +31,9 @@ struct Args {
     /// Where to write the TIFF, numbered per frame for a strip
     #[arg(default_value = "scan.tiff")]
     output: PathBuf,
-    /// Optical resolution in DPI, snapped to the sensor grid
-    #[arg(long, default_value_t = 300)]
-    dpi: u16,
+    /// Resolution in DPI. One of the firmware's divisions of the 4000-DPI sensor.
+    #[arg(long, default_value = "4000", value_parser = dpi_mode)]
+    dpi: Dpi,
     /// Frames to scan: 1 for a single frame, 0 to take the adapter's count
     #[arg(long, default_value_t = 1)]
     frames: u32,
@@ -66,6 +66,20 @@ struct Args {
     eject: bool,
 }
 
+/// A DPI figure the firmware will actually scan at, rather than one it would have to round
+fn dpi_mode(text: &str) -> Result<Dpi, String> {
+    let requested: u16 = text
+        .parse()
+        .map_err(|_| format!("{text} is not a number"))?;
+    Dpi::ALL
+        .into_iter()
+        .find(|mode| mode.to_dpi() == requested)
+        .ok_or_else(|| {
+            let legal: Vec<String> = Dpi::ALL.iter().map(|m| m.to_dpi().to_string()).collect();
+            format!("expected one of {}", legal.join(", "))
+        })
+}
+
 /// A bar that fills as a pass is read off the scanner
 fn reading(what: &str) -> ProgressBar {
     let bar = ProgressBar::no_length().with_message(what.to_owned());
@@ -89,7 +103,12 @@ fn main() -> Result<()> {
     let transport = UsbTransport::open(VENDOR_ID, PRODUCT_ID)?;
     let mut scanner = Ls50ed::new(transport)?;
 
-    info!(identity = ?scanner.identify()?, holder = ?scanner.holder()?, "Scanner open");
+    info!(
+        identity = ?scanner.identify()?,
+        holder = ?scanner.holder()?,
+        adapter = ?scanner.adapter_name(),
+        "Scanner open"
+    );
     let capabilities = scanner.capabilities();
     let frames = match args.frames {
         0 => scanner.sensed_frames().max(1),
@@ -159,17 +178,12 @@ fn main() -> Result<()> {
 }
 
 fn write_frame(frame: &Image, path: &Path) -> Result<()> {
-    frame
-        .rgb
-        .write_to(&mut BufWriter::new(File::create(path)?), ImageFormat::Tiff)?;
+    output::write_rgb16_tiff(&mut BufWriter::new(File::create(path)?), &frame.rgb)?;
     info!(path = %path.display(), dimensions = ?frame.rgb.dimensions(), "Wrote TIFF");
 
     if let Some(ir) = &frame.ir {
         let ir_path = suffix(path, "_ir");
-        ir.write_to(
-            &mut BufWriter::new(File::create(&ir_path)?),
-            ImageFormat::Tiff,
-        )?;
+        output::write_luma16_tiff(&mut BufWriter::new(File::create(&ir_path)?), ir)?;
         info!(path = %ir_path.display(), "Wrote the infrared plane");
     }
     Ok(())

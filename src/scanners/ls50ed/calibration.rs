@@ -8,7 +8,8 @@ use super::{Channel, Ls50ed, ScanSettings, window::ScanMode};
 use crate::scsi::{self, Transport};
 use tracing::*;
 
-/// Per-channel exposure in 10 ns units. Infrared's window carries a zeroed field.
+/// Per-channel analog gain, linear in the value and free in time. Infrared's window carries a
+/// zeroed field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChannelExposures {
     pub red: u32,
