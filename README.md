@@ -5,7 +5,7 @@ A cross-platform, performant driver for Nikon film scanners.
 ## Usage
 
 Right now, only a library as we figure out the shapes of the data to make it easy to slot in support for other scanners/OSes/backends.
-However, a full scanner flow is working for the Coolscan 9000 in the ls9k_cli example on linux.
+However, a full scanner flow is working for the Coolscan 9000 in the ls9k_cli example on linux, and for the Coolscan V ED (LS-50) in the ls50_cli example.
 
 ``` bash
 Usage: ls9k_cli [OPTIONS] <SCANNER> <COMMAND>
@@ -36,6 +36,30 @@ Options:
       --singleline                 Single-line CCD mode. Slow, but may improve banding noise
   -h, --help                       Print help
 ```
+
+The LS-50 is USB rather than SCSI, so it takes no device path: the example finds the scanner by
+its USB ids. Frames are placed by the adapter's reported pitch plus your own per-frame `--offset`
+correction, since there is no overview pass to detect them from.
+
+``` bash
+Usage: ls50_cli [OPTIONS]
+
+Options:
+      --basename <BASENAME>  Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its infrared mask <basename>_<n>_ir.tiff [default: scan]
+      --dpi <DPI>            Resolution in DPI. One of the firmware's divisions of the 4000-DPI sensor [default: 4000]
+      --frames <FRAMES>      Frames on the loaded strip: 1 for a single frame, 0 to take the adapter's count [default: 1]
+      --frame <FRAME>        Which of those frames to actually scan, zero-indexed, comma separated. All by default
+      --ir                   Capture the infrared plane for dust removal
+      --ae                   Run the autoexposure pre-pass
+      --af                   Run firmware autofocus at the frame center
+      --focus <FOCUS>        Fixed focus setpoint. Ignored with --af; without either the motor parks at 0
+      --offset <OFFSET>      Where each frame starts along the feed axis, in mm, comma separated, last value repeating. One per frame, since the feed does not place them evenly [default: 0]
+      --pitch <PITCH>        Override the frame pitch, in mm. Omitted, the adapter's reported pitch is used, which is what advances the film. Zero holds every window in one place
+      --eject                Eject the film once the batch is done
+  -h, --help                 Print help (see more with '--help')
+  -V, --version              Print version
+```
+
 
 ## TODO
 
