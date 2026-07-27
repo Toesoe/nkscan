@@ -7,6 +7,7 @@ mod mode_sense;
 mod read_send;
 mod reservation;
 mod scan;
+mod send_diagnostic;
 mod test_unit_ready;
 mod window;
 
@@ -16,5 +17,6 @@ pub use mode_sense::*;
 pub use read_send::*;
 pub use reservation::*;
 pub use scan::*;
+pub use send_diagnostic::*;
 pub use test_unit_ready::*;
 pub use window::*;
