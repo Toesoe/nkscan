@@ -3,11 +3,9 @@
 //! An LS-50 with an SA-21 reports 14-bit samples, 4000 DPI optical, boundaries of 3946 by 5959
 //! dots, a 5959-dot frame pitch and focus 0 to 323: everything the driver would else hardcode.
 
-use crate::scanners::nikon::capabilities as nikon;
+use crate::scanners::nikon::capabilities::{self as nikon, Capabilities};
 use crate::scsi::{self as scsi};
 use crate::scsi::{Transport, TransportExt, cdbs::VendorPage, cdbs::VpdInquiry, cdbs::VpdPage};
-
-pub use crate::scanners::nikon::capabilities::{Capabilities, ResolutionRange};
 
 const PAGE: u8 = 0xC1;
 /// Covers the last field we read, at offset 78. The unit answers with 83.
@@ -54,7 +52,7 @@ fn frames_in(page: &VpdPage) -> Option<u32> {
 
 #[cfg(test)]
 pub(super) mod fixture {
-    use super::Capabilities;
+    use crate::scanners::nikon::capabilities::Capabilities;
     use crate::scsi::cdbs::{VendorPage, VpdPage};
 
     /// What the captured page parses to, for anything that needs geometry to test against
@@ -92,6 +90,7 @@ pub(super) mod fixture {
 #[cfg(test)]
 mod tests {
     use super::{fixture::captured, *};
+    use crate::scanners::nikon::capabilities::ResolutionRange;
 
     /// `max_x`/`max_y` subtract one from these, so a zero would wrap into a window the size of
     /// the address space rather than failing anywhere near the bad page

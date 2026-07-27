@@ -3,7 +3,7 @@
 //! Everything is in 1/4000-in dots, the sensor's native pitch, since
 //! [`Ls50ed::new`](super::Ls50ed::new) pins the measurement units to a 4000 divisor at open.
 
-use super::capabilities::Capabilities;
+use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
 
 /// The measurement units this driver sets at open
 ///
@@ -11,12 +11,8 @@ use super::capabilities::Capabilities;
 /// [`Capabilities`] instead.
 pub const DOTS_PER_INCH: u32 = 4000;
 
-/// A window on the film, in 1/4000-in dots
-///
-/// Y runs along the feed, X along the sensor bar. There is no host feed command: `y_pos` is
-/// what selects a frame.
-pub use crate::scanners::ScanArea;
-
+/// Windows on the film, in 1/4000-in dots. Y runs along the feed and X along the sensor bar,
+/// and there is no host feed command, so `y_pos` is what selects a frame.
 impl ScanArea {
     /// One whole frame at `y_pos`, spanning the adapter's full scan area
     ///

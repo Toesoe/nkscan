@@ -4,50 +4,21 @@
 //! without streaming an image, and the result comes back through GET WINDOW. There is nothing
 //! host-side for a target or a percentile to act on.
 
-use super::{Channel, Ls50ed, ScanSettings, window::ScanMode};
+use super::{Ls50ed, geometry::ScanSettings, window::ScanMode};
+use crate::scanners::nikon::{Channel, ChannelExposures};
 use crate::scsi::{self, Transport};
 use tracing::*;
 
-/// Per-channel analog gain, linear in the value and free in time. Infrared's window carries a
-/// zeroed field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ChannelExposures {
-    pub red: u32,
-    pub green: u32,
-    pub blue: u32,
-}
-
-impl Default for ChannelExposures {
-    /// From a capture, and what a pass uses with autoexposure off. A calibration knob, not a
-    /// constant of the hardware: tune per film and holder.
-    fn default() -> Self {
-        Self {
-            red: 120_000,
-            green: 120_000,
-            blue: 100_000,
-        }
-    }
-}
-
-impl ChannelExposures {
-    pub fn get(&self, channel: Channel) -> Option<u32> {
-        match channel {
-            Channel::Red => Some(self.red),
-            Channel::Green => Some(self.green),
-            Channel::Blue => Some(self.blue),
-            Channel::Ir => None,
-        }
-    }
-
-    fn set(&mut self, channel: Channel, exposure: u32) {
-        match channel {
-            Channel::Red => self.red = exposure,
-            Channel::Green => self.green = exposure,
-            Channel::Blue => self.blue = exposure,
-            Channel::Ir => {}
-        }
-    }
-}
+/// What a pass uses with autoexposure off. A calibration knob, not a constant of the hardware:
+/// tune per film and holder.
+///
+/// Infrared stays zero, which is what this model's infrared window carries either way.
+pub const DEFAULT_GAIN: ChannelExposures = ChannelExposures {
+    red: 120_000,
+    green: 120_000,
+    blue: 100_000,
+    ir: 0,
+};
 
 impl<T> Ls50ed<T>
 where
@@ -55,7 +26,7 @@ where
 {
     /// The exposures the scanner currently has staged, out of its window descriptors
     pub fn channel_exposures(&mut self) -> Result<ChannelExposures, scsi::Error> {
-        let mut exposures = ChannelExposures::default();
+        let mut exposures = DEFAULT_GAIN;
         for channel in Channel::RGB {
             exposures.set(channel, self.window_exposure(channel)?);
         }
@@ -72,7 +43,7 @@ where
         self.get_window(Some(channel))?
             .iter()
             .find(|descriptor| descriptor.id == channel.to_id())
-            .and_then(|descriptor| super::WindowParams::exposure_from_vendor(&descriptor.vendor))
+            .and_then(|descriptor| crate::scanners::nikon::exposure_from_vendor(&descriptor.vendor))
             .ok_or(scsi::Error::InvalidResponse(
                 "no window descriptor carried an exposure for the channel asked for",
             ))
@@ -112,20 +83,9 @@ where
 mod tests {
     use super::*;
 
+    /// This model drives infrared off a zeroed gain field
     #[test]
     fn infrared_has_no_exposure_of_its_own() {
-        let exposures = ChannelExposures::default();
-        assert_eq!(exposures.get(Channel::Red), Some(120_000));
-        assert_eq!(exposures.get(Channel::Blue), Some(100_000));
-        assert_eq!(exposures.get(Channel::Ir), None);
-    }
-
-    #[test]
-    fn set_ignores_infrared() {
-        let mut exposures = ChannelExposures::default();
-        exposures.set(Channel::Green, 4242);
-        exposures.set(Channel::Ir, 4242);
-        assert_eq!(exposures.get(Channel::Green), Some(4242));
-        assert_eq!(exposures.get(Channel::Ir), None);
+        assert_eq!(DEFAULT_GAIN.get(Channel::Ir), 0);
     }
 }

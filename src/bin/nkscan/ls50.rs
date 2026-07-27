@@ -10,8 +10,12 @@ use nkscan::{
     scanners::{
         FilmHolder, Focus, Scanner,
         ls50ed::{
-            ChannelExposures, Dpi, Ls50ed, ScanSettings, boundaries::FrameBoundaries, native_dots,
+            Ls50ed,
+            boundaries::FrameBoundaries,
+            calibration::DEFAULT_GAIN,
+            geometry::{Dpi, ScanSettings, native_dots},
         },
+        nikon::ChannelExposures,
     },
     scsi::Transport,
 };
@@ -37,7 +41,7 @@ impl Ls50Job {
         Ok(Box::new(Self {
             scanner,
             frames: FrameBoundaries(Vec::new()),
-            gain: ChannelExposures::default(),
+            gain: DEFAULT_GAIN,
             fixed: false,
         }))
     }
@@ -48,11 +52,14 @@ impl Job for Ls50Job {
         for (given, flag) in [
             (cli.multisample != 1, "--multisample"),
             (cli.singleline, "--singleline"),
-            (cli.lock_wb, "--lock-wb"),
         ] {
             if given {
                 bail!("{flag} is an LS-9000 option, and this is an LS-50 ED");
             }
+        }
+        // Metering here is firmware-side, with no knob for holding the channels together
+        if cli.lock_wb {
+            bail!("--lock-wb is not controllable on an LS-50 ED; use --gain to fix the ratios");
         }
         Ok(())
     }
@@ -66,12 +73,15 @@ impl Job for Ls50Job {
 
         if let Some(values) = cli.gains()? {
             if values.len() == 4 {
-                bail!("this scanner has no separate infrared gain, so --gain takes three values");
+                bail!(
+                    "this scanner drives infrared off a zeroed gain, so --gain takes three values"
+                );
             }
             self.gain = ChannelExposures {
                 red: values[0],
                 green: values[1],
                 blue: values[2],
+                ir: 0,
             };
             self.fixed = true;
             info!(gain = ?self.gain, "Autoexposure off, scanning at a fixed gain");

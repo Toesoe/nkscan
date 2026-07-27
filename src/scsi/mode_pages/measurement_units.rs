@@ -9,7 +9,7 @@ use crate::scsi::mode_pages::ModePage;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BasicUnit {
     Inches,
-    Millimetres,
+    Millimeters,
     Points,
     /// A code byte the spec reserves and we haven't seen used
     Unknown(u8),
@@ -19,7 +19,7 @@ impl BasicUnit {
     fn from_byte(byte: u8) -> Self {
         match byte {
             0x00 => BasicUnit::Inches,
-            0x01 => BasicUnit::Millimetres,
+            0x01 => BasicUnit::Millimeters,
             0x02 => BasicUnit::Points,
             other => BasicUnit::Unknown(other),
         }
@@ -28,7 +28,7 @@ impl BasicUnit {
     fn to_byte(self) -> u8 {
         match self {
             BasicUnit::Inches => 0x00,
-            BasicUnit::Millimetres => 0x01,
+            BasicUnit::Millimeters => 0x01,
             BasicUnit::Points => 0x02,
             BasicUnit::Unknown(other) => other,
         }
@@ -95,10 +95,10 @@ mod tests {
     }
 
     #[test]
-    fn decodes_millimetres() {
+    fn decodes_millimeters() {
         let data = vec![0x03, 0x06, 0x01, 0x00, 0x00, 0x0A, 0x00, 0x00];
         let units = MeasurementUnits::from_response(&response(0, data)).unwrap();
-        assert_eq!(units.basic_unit, BasicUnit::Millimetres);
+        assert_eq!(units.basic_unit, BasicUnit::Millimeters);
         assert_eq!(units.divisor, 10);
     }
 

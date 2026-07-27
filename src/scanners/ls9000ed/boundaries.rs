@@ -6,10 +6,13 @@
 //! then the real per-frame positions once the overview scan has actually located the frames.
 
 use super::{
-    Ls9000ed, ScanArea,
+    Ls9000ed,
     dtc::{self, Dtc},
 };
-use crate::scsi::{self, Transport};
+use crate::{
+    scanners::ScanArea,
+    scsi::{self, Transport},
+};
 use image::{ImageBuffer, Rgb};
 use std::ops::Deref;
 

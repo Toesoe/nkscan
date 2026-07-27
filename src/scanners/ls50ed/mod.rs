@@ -1,15 +1,23 @@
 use crate::{
-    decode::StreamDecoder,
-    scanners::{FilmHolder, Focus, Scanner, nikon::cdbs::VendorTrigger},
+    decode::{Image, StreamDecoder},
+    scanners::{
+        FilmHolder, Focus, Scanner,
+        nikon::{
+            Channel, ChannelExposures,
+            capabilities::Capabilities,
+            cdbs::{Subcode, VendorTrigger, VendorWrite},
+        },
+    },
     scsi::{
         self as scsi, Command, Transport, TransportExt,
         cdbs::*,
         mode_pages::{BasicUnit, MeasurementUnits},
     },
 };
-use cdbs::{VendorPayload, VendorWrite};
-use decode::{DecodeError, FrameDecoder, Image};
+use cdbs::vendor_read_write::{VendorPayload, VendorRead};
+use decode::{DecodeError, FrameDecoder};
 use dtc::Dtc;
+use geometry::ScanSettings;
 use holder::Holder;
 use status::Status;
 use std::{
@@ -17,6 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::*;
+use window::{ScanMode, WindowParams};
 
 pub mod boundaries;
 pub mod calibration;
@@ -28,11 +37,6 @@ pub mod geometry;
 pub mod holder;
 pub mod status;
 pub mod window;
-
-pub use calibration::ChannelExposures;
-pub use capabilities::Capabilities;
-pub use geometry::{Dpi, ScanArea, ScanSettings, frame_offset, native_dots};
-pub use window::{ScanMode, WindowParams};
 
 /// For [`UsbTransport::open`](crate::scsi::usb::UsbTransport::open)
 pub const VENDOR_ID: u16 = 0x04B0;
@@ -90,30 +94,6 @@ pub struct Ls50ed<T> {
     capabilities: Capabilities,
 }
 
-/// Color channels for the scanner's lamp
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Channel {
-    Red,
-    Green,
-    Blue,
-    Ir,
-}
-
-impl Channel {
-    /// In the order the scanner stages them
-    pub const RGB: [Channel; 3] = [Channel::Red, Channel::Green, Channel::Blue];
-    pub const RGBI: [Channel; 4] = [Channel::Red, Channel::Green, Channel::Blue, Channel::Ir];
-
-    pub(crate) fn to_id(self) -> u8 {
-        match self {
-            Channel::Red => 1,
-            Channel::Green => 2,
-            Channel::Blue => 3,
-            Channel::Ir => 9,
-        }
-    }
-}
-
 impl<T> Ls50ed<T>
 where
     T: Transport,
@@ -157,11 +137,11 @@ where
 
     /// Read an uncharacterized vendor register
     pub fn probe_vendor(&mut self, subcode: u8, length: u32) -> Result<Vec<u8>, scsi::Error> {
-        match self.transport.send(&cdbs::VendorRead::new(
-            cdbs::Subcode::Other(subcode),
-            length,
-        ))? {
-            cdbs::VendorPayload::Raw(bytes) => Ok(bytes),
+        match self
+            .transport
+            .send(&VendorRead::new(Subcode::Other(subcode), length))?
+        {
+            VendorPayload::Raw(bytes) => Ok(bytes),
             // Subcode::Other always decodes to Raw, see VendorRead::parse_response
             _ => unreachable!(),
         }
@@ -296,8 +276,8 @@ where
 {
     /// The staged setpoint, which the motor may still be traveling towards
     fn focus(&mut self) -> Result<u16, scsi::Error> {
-        match self.transport.send(&cdbs::VendorRead::focus())? {
-            cdbs::VendorPayload::Focus(focus) => {
+        match self.transport.send(&VendorRead::focus())? {
+            VendorPayload::Focus(focus) => {
                 u16::try_from(focus).map_err(|_| scsi::Error::InvalidResponse("focus beyond a u16"))
             }
             // A VendorRead built with Subcode::Focus always decodes to Focus, see
@@ -308,9 +288,7 @@ where
 
     /// Staged, then committed via TRIGGER. 0 parks the motor.
     fn set_focus(&mut self, focus: u16) -> Result<(), scsi::Error> {
-        self.tolerate_busy(&cdbs::VendorWrite::new(cdbs::VendorPayload::Focus(
-            focus.into(),
-        )))?;
+        self.tolerate_busy(&VendorWrite::new(VendorPayload::Focus(focus.into())))?;
         self.tolerate_busy(&VendorTrigger)
     }
 }
@@ -577,6 +555,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scanners::{ScanArea, ls50ed::geometry::Dpi};
     use crate::scsi::{DataDirection, Error, SenseData};
     use boundaries::FrameBoundaries;
 
@@ -650,7 +629,7 @@ mod tests {
                 windows_set: 0,
                 last_mode: 0,
                 expect_exposure: {
-                    let seed = ChannelExposures::default();
+                    let seed = calibration::DEFAULT_GAIN;
                     [seed.red, seed.green, seed.blue]
                 },
                 measured_exposure: None,
@@ -781,7 +760,7 @@ mod tests {
     fn scan_one(scanner: &mut Ls50ed<ScanMock>, settings: &ScanSettings) -> Image {
         scanner.warm_up().unwrap();
         scanner
-            .scan_image(settings, ChannelExposures::default())
+            .scan_image(settings, calibration::DEFAULT_GAIN)
             .unwrap()
     }
 
@@ -823,7 +802,7 @@ mod tests {
         };
 
         assert!(matches!(
-            scanner.scan_image(&settings, ChannelExposures::default()),
+            scanner.scan_image(&settings, calibration::DEFAULT_GAIN),
             Err(ScanError::Scsi(scsi::Error::Unsupported(_)))
         ));
     }
@@ -839,7 +818,7 @@ mod tests {
         };
 
         assert!(matches!(
-            scanner.scan_image(&settings, ChannelExposures::default()),
+            scanner.scan_image(&settings, calibration::DEFAULT_GAIN),
             Err(ScanError::Scsi(scsi::Error::Unsupported(_)))
         ));
     }
@@ -856,7 +835,7 @@ mod tests {
         let settings = settings(false);
         scanner.warm_up().unwrap();
         let gain = scanner
-            .autoexpose(&settings, ChannelExposures::default())
+            .autoexpose(&settings, calibration::DEFAULT_GAIN)
             .unwrap();
         assert_eq!([gain.red, gain.green, gain.blue], measured);
 
@@ -890,7 +869,7 @@ mod tests {
             // Re-declared per pass, the way the hardware was driven
             scanner.set_frame_boundaries(&boundaries).unwrap();
             let frame = scanner
-                .scan_image(&settings, ChannelExposures::default())
+                .scan_image(&settings, calibration::DEFAULT_GAIN)
                 .unwrap();
             assert_eq!(frame.rgb.dimensions(), (1, 2));
             assert_eq!(frame.rgb.get_pixel(0, 0).0, [1u16, 1, 1]);
@@ -921,7 +900,7 @@ mod tests {
         let mut scanner = Ls50ed::new(ScanMock::new(be_line(&[1, 0, 1, 0, 1]), 10)).unwrap();
         scanner.warm_up().unwrap();
         assert!(matches!(
-            scanner.scan_image(&settings(false), ChannelExposures::default()),
+            scanner.scan_image(&settings(false), calibration::DEFAULT_GAIN),
             Err(ScanError::Scsi(scsi::Error::InvalidResponse(_)))
         ));
     }
@@ -939,7 +918,7 @@ mod tests {
             ..settings(false)
         };
         assert!(matches!(
-            scanner.scan_image(&settings, ChannelExposures::default()),
+            scanner.scan_image(&settings, calibration::DEFAULT_GAIN),
             Err(ScanError::Scsi(scsi::Error::Unsupported(_)))
         ));
     }

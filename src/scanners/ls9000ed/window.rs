@@ -1,6 +1,10 @@
 //! Vendor-specific window descriptor fields, LS-9000ED
 
-use super::{BITS_PER_PIXEL, CcdMode, Multisample, ScanArea};
+use super::{
+    BITS_PER_PIXEL,
+    geometry::{CcdMode, Multisample},
+};
+use crate::scanners::ScanArea;
 use crate::scsi::cdbs::{CompressionType, ImageCompositionCode, PaddingType, WindowDescriptor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,6 +1,7 @@
 //! Vendor-specific window descriptor fields, LS-50 ED
 
-use super::{Channel, ScanSettings};
+use super::geometry::ScanSettings;
+use crate::scanners::nikon::Channel;
 use crate::scsi::cdbs::{CompressionType, ImageCompositionCode, PaddingType, WindowDescriptor};
 
 /// What the scanner does with the pass, byte 2 of the vendor tail
@@ -27,9 +28,8 @@ impl ScanMode {
 #[derive(Debug, Copy, Clone)]
 pub struct WindowParams {
     pub mode: ScanMode,
-    /// Analog gain, linear in the value and free in time. `None` zeroes the field, which is
-    /// what infrared gets.
-    pub exposure: Option<u32>,
+    /// Analog gain, linear in the value and free in time. Zero for infrared, which gets none.
+    pub exposure: u32,
 }
 
 impl WindowParams {
@@ -63,11 +63,6 @@ impl WindowParams {
             vendor: self.into(),
         }
     }
-
-    /// The firmware-measured exposure, out of a descriptor read back with GET WINDOW
-    pub fn exposure_from_vendor(vendor: &[u8]) -> Option<u32> {
-        crate::scanners::nikon::exposure_from_vendor(vendor)
-    }
 }
 
 impl From<WindowParams> for Vec<u8> {
@@ -79,7 +74,7 @@ impl From<WindowParams> for Vec<u8> {
         buf[3] = 0x02; // compression: none
         buf[4] = 0x02; // color interleaving
         buf[5] = 0xFF; // autoexposure enable
-        buf[6..10].copy_from_slice(&value.exposure.unwrap_or(0).to_be_bytes());
+        buf[6..10].copy_from_slice(&value.exposure.to_be_bytes());
         buf.to_vec()
     }
 }
@@ -87,7 +82,7 @@ impl From<WindowParams> for Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scanners::ls50ed::geometry::{Dpi, ScanArea};
+    use crate::scanners::{ScanArea, ls50ed::geometry::Dpi, nikon::exposure_from_vendor};
 
     fn settings(dpi: Dpi) -> ScanSettings {
         let capabilities = crate::scanners::ls50ed::capabilities::fixture::capabilities();
@@ -103,7 +98,7 @@ mod tests {
     fn params(mode: ScanMode) -> WindowParams {
         WindowParams {
             mode,
-            exposure: Some(120_000),
+            exposure: 120_000,
         }
     }
 
@@ -166,7 +161,7 @@ mod tests {
     #[test]
     fn infrared_gets_no_exposure() {
         let bytes = WindowParams {
-            exposure: None,
+            exposure: 0,
             ..params(ScanMode::Normal)
         }
         .descriptor(&settings(Dpi::_1000), Channel::Ir)
@@ -194,7 +189,7 @@ mod tests {
     #[test]
     fn exposure_round_trips_through_the_vendor_tail() {
         let vendor: Vec<u8> = params(ScanMode::Normal).into();
-        assert_eq!(WindowParams::exposure_from_vendor(&vendor), Some(120_000));
-        assert_eq!(WindowParams::exposure_from_vendor(&vendor[..4]), None);
+        assert_eq!(exposure_from_vendor(&vendor), Some(120_000));
+        assert_eq!(exposure_from_vendor(&vendor[..4]), None);
     }
 }

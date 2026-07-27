@@ -4,13 +4,12 @@
 //! first. Each plane is `width` samples padded to an even count and the line to a 512-byte
 //! multiple, so decoding is a per-line de-interleave.
 
-use super::ScanSettings;
-use crate::decode::{BlockSink, Blocked, LengthMismatch, be_u16_at};
+use super::geometry::ScanSettings;
+use crate::decode::{BlockSink, Blocked, ImageView, LengthMismatch, be_u16_at};
 use image::ImageBuffer;
 
 // Shared with every other scanner here, and re-exported so callers of this module need not
 // know that
-pub use crate::decode::{Image, ImageView, Luma16, Rgb16};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
@@ -122,6 +121,7 @@ impl BlockSink for PlanarLines {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::decode::Image;
     use crate::decode::StreamDecoder;
 
     /// Samples as their big-endian wire bytes, the way the scanner sends them
@@ -235,10 +235,10 @@ mod tests {
     fn expected_bytes_follows_the_scan_geometry() {
         let capabilities = super::super::capabilities::fixture::capabilities();
         let settings = ScanSettings {
-            dpi: super::super::Dpi::_1000,
+            dpi: super::super::geometry::Dpi::_1000,
             ir: false,
             samples: 1,
-            window: super::super::ScanArea::frame(0, capabilities),
+            window: crate::scanners::ScanArea::frame(0, capabilities),
             capabilities,
         };
         let decoder = FrameDecoder::new(&settings);

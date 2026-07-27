@@ -1,14 +1,27 @@
+use crate::decode::{Image, Rgb16};
 use crate::{
     decode::StreamDecoder,
-    scanners::{FilmHolder, Focus, Scanner},
+    scanners::{
+        FilmHolder, Focus, ScanArea, Scanner,
+        nikon::{
+            Channel, ChannelExposures,
+            capabilities::Capabilities,
+            cdbs::{Subcode, VendorTrigger, VendorWrite},
+        },
+    },
     scsi::{
         self as scsi, SenseKey, Transport, TransportExt,
         cdbs::*,
         mode_pages::{BasicUnit, MeasurementUnits},
     },
 };
-use cdbs::{Subcode, VendorAbort, VendorPayload, VendorRead, VendorTrigger, VendorWrite};
+use calibration::Metering;
+use cdbs::{
+    trigger::VendorAbort,
+    vendor_read_write::{VendorPayload, VendorRead},
+};
 use dtc::Dtc;
+use geometry::{CcdMode, Multisample, ScanSettings};
 use holder::Holder;
 use status::Status;
 use std::{
@@ -16,6 +29,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::*;
+use window::{BaseQuality, WindowKind, WindowParams};
 
 pub mod boundaries;
 pub mod calibration;
@@ -27,11 +41,6 @@ pub mod geometry;
 pub mod holder;
 pub mod status;
 pub mod window;
-
-pub use calibration::{ChannelExposures, Metering};
-pub use capabilities::Capabilities;
-pub use geometry::{CcdMode, Dpi, Multisample, ScanArea, ScanSettings};
-pub use window::{BaseQuality, WindowKind, WindowParams};
 
 /// This scanner always works in u16 pixels
 pub const BITS_PER_PIXEL: u8 = 16;
@@ -91,45 +100,6 @@ fn stage_target(length: u32) -> i32 {
 pub struct Ls9000ed<T> {
     pub(crate) transport: T,
     capabilities: Capabilities,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-/// Color channels for the scanner's lamp
-pub enum Channel {
-    All,
-    Red,
-    Green,
-    Blue,
-    Ir,
-}
-
-impl Channel {
-    /// The three visible channels, in the order Nikon Scan stages them
-    pub const RGB: [Channel; 3] = [Channel::Red, Channel::Green, Channel::Blue];
-    /// The visible channels plus infrared, as a dust-removal pass needs
-    pub const RGBI: [Channel; 4] = [Channel::Red, Channel::Green, Channel::Blue, Channel::Ir];
-
-    pub(crate) fn to_id(self) -> u8 {
-        match self {
-            Channel::All => 0,
-            Channel::Red => 1,
-            Channel::Green => 2,
-            Channel::Blue => 3,
-            Channel::Ir => 9,
-        }
-    }
-
-    /// The window identifier as it comes back off the scanner
-    pub(crate) fn from_id(id: u8) -> Option<Self> {
-        Some(match id {
-            0 => Channel::All,
-            1 => Channel::Red,
-            2 => Channel::Green,
-            3 => Channel::Blue,
-            9 => Channel::Ir,
-            _ => return None,
-        })
-    }
 }
 
 /// The coolscan 9000 is SCSI-only, so we can gate here on scsi backends
@@ -418,12 +388,12 @@ where
     /// Stage the channels this pass needs, scan, and decode what comes back
     ///
     /// `settings.ir` adds the infrared readout, which every capture stages first and lists
-    /// first in the SCAN. The decoded mask comes back in [`Image::ir`](decode::Image::ir).
+    /// first in the SCAN. The decoded mask comes back in [`Image::ir`](Image::ir).
     pub fn scan_image(
         &mut self,
         settings: &ScanSettings,
         gain: ChannelExposures,
-    ) -> Result<decode::Image, ScanError> {
+    ) -> Result<Image, ScanError> {
         self.scan_image_with(settings, gain, |_, _| {})
     }
 
@@ -433,7 +403,7 @@ where
         settings: &ScanSettings,
         gain: ChannelExposures,
         progress: F,
-    ) -> Result<decode::Image, ScanError> {
+    ) -> Result<Image, ScanError> {
         let channels: &[Channel] = if settings.ir {
             &[Channel::Ir, Channel::Red, Channel::Green, Channel::Blue]
         } else {
@@ -475,7 +445,7 @@ where
         settings: &ScanSettings,
         from: ChannelExposures,
         metering: &Metering,
-    ) -> Result<(ChannelExposures, decode::Image), ScanError> {
+    ) -> Result<(ChannelExposures, Image), ScanError> {
         self.autoexpose_with(settings, from, metering, |_, _| {})
     }
 
@@ -486,7 +456,7 @@ where
         from: ChannelExposures,
         metering: &Metering,
         mut progress: F,
-    ) -> Result<(ChannelExposures, decode::Image), ScanError> {
+    ) -> Result<(ChannelExposures, Image), ScanError> {
         let mut gain = from;
         let mut preview = None;
         for pass in 0..metering.passes.max(1) {
@@ -552,7 +522,7 @@ where
         // measure, and `meter` leaves it alone, so it has to start where it should end up
         // rather than carrying the search's starting point out with it.
         let from = ChannelExposures {
-            ir: ChannelExposures::default().ir,
+            ir: calibration::DEFAULT_GAIN.ir,
             ..ChannelExposures::flat(WHITE_BALANCE_START)
         };
         let (gain, _) = self.autoexpose_with(&settings, from, &metering, progress)?;
@@ -565,7 +535,7 @@ where
         &mut self,
         gain: ChannelExposures,
         progress: F,
-    ) -> Result<decode::Rgb16, ScanError> {
+    ) -> Result<Rgb16, ScanError> {
         let channels = Channel::RGB;
         for channel in channels {
             let params = WindowParams {
@@ -585,10 +555,8 @@ where
         let mut decoder = decode::OverviewDecoder::new();
         self.read_into_with(&mut decoder, chunk, progress)?;
         let view = decoder.finish().map_err(ScanError::Decode)?;
-        Ok(
-            decode::Rgb16::from_raw(view.width(), view.height(), view.to_vec())
-                .expect("view is well formed"),
-        )
+        Ok(Rgb16::from_raw(view.width(), view.height(), view.to_vec())
+            .expect("view is well formed"))
     }
 }
 
@@ -626,7 +594,7 @@ mod tests {
     fn calibrating_reads_frame_setup_before_staging_windows() {
         let mut scanner = Ls9000ed::new(mock()).expect("opens");
         scanner
-            .calibrate(ChannelExposures::default())
+            .calibrate(calibration::DEFAULT_GAIN)
             .expect("calibrates");
 
         let sequence = &scanner.transport.opcode_sequence()[..];
