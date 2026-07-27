@@ -43,8 +43,6 @@ pub const PRODUCT_ID: u16 = 0x4001;
 const WINDOW_DESCRIPTOR_LEN: u32 = 50;
 /// SCSI-2 leaves control bits 7-6 vendor-specific. Only SET WINDOW needs bit 7 here.
 const VENDOR_CONTROL: u8 = 0x80;
-/// Unit attentions queue up, but not without bound. Past this something is wrong.
-const MAX_QUEUED_UNIT_ATTENTIONS: usize = 8;
 
 /// SCAN answers CHECK CONDITION while the lamp and carriage warm up, so retry it
 const MAX_SCAN_ATTEMPTS: usize = 30;
@@ -61,39 +59,6 @@ const READY_TIMEOUT: Duration = Duration::from_secs(300);
 const IMAGE_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 /// Shorter than the ready poll: a line arrives in tens of milliseconds once the carriage moves
 const IMAGE_IDLE_PAUSE: Duration = Duration::from_millis(200);
-
-/// The readiness state out of TEST UNIT READY, transient not-ready folded in as an ok state
-///
-/// Free-standing so opening a handle can ask before there is a scanner to ask.
-fn status_of<T: Transport + ?Sized>(transport: &mut T) -> Result<Status, scsi::Error> {
-    match transport.send(&TestUnitReady::new()) {
-        Ok(()) => Ok(Status::Ready),
-        Err(err) => {
-            if let scsi::Error::Status {
-                sense: Some(sense), ..
-            } = &err
-                && let Some(state) = Status::from_sense(sense)
-            {
-                return Ok(state);
-            }
-            Err(err)
-        }
-    }
-}
-
-/// See [`Ls50ed::drain_unit_attentions`]
-fn drain_unit_attentions<T: Transport + ?Sized>(transport: &mut T) -> Result<Status, scsi::Error> {
-    for _ in 0..MAX_QUEUED_UNIT_ATTENTIONS {
-        let status = status_of(transport)?;
-        if !status.is_unit_attention() {
-            return Ok(status);
-        }
-        debug!(?status, "Cleared a unit attention");
-    }
-    Err(scsi::Error::InvalidResponse(
-        "scanner kept reporting unit attentions",
-    ))
-}
 
 /// The channels one pass captures
 fn channels(settings: &ScanSettings) -> &'static [Channel] {
@@ -161,7 +126,7 @@ where
         // A cold start queues several unit attentions and everything below would choke on
         // one. Drained before the capability read, so a stray CHECK CONDITION cannot look
         // like a device with no geometry to report.
-        let initial_status = drain_unit_attentions(&mut transport)?;
+        let initial_status: Status = crate::scanners::drain_unit_attentions(&mut transport)?;
         debug!(?initial_status, "Scanner state at open");
 
         // Everything this will accept comes from the device
@@ -177,14 +142,6 @@ where
         Ok(scanner)
     }
 
-    /// Report the scanner's state, clearing any queued unit attentions first
-    ///
-    /// The device reports one per command, so a single [`status`](Scanner::status) sees
-    /// only the oldest.
-    pub fn drain_unit_attentions(&mut self) -> Result<Status, scsi::Error> {
-        drain_unit_attentions(&mut self.transport)
-    }
-
     /// What the adapter reported about itself when this handle was opened
     pub fn capabilities(&self) -> Capabilities {
         self.capabilities
@@ -196,11 +153,6 @@ where
     /// scanning and 1 after any pass, with nothing to say which you are looking at.
     pub fn sensed_frames(&mut self) -> u32 {
         capabilities::read_sensed_frames(&mut self.transport)
-    }
-
-    /// Read a vital product data page. Page 0x00 lists the ones this device has.
-    pub fn vpd_page(&mut self, page_code: u8) -> Result<Vec<u8>, scsi::Error> {
-        Ok(self.transport.send(&VpdInquiry::new(page_code, 0xFF))?.data)
     }
 
     /// Read an uncharacterized vendor register
@@ -312,21 +264,10 @@ where
     T: Transport,
 {
     type Status = Status;
+    type Transport = T;
 
-    fn identify(&mut self) -> Result<InquiryResponse, scsi::Error> {
-        self.transport.send(&Inquiry::new())
-    }
-
-    fn status(&mut self) -> Result<Status, scsi::Error> {
-        status_of(&mut self.transport)
-    }
-
-    fn reserve(&mut self) -> Result<(), scsi::Error> {
-        self.transport.send(&ReserveUnit::default())
-    }
-
-    fn release(&mut self) -> Result<(), scsi::Error> {
-        self.transport.send(&ReleaseUnit::default())
+    fn transport(&mut self) -> &mut T {
+        &mut self.transport
     }
 
     /// One line per read, gated on the carriage having produced it

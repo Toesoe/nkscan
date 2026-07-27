@@ -1,6 +1,9 @@
 //! Scanners supported by this library
 
-use crate::{decode::StreamDecoder, scsi};
+use crate::{
+    decode::StreamDecoder,
+    scsi::{self, TransportExt},
+};
 
 pub mod ls50ed;
 pub mod ls9000ed;
@@ -31,22 +34,115 @@ pub enum ReadError<E> {
     Decode(E),
 }
 
+/// Unit attentions queue up, but not without bound. Past this something is wrong.
+const MAX_QUEUED_UNIT_ATTENTIONS: usize = 8;
+
+/// How a scanner reports readiness
+///
+/// Which sense codes mean what is per model, so only the shape is shared. The states that
+/// clear by being read have to be distinguishable from the ones that do not, or a driver
+/// cannot tell a queue of stale attentions from a scanner that is genuinely stuck.
+pub trait ScannerStatus: Sized {
+    /// What a scanner with nothing to report is in
+    fn ready() -> Self;
+
+    /// The state this sense describes, or `None` if it is a real error rather than a state
+    fn from_sense(sense: &scsi::SenseData) -> Option<Self>;
+
+    /// Whether reading this state is what clears it
+    fn is_unit_attention(&self) -> bool;
+}
+
+/// Readiness out of TEST UNIT READY, with transient not-ready folded in as an ok state
+///
+/// Free-standing so opening a handle can ask before there is a scanner to ask.
+pub fn status_of<S, T>(transport: &mut T) -> Result<S, scsi::Error>
+where
+    S: ScannerStatus,
+    T: scsi::Transport + ?Sized,
+{
+    match transport.send(&scsi::cdbs::TestUnitReady::new()) {
+        Ok(()) => Ok(S::ready()),
+        Err(err) => {
+            if let scsi::Error::Status {
+                sense: Some(sense), ..
+            } = &err
+                && let Some(state) = S::from_sense(sense)
+            {
+                return Ok(state);
+            }
+            Err(err)
+        }
+    }
+}
+
+/// [`status_of`], clearing any queued unit attentions first
+///
+/// A device reports one per command and clears it as it goes, so a single status only ever
+/// sees the oldest. Anything that cannot tolerate a stray CHECK CONDITION needs this instead.
+pub fn drain_unit_attentions<S, T>(transport: &mut T) -> Result<S, scsi::Error>
+where
+    S: ScannerStatus + std::fmt::Debug,
+    T: scsi::Transport + ?Sized,
+{
+    for _ in 0..MAX_QUEUED_UNIT_ATTENTIONS {
+        let status = status_of::<S, T>(transport)?;
+        if !status.is_unit_attention() {
+            return Ok(status);
+        }
+        tracing::debug!(?status, "Cleared a unit attention");
+    }
+    Err(scsi::Error::InvalidResponse(
+        "scanner kept reporting unit attentions",
+    ))
+}
+
 /// What every scanner can do, whatever it is on the other end of the transport
 pub trait Scanner {
     /// How this scanner reports readiness
-    type Status;
+    type Status: ScannerStatus + std::fmt::Debug;
+
+    /// What it is on the other end
+    type Transport: scsi::Transport;
+
+    /// The transport this scanner drives
+    ///
+    /// The extension point the defaults below are built on. Handing out the transport is no
+    /// more access than [`vpd_page`](Self::vpd_page) already gives.
+    fn transport(&mut self) -> &mut Self::Transport;
 
     /// Vendor, product and revision
-    fn identify(&mut self) -> Result<scsi::cdbs::InquiryResponse, scsi::Error>;
+    fn identify(&mut self) -> Result<scsi::cdbs::InquiryResponse, scsi::Error> {
+        self.transport().send(&scsi::cdbs::Inquiry::new())
+    }
 
     /// Current readiness, with transient not-ready states folded in rather than raised
-    fn status(&mut self) -> Result<Self::Status, scsi::Error>;
+    fn status(&mut self) -> Result<Self::Status, scsi::Error> {
+        status_of(self.transport())
+    }
+
+    /// See [`drain_unit_attentions`]
+    fn drain_unit_attentions(&mut self) -> Result<Self::Status, scsi::Error> {
+        drain_unit_attentions(self.transport())
+    }
 
     /// Take exclusive access
-    fn reserve(&mut self) -> Result<(), scsi::Error>;
+    fn reserve(&mut self) -> Result<(), scsi::Error> {
+        self.transport().send(&scsi::cdbs::ReserveUnit::default())
+    }
 
     /// Give exclusive access back
-    fn release(&mut self) -> Result<(), scsi::Error>;
+    fn release(&mut self) -> Result<(), scsi::Error> {
+        self.transport().send(&scsi::cdbs::ReleaseUnit::default())
+    }
+
+    /// Read a vital product data page. Page 0x00 lists the ones a device has.
+    fn vpd_page(&mut self, page_code: u8) -> Result<Vec<u8>, scsi::Error> {
+        Ok(self
+            .transport()
+            .send(&scsi::cdbs::VpdInquiry::new(page_code, 0xFF))?
+            .data)
+    }
 
     /// Pull the next slice of the pending pass. An empty return means the scanner stopped early.
     fn read_chunk(&mut self, want: u32) -> Result<Vec<u8>, scsi::Error>;
@@ -95,12 +191,17 @@ pub trait Scanner {
 }
 
 /// A scanner with removable film holders
-pub trait FilmHolder {
+pub trait FilmHolder: Scanner {
     /// What holders this scanner recognizes
-    type Holder;
+    type Holder: scsi::cdbs::VendorPage;
 
     /// Which holder, if any, is currently loaded
-    fn holder(&mut self) -> Result<Self::Holder, scsi::Error>;
+    ///
+    /// A VPD inquiry, which SPC exempts from being blocked by a pending unit attention, so
+    /// this keeps answering across the holder change that loading one raises.
+    fn holder(&mut self) -> Result<Self::Holder, scsi::Error> {
+        self.transport().vpd()
+    }
 }
 
 /// A scanner with a movable focus mechanism
