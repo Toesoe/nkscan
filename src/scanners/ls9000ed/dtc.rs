@@ -2,7 +2,8 @@
 //!
 //! READ(10) and SEND(10) address a vendor structure with a data-type code and a 16-bit qualifier.
 
-use super::{Channel, Ls9000ed};
+use super::Ls9000ed;
+use crate::scanners::nikon::Channel;
 use crate::scsi::{
     self as scsi, Transport, TransportExt,
     cdbs::{DataTypeCode, Read, Send},

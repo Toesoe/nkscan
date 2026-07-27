@@ -1,54 +1,50 @@
 # nkscan
 
-A cross-platform, performant driver for Nikon film scanners.
+A cross-platform and performant library and command line application for Nikon film scanners.
 
 ## Usage
 
-Right now, only a library as we figure out the shapes of the data to make it easy to slot in support for other scanners/OSes/backends.
-However, a full scanner flow is working for the Coolscan 9000 in the ls9k_cli example on linux, and for the Coolscan V ED (LS-50) in the ls50_cli example.
+The `nkscan` binary drives both supported scanners, the Coolscan 9000 ED (SCSI) and the
+Coolscan V ED / LS-50 (USB). It is behind a feature flag, so a library consumer does not pull
+in the CLI stack:
 
 ``` bash
-Usage: ls9k_cli [OPTIONS] --frames <FRAMES> <SCANNER>
+cargo install --path . --features cli
+```
 
-Arguments:
-  <SCANNER>  Device path for the scanner: /dev/sg* on Linux, \\.\Scanner0 on Windows
+``` bash
+Usage: nkscan [OPTIONS]
 
 Options:
-      --frames <FRAMES>            How many frames to expect in the film holder (needed for frame recognition)
-      --frame <FRAME>              Optional frame number (zero-indexed) to scan, otherwise scan all of them
+      --device <DEVICE>            Device path, skipping the search. `/dev/sg*` on Linux, `\\.\Scanner0` on Windows
+      --frames <FRAMES>            Frames on the loaded strip
+      --frame <FRAME>              Which of those to actually scan, zero-indexed, comma separated. All by default
+      --dpi <DPI>                  Resolution in DPI. One of the firmware's divisions of the sensor's native pitch
       --gain <R,G,B[,IR]>          Fixed per-channel analog gain as `red,green,blue[,ir]`, which turns autoexposure off
-      --lock-wb                    Whether to lock the white balance during autoexposure. Ignored with --gain
-      --ir                         Save IR alongside the main scan
+      --focus <FOCUS>              Focus: `auto` to let the scanner find it on each frame, or a fixed setpoint [default: auto]
+      --ir                         Capture the infrared plane for dust removal
       --basename <BASENAME>        Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its infrared mask <basename>_<n>_ir.tiff [default: scan]
-      --multisample <MULTISAMPLE>  How much multisampling to perform. This increases scan time at the befenit of lower noise. One of 1,2,4,8,16 [default: 1]
-      --singleline                 Single-line CCD mode. Slow, but may improve banding noise
-      --eject                      Send the holder back out when everything is done
+      --offset <OFFSET>            Where each frame starts along the feed, in mm, comma separated, last value repeating
+      --pitch <PITCH>              Frame pitch in mm, overriding what the scanner would use
+      --lock-wb                    Hold the white balance during autoexposure, so the film keeps its cast. LS-9000 only
+      --multisample <MULTISAMPLE>  Multisampling, trading scan time for noise. One of 1,2,4,8,16. LS-9000 only [default: 1]
+      --singleline                 Single-line CCD mode. Slow, but may improve banding. LS-9000 only
+      --eject                      Send the film back out when everything is done
   -h, --help                       Print help (see more with '--help')
   -V, --version                    Print version
 ```
 
-The LS-50 is USB rather than SCSI, so it takes no device path: the example finds the scanner by
-its USB ids. Frames are placed by the adapter's reported pitch plus your own per-frame `--offset`
-correction, since there is no overview pass to detect them from.
+Without `--device` it looks for a scanner itself: USB devices by their ids, SCSI ones by
+INQUIRY across the platform's device paths. One found is used, none or several is an error
+naming `--device`. Model-specific flags are refused by name when the attached scanner has no
+such knob, rather than being accepted and ignored.
 
-``` bash
-Usage: ls50_cli [OPTIONS]
+Frames are found by an 83-DPI overview pass on the 9000. Giving `--pitch` or `--offset` places
+them arithmetically instead, on either scanner, which is the way round a strip the search
+misreads. The LS-50 always places them arithmetically, since it has no overview pass.
 
-Options:
-      --basename <BASENAME>  Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its infrared mask <basename>_<n>_ir.tiff [default: scan]
-      --dpi <DPI>            Resolution in DPI. One of the firmware's divisions of the 4000-DPI sensor [default: 4000]
-      --frames <FRAMES>      Frames on the loaded strip: 1 for a single frame, 0 to take the adapter's count [default: 1]
-      --frame <FRAME>        Which of those frames to actually scan, zero-indexed, comma separated. All by default
-      --ir                   Capture the infrared plane for dust removal
-      --ae                   Run the autoexposure pre-pass
-      --af                   Run firmware autofocus at the frame center
-      --focus <FOCUS>        Fixed focus setpoint. Ignored with --af; without either the motor parks at 0
-      --offset <OFFSET>      Where each frame starts along the feed axis, in mm, comma separated, last value repeating. One per frame, since the feed does not place them evenly [default: 0]
-      --pitch <PITCH>        Override the frame pitch, in mm. Omitted, the adapter's reported pitch is used, which is what advances the film. Zero holds every window in one place
-      --eject                Eject the film once the batch is done
-  -h, --help                 Print help (see more with '--help')
-  -V, --version              Print version
-```
+Output is 16-bit linear TIFF with an embedded linear-gamma ICC profile. The scanner's ADC is
+linear and nothing applies a transfer curve, so an untagged file looks far too dark.
 
 On Windows the scanner is reached through the scanner class driver, and opening that device
 path needs an elevated prompt. Without one it fails to open at all rather than reporting a
@@ -62,16 +58,18 @@ contents rather than to each other. For roll analysis, meter once and reuse the 
 
 ``` bash
 # Meter one representative frame and note the gains it logs
-ls9k_cli /dev/sg0 --frames 3 --frame 0
+nkscan --frames 3 --frame 0
 
-# ... INFO ls9k_cli: Metered idx=0 gain=ChannelExposures { red: 679831, green: 487244, ... }
+# ... INFO nkscan: Metered frame=0 gain=ChannelExposures { red: 679831, green: 487244, ... }
 
 # Scan everything else at exactly that exposure
-ls9k_cli /dev/sg0 --frames 3 --gain 679831,487244,400117
+nkscan --frames 3 --gain 679831,487244,400117
 ```
 
 `--gain` turns autoexposure off entirely. Autofocus still runs per frame, since film does not
-sit flat and focus is not a property of the roll the way gain is.
+sit flat and focus is not a property of the roll the way gain is. The infrared value is
+optional, and the LS-50 takes three values rather than four because it drives infrared off a
+zeroed gain.
 
 ## TODO
 

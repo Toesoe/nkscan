@@ -8,6 +8,98 @@
 pub mod capabilities;
 pub mod cdbs;
 
+/// A color the scanner's lamp emits, which is also the window it is scanned through
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Channel {
+    /// The composite window, which carries geometry but no exposure of its own
+    ///
+    /// Not every model has one, and none of them scan through it.
+    All,
+    Red,
+    Green,
+    Blue,
+    Ir,
+}
+
+impl Channel {
+    /// The three visible channels, in the order they are staged
+    pub const RGB: [Channel; 3] = [Channel::Red, Channel::Green, Channel::Blue];
+    /// The visible channels plus infrared, as a dust-removal pass needs
+    pub const RGBI: [Channel; 4] = [Channel::Red, Channel::Green, Channel::Blue, Channel::Ir];
+
+    pub fn to_id(self) -> u8 {
+        match self {
+            Channel::All => 0,
+            Channel::Red => 1,
+            Channel::Green => 2,
+            Channel::Blue => 3,
+            Channel::Ir => 9,
+        }
+    }
+
+    /// The window identifier as it comes back off the scanner
+    pub fn from_id(id: u8) -> Option<Self> {
+        Some(match id {
+            0 => Channel::All,
+            1 => Channel::Red,
+            2 => Channel::Green,
+            3 => Channel::Blue,
+            9 => Channel::Ir,
+            _ => return None,
+        })
+    }
+}
+
+/// Per-channel analog gain, as a window descriptor's tail carries it
+///
+/// Linear in the value and free in time: it amplifies rather than integrating longer. Persists
+/// in the scanner across sessions, so a readback is whatever was last written, and metering that
+/// starts from one compounds run over run.
+///
+/// A model with no separate infrared gain leaves that field zero, which is what its infrared
+/// window carries anyway. The defaults are per model, so they live with the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChannelExposures {
+    pub red: u32,
+    pub green: u32,
+    pub blue: u32,
+    pub ir: u32,
+}
+
+impl ChannelExposures {
+    /// The same gain on every channel, asserting no white balance at all
+    pub fn flat(exposure: u32) -> Self {
+        Self {
+            red: exposure,
+            green: exposure,
+            blue: exposure,
+            ir: exposure,
+        }
+    }
+
+    /// The gain staged for one channel
+    ///
+    /// The composite window has none of its own, so it reports the red one the scanners lead
+    /// with.
+    pub fn get(&self, channel: Channel) -> u32 {
+        match channel {
+            Channel::Red | Channel::All => self.red,
+            Channel::Green => self.green,
+            Channel::Blue => self.blue,
+            Channel::Ir => self.ir,
+        }
+    }
+
+    pub fn set(&mut self, channel: Channel, exposure: u32) {
+        match channel {
+            Channel::Red | Channel::All => self.red = exposure,
+            Channel::Green => self.green = exposure,
+            Channel::Blue => self.blue = exposure,
+            Channel::Ir => self.ir = exposure,
+        }
+    }
+}
+
 /// A millimeter figure in device dots
 ///
 /// `dots_per_inch` is the measurement unit the driver set at open, which is the same number the
@@ -29,4 +121,37 @@ pub fn exposure_from_vendor(vendor: &[u8]) -> Option<u32> {
     vendor
         .get(6..10)
         .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The identifiers are the wire format, and the same on every model here
+    #[test]
+    fn identifiers_round_trip() {
+        for channel in [
+            Channel::All,
+            Channel::Red,
+            Channel::Green,
+            Channel::Blue,
+            Channel::Ir,
+        ] {
+            assert_eq!(Channel::from_id(channel.to_id()), Some(channel));
+        }
+        assert_eq!(Channel::RGBI.map(Channel::to_id), [1, 2, 3, 9]);
+        assert_eq!(Channel::from_id(4), None);
+    }
+
+    #[test]
+    fn every_channel_round_trips_through_its_gain() {
+        let mut gains = ChannelExposures::flat(0);
+        for (index, channel) in Channel::RGBI.into_iter().enumerate() {
+            gains.set(channel, index as u32 + 1);
+        }
+        assert_eq!((gains.red, gains.green, gains.blue, gains.ir), (1, 2, 3, 4));
+        for (index, channel) in Channel::RGBI.into_iter().enumerate() {
+            assert_eq!(gains.get(channel), index as u32 + 1);
+        }
+    }
 }

@@ -4,6 +4,7 @@
 //! measurement units to a 4000 divisor at open.
 
 use super::window::BaseQuality;
+use crate::scanners::ScanArea;
 
 /// CCD read mode
 #[derive(Debug, Copy, Clone)]
@@ -78,8 +79,6 @@ impl Dpi {
         (4000 / self.divisor()) as u16
     }
 }
-
-pub use crate::scanners::ScanArea;
 
 impl ScanArea {
     /// How long the sensor is, in dots

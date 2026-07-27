@@ -4,10 +4,8 @@
 //! [`nikon::capabilities`](crate::scanners::nikon::capabilities). Only the allocation length is
 //! this driver's.
 
-use crate::scanners::nikon::capabilities as nikon;
+use crate::scanners::nikon::capabilities::{self as nikon, Capabilities};
 use crate::scsi::{self, Transport};
-
-pub use crate::scanners::nikon::capabilities::{Capabilities, ResolutionRange};
 
 /// As much as the field carries. This unit answers with 83 bytes.
 const ALLOCATION_LENGTH: u8 = 0xFF;

@@ -4,7 +4,8 @@
 //! Positions are one pitch apart plus the caller's per-frame correction, and a pass takes its
 //! window from [`FrameRect::scan_area`] so the two cannot disagree about where a frame is.
 
-use super::{Capabilities, Ls50ed, ScanArea, dtc::Dtc, geometry::frame_offset};
+use super::{Ls50ed, dtc::Dtc, geometry::frame_offset};
+use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
 use crate::scsi::{self, Transport};
 
 /// One frame's extent in native pixels. Y runs along the feed, X along the sensor bar.

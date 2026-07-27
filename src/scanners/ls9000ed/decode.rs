@@ -1,12 +1,14 @@
 //! Decoding the LS-9000's raw scan stream into an image.
 
-use super::{ScanArea, ScanSettings};
-use crate::decode::{BlockSink, Blocked, LengthMismatch, StreamDecoder, be_u16_at};
+use super::geometry::ScanSettings;
+use crate::decode::{
+    BlockSink, Blocked, ImageView, LengthMismatch, Rgb16, StreamDecoder, be_u16_at,
+};
+use crate::scanners::ScanArea;
 use image::{ImageBuffer, Rgb};
 
 // Shared with every other scanner here, and re-exported so callers of this module need not
 // know that
-pub use crate::decode::{Image, ImageView, Luma16, Rgb16};
 
 /// Sensor pixels processed per inner tile, chosen so both the input runs and the output tile stay in L2 during the transpose
 const CHUNK: usize = 256;
@@ -397,7 +399,10 @@ mod overview_tests {
 #[cfg(test)]
 mod frame_tests {
     use super::*;
-    use crate::scanners::ls9000ed::{BaseQuality, CcdMode, Dpi, Multisample};
+    use crate::scanners::ls9000ed::{
+        geometry::{CcdMode, Dpi, Multisample},
+        window::BaseQuality,
+    };
 
     /// A deliberately tiny frame: single-line CCD, no multi-sample, no IR
     /// 4x8 output, 3 readouts of 4 samples per stage, 8 stages, 192 bytes, 24 per block.

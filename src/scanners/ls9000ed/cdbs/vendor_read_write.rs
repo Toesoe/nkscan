@@ -5,11 +5,9 @@
 //! payload and decodes a read: focus is a two-byte field at offset 3.
 
 use crate::{
-    scanners::nikon::cdbs::{VendorRegister, vendor_cdb},
+    scanners::nikon::cdbs::{Subcode, VendorRegister, vendor_cdb},
     scsi::{Cdb, Command, CommandData, Error},
 };
-
-pub use crate::scanners::nikon::cdbs::{Subcode, VendorWrite};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VendorPayload {
@@ -104,6 +102,7 @@ impl Command for VendorRead {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scanners::nikon::cdbs::VendorWrite;
 
     /// The autofocus point Nikon Scan wrote before scanning frame 2 of a 6x9 strip:
     /// the sensor center, and the middle of that frame's boundary rectangle

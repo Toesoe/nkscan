@@ -4,7 +4,8 @@
 //! whose high byte is the channel. Two of these are SCSI-2 codes rather than vendor ones, hence
 //! the per-variant mapping to [`DataTypeCode`].
 
-use super::{Channel, Ls50ed};
+use super::Ls50ed;
+use crate::scanners::nikon::Channel;
 use crate::scsi::{
     self as scsi, Transport, TransportExt,
     cdbs::{DataTypeCode, Read, Send},

@@ -5,11 +5,9 @@
 //! payload and decodes a read.
 
 use crate::{
-    scanners::nikon::cdbs::{VendorRegister, vendor_cdb},
+    scanners::nikon::cdbs::{Subcode, VendorRegister, vendor_cdb},
     scsi::{Cdb, Command, CommandData, Error},
 };
-
-pub use crate::scanners::nikon::cdbs::{Subcode, VendorWrite};
 
 /// What a [`VendorWrite`] stages
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +111,7 @@ impl Command for VendorRead {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scanners::nikon::cdbs::VendorWrite;
 
     #[test]
     fn autofocus_cdb_and_payload_match_the_capture() {

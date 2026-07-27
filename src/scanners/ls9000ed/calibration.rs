@@ -3,87 +3,41 @@
 //! A session-level preamble, not part of any scan. Nikon Scan runs it once, gating the first SCAN.
 
 use super::{
-    Channel, Ls9000ed, ScanArea,
+    Ls9000ed,
     boundaries::FrameBoundaries,
     dtc::{self, Dtc},
     geometry::{CcdMode, Multisample},
     window::{BaseQuality, WindowKind, WindowParams},
 };
 use crate::{
-    scanners::{Focus, nikon},
+    scanners::{
+        Focus, ScanArea,
+        nikon::{self, Channel, ChannelExposures},
+    },
     scsi::{self, Transport},
 };
 use image::{ImageBuffer, Luma, Rgb};
 use std::ops::Deref;
 use tracing::*;
 
-/// Per-channel analog gain, as the window descriptor tail carries it
+/// This scanner's white balance, off the bare backlight through an empty holder
 ///
-/// Persists in the scanner across sessions, so [`Ls9000ed::channel_exposures`] returns
-/// whatever was last written rather than a power-on default. Metering that starts from it
-/// compounds run over run; start from a fixed value instead.
-#[derive(Debug, Clone, Copy)]
-pub struct ChannelExposures {
-    pub red: u32,
-    pub green: u32,
-    pub blue: u32,
-    pub ir: u32,
-}
-
-impl Default for ChannelExposures {
-    /// The scanner's white balance, off the bare backlight through an empty holder
-    ///
-    /// Equal gain does not scan neutral: the LEDs and the CCD are not equally strong across the
-    /// three bands, and red needs about 1.7x what blue does to match it.
-    ///
-    /// The ratios are what matter. [`meter`] rescales the absolute anyway, and [`meter_locked`]
-    /// scales all three by one factor and cannot touch the ratios at all. It is a property of
-    /// the hardware, so [`white_balance`](super::Ls9000ed::white_balance) re-measures it per
-    /// unit.
-    fn default() -> Self {
-        Self {
-            red: 283_048,
-            green: 202_864,
-            blue: 166_589,
-            // Only a starting point, and only used by a pass that does not meter infrared:
-            // [`meter_ir`] measures it whenever one is captured. The dyes are near transparent
-            // in infrared, so this is base density, which barely moves between frames.
-            ir: 453_477,
-        }
-    }
-}
-
-impl ChannelExposures {
-    /// The same gain on every channel, asserting no white balance at all
-    pub fn flat(exposure: u32) -> Self {
-        Self {
-            red: exposure,
-            green: exposure,
-            blue: exposure,
-            ir: exposure,
-        }
-    }
-
-    /// The gain staged for one channel. `Channel::All` has none of its own, so it reports the
-    /// red one the scanner leads with.
-    pub fn get(&self, channel: Channel) -> u32 {
-        match channel {
-            Channel::Red | Channel::All => self.red,
-            Channel::Green => self.green,
-            Channel::Blue => self.blue,
-            Channel::Ir => self.ir,
-        }
-    }
-
-    fn set(&mut self, channel: Channel, exposure: u32) {
-        match channel {
-            Channel::Red | Channel::All => self.red = exposure,
-            Channel::Green => self.green = exposure,
-            Channel::Blue => self.blue = exposure,
-            Channel::Ir => self.ir = exposure,
-        }
-    }
-}
+/// Equal gain does not scan neutral: the LEDs and the CCD are not equally strong across the
+/// three bands, and red needs about 1.7x what blue does to match it.
+///
+/// The ratios are what matter. [`meter`] rescales the absolute anyway, and [`meter_locked`]
+/// scales all three by one factor and cannot touch the ratios at all. It is a property of the
+/// hardware, so [`white_balance`](super::Ls9000ed::white_balance) re-measures it per unit.
+///
+/// Infrared is only a starting point, and only used by a pass that does not meter it:
+/// [`meter_ir`] measures it whenever one is captured. The dyes are near transparent in
+/// infrared, so this is base density, which barely moves between frames.
+pub const DEFAULT_GAIN: ChannelExposures = ChannelExposures {
+    red: 283_048,
+    green: 202_864,
+    blue: 166_589,
+    ir: 453_477,
+};
 
 /// The full-area window staged on every channel before calibrating, identical in all captures regardless of film format
 fn calibration_window() -> ScanArea {
@@ -103,7 +57,7 @@ where
     ///
     /// Any channel the scanner does not report keeps its [`Default`] value
     pub fn channel_exposures(&mut self) -> Result<ChannelExposures, scsi::Error> {
-        let mut exposures = ChannelExposures::default();
+        let mut exposures = DEFAULT_GAIN;
         for descriptor in self.get_window(None)? {
             let Some(exposure) = nikon::exposure_from_vendor(&descriptor.vendor) else {
                 continue;

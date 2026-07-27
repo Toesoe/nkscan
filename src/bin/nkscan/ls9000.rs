@@ -9,14 +9,16 @@ use indicatif::ProgressBar;
 use nkscan::{
     decode::Image,
     scanners::{
-        FilmHolder, Focus, Scanner,
+        FilmHolder, Focus, ScanArea, Scanner,
         ls9000ed::{
-            BaseQuality, CcdMode, ChannelExposures, Dpi, Ls9000ed, Metering, Multisample, ScanArea,
-            ScanSettings,
+            Ls9000ed,
             boundaries::{FrameBoundaries, FrameRect},
-            geometry::native_dots,
+            calibration::{DEFAULT_GAIN, Metering},
+            geometry::{CcdMode, Dpi, Multisample, ScanSettings, native_dots},
             holder::Holder,
+            window::BaseQuality,
         },
+        nikon::ChannelExposures,
     },
     scsi::Transport,
 };
@@ -41,7 +43,7 @@ impl Ls9000Job {
         Ok(Box::new(Self {
             scanner,
             frames: FrameBoundaries(Vec::new()),
-            gain: ChannelExposures::default(),
+            gain: DEFAULT_GAIN,
             fixed: false,
         }))
     }
@@ -49,7 +51,7 @@ impl Ls9000Job {
     /// Block until a holder is loaded and the scanner has finished coming up
     ///
     /// The VPD page reports a holder the moment it is detected, but the scanner spends seconds
-    /// afterwards initialising. That state is not a unit attention, so it survives the drain,
+    /// afterwards initializing. That state is not a unit attention, so it survives the drain,
     /// and the first real command is refused several seconds later.
     fn wait_for_holder(&mut self) -> Result<()> {
         let mut holder = self.scanner.holder()?;
@@ -93,12 +95,10 @@ impl Ls9000Job {
         };
         info!("Taking an overview to find the frames");
         let bar = reading("Overview");
-        let overview = self
-            .scanner
-            .overview_with(ChannelExposures::default(), |read, total| {
-                bar.set_length(total);
-                bar.set_position(read);
-            })?;
+        let overview = self.scanner.overview_with(DEFAULT_GAIN, |read, total| {
+            bar.set_length(total);
+            bar.set_position(read);
+        })?;
         bar.finish_and_clear();
 
         FrameBoundaries::detect(&overview, count).context("no frames found on the strip")
@@ -110,7 +110,7 @@ impl Job for Ls9000Job {
         self.wait_for_holder()?;
 
         // The session preamble, which gates the first scan
-        self.scanner.calibrate(ChannelExposures::default())?;
+        self.scanner.calibrate(DEFAULT_GAIN)?;
 
         if let Some(values) = cli.gains()? {
             self.gain = ChannelExposures {
@@ -155,7 +155,7 @@ impl Job for Ls9000Job {
             let bar = reading("Metering");
             let (gain, _) = self.scanner.autoexpose_with(
                 &base,
-                ChannelExposures::default(),
+                DEFAULT_GAIN,
                 &Metering {
                     lock_white_balance: cli.lock_wb,
                     ..Metering::default()

@@ -4,8 +4,6 @@
 
 use crate::scsi::{Cdb, Command, CommandData, Error};
 
-pub use crate::scanners::nikon::cdbs::VendorTrigger;
-
 /// Nikon vendor ABORT(6), which throws away a pass in progress
 #[derive(Debug, Default, Copy, Clone)]
 pub struct VendorAbort;

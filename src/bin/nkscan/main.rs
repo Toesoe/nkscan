@@ -72,7 +72,7 @@ pub struct Cli {
 
     /// Focus: `auto` to let the scanner find it on each frame, or a fixed setpoint
     ///
-    /// A setpoint is in the scanner's own units, not millimetres or dioptres, and its range is
+    /// A setpoint is in the scanner's own units, not millimeters or diopters, and its range is
     /// whatever the device reports. `0` parks the motor at its home position.
     #[arg(long, default_value = "auto")]
     focus: FocusMode,
