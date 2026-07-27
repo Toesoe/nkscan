@@ -1,5 +1,42 @@
 //! A trait to encode the behavior of a streaming image decoder
 
+use image::{ImageBuffer, Luma, Rgb};
+
+// What a decoded pass comes out as. Every scanner here sends BE u16 over the wire.
+pub type Rgb16 = ImageBuffer<Rgb<u16>, Vec<u16>>;
+pub type Luma16 = ImageBuffer<Luma<u16>, Vec<u16>>;
+
+/// A decoded frame that borrows the decoder's buffers
+///
+/// Borrowed rather than owned so a multi-hundred-MB image needn't be copied out to be looked at.
+pub struct ImageView<'a> {
+    /// The image data read out from the scanner
+    pub rgb: ImageBuffer<Rgb<u16>, &'a [u16]>,
+    /// The optional IR mask for dust removal
+    pub ir: Option<ImageBuffer<Luma<u16>, &'a [u16]>>,
+}
+
+impl ImageView<'_> {
+    /// Copy out of the decoder, so the frame outlives it
+    pub fn to_owned(&self) -> Image {
+        Image {
+            rgb: Rgb16::from_raw(self.rgb.width(), self.rgb.height(), self.rgb.to_vec())
+                .expect("view is well formed"),
+            ir: self.ir.as_ref().map(|ir| {
+                Luma16::from_raw(ir.width(), ir.height(), ir.to_vec()).expect("view is well formed")
+            }),
+        }
+    }
+}
+
+/// A decoded frame that owns its buffers
+pub struct Image {
+    /// The image data read out from the scanner
+    pub rgb: Rgb16,
+    /// The IR mask for dust removal, when the pass asked for one
+    pub ir: Option<Luma16>,
+}
+
 /// Read sample `index` from a buffer of big-endian u16s
 #[inline(always)]
 pub fn be_u16_at(buf: &[u8], index: usize) -> u16 {

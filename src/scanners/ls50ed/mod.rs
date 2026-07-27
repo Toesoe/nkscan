@@ -165,7 +165,7 @@ where
         debug!(?initial_status, "Scanner state at open");
 
         // Everything this will accept comes from the device
-        let capabilities = Capabilities::read(&mut transport)?;
+        let capabilities = capabilities::read(&mut transport)?;
         debug!(?capabilities, "Scanner capabilities");
 
         let mut scanner = Ls50ed {

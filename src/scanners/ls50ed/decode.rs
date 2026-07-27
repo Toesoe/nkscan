@@ -6,41 +6,16 @@
 
 use super::ScanSettings;
 use crate::decode::{BlockSink, Blocked, LengthMismatch, be_u16_at};
-use image::{ImageBuffer, Luma, Rgb};
+use image::ImageBuffer;
 
-// The LS-50 always sends BE u16 over the wire
-pub type Rgb16 = ImageBuffer<Rgb<u16>, Vec<u16>>;
-pub type Ir16 = ImageBuffer<Luma<u16>, Vec<u16>>;
+// Shared with every other scanner here, and re-exported so callers of this module need not
+// know that
+pub use crate::decode::{Image, ImageView, Luma16, Rgb16};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
     #[error(transparent)]
     LengthMismatch(#[from] LengthMismatch),
-}
-
-/// A decoded frame that borrows the decoder's buffers
-pub struct ImageView<'a> {
-    pub rgb: ImageBuffer<Rgb<u16>, &'a [u16]>,
-    /// The IR mask for dust removal
-    pub ir: Option<ImageBuffer<Luma<u16>, &'a [u16]>>,
-}
-
-impl ImageView<'_> {
-    /// Copy out, so the frame outlives the decoder
-    pub fn to_owned(&self) -> Image {
-        Image {
-            rgb: Rgb16::from_raw(self.rgb.width(), self.rgb.height(), self.rgb.to_vec())
-                .expect("view is well formed"),
-            ir: self.ir.as_ref().map(|ir| {
-                Ir16::from_raw(ir.width(), ir.height(), ir.to_vec()).expect("view is well formed")
-            }),
-        }
-    }
-}
-
-pub struct Image {
-    pub rgb: Rgb16,
-    pub ir: Option<Ir16>,
 }
 
 /// De-interleaves the planar stream one line at a time

@@ -4,6 +4,23 @@ use crate::{decode::StreamDecoder, scsi};
 
 pub mod ls50ed;
 pub mod ls9000ed;
+pub mod nikon;
+
+/// A window into the scanner's field of view
+///
+/// In the measurement units the driver set at open, so the pitch is per scanner.
+/// Constructors live with each driver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanArea {
+    /// Offset along the sensor bar
+    pub x_pos: u32,
+    /// Offset along the feed, which selects the frame
+    pub y_pos: u32,
+    /// Extent along the sensor bar
+    pub x_size: u32,
+    /// Extent along the feed. Some scanners only take whole interleave blocks here.
+    pub y_size: u32,
+}
 
 /// Either half of a streamed read can fail: the transport, or the decoder consuming it
 #[derive(Debug, thiserror::Error)]

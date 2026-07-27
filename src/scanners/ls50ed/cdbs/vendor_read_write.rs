@@ -1,36 +1,15 @@
-//! Nikon vendor-specific WRITE(10)/READ(10)
+//! What the LS-50 stages in the shared vendor registers
 //!
-//! A write stages a value in RAM; nothing takes effect until
-//! [`VendorTrigger`](super::VendorTrigger) commits it.
-//!
-//! The CDB layout is shared with the other Coolscans, the subcodes are not: 0xA0
-//! autofocuses here and preheats on the 9000.
+//! The CDB framing, the subcode values and [`VendorWrite`] itself live in
+//! [`nikon::cdbs`](crate::scanners::nikon::cdbs). What lives here is how this model encodes a
+//! payload and decodes a read.
 
-use crate::scsi::{Cdb, Command, CommandData, Error, fields::be_u24};
+use crate::{
+    scanners::nikon::cdbs::{VendorRegister, vendor_cdb},
+    scsi::{Cdb, Command, CommandData, Error},
+};
 
-/// Which vendor register a read or write addresses
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Subcode {
-    /// Written to park the motor, read for the position
-    Focus,
-    AutoFocus,
-    Lamp,
-    Eject,
-    /// Something we haven't characterized, for probing the firmware's other registers
-    Other(u8),
-}
-
-impl Subcode {
-    fn to_byte(self) -> u8 {
-        match self {
-            Subcode::Focus => 0xC1,
-            Subcode::AutoFocus => 0xA0,
-            Subcode::Lamp => 0x80,
-            Subcode::Eject => 0xD0,
-            Subcode::Other(code) => code,
-        }
-    }
-}
+pub use crate::scanners::nikon::cdbs::{Subcode, VendorWrite};
 
 /// What a [`VendorWrite`] stages
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +29,7 @@ pub enum VendorPayload {
     Raw(Vec<u8>),
 }
 
-impl VendorPayload {
+impl VendorRegister for VendorPayload {
     fn subcode(&self) -> Subcode {
         match self {
             VendorPayload::Focus(_) => Subcode::Focus,
@@ -80,54 +59,6 @@ impl VendorPayload {
             VendorPayload::Eject => vec![0u8; 13],
             VendorPayload::Raw(_) => Vec::new(),
         }
-    }
-}
-
-/// The two vendor opcodes share a CDB layout, differing only in direction
-fn vendor_cdb(opcode: u8, subcode: Subcode, length: u32) -> Cdb<10> {
-    let [length_hi, length_mid, length_lo] = be_u24(length);
-    Cdb([
-        opcode,
-        0x00,
-        subcode.to_byte(),
-        0x00,
-        0x00,
-        0x00,
-        length_hi,
-        length_mid,
-        length_lo,
-        0x00,
-    ])
-}
-
-pub struct VendorWrite {
-    subcode: Subcode,
-    bytes: Vec<u8>,
-}
-
-impl VendorWrite {
-    pub fn new(payload: VendorPayload) -> Self {
-        Self {
-            subcode: payload.subcode(),
-            bytes: payload.to_bytes(),
-        }
-    }
-}
-
-impl Command for VendorWrite {
-    type Response = ();
-    type Cdb = Cdb<10>;
-
-    fn cdb(&self) -> Self::Cdb {
-        vendor_cdb(0xE0, self.subcode, self.bytes.len() as u32)
-    }
-
-    fn data(&self) -> CommandData<'_> {
-        CommandData::Write(&self.bytes)
-    }
-
-    fn parse_response(&self, _data: &[u8]) -> Result<(), Error> {
-        Ok(())
     }
 }
 

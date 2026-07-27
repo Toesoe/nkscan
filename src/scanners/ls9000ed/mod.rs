@@ -152,7 +152,7 @@ where
 {
     pub fn new(mut transport: T) -> Result<Self, scsi::Error> {
         // The geometry this will accept comes from the device
-        let capabilities = Capabilities::read(&mut transport)?;
+        let capabilities = capabilities::read(&mut transport)?;
         debug!(?capabilities, "Scanner capabilities");
         let mut scanner = Ls9000ed {
             transport,

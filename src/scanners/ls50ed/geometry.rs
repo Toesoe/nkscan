@@ -13,13 +13,7 @@ const UNIT_DIVISOR: f32 = 4000.0;
 ///
 /// Y runs along the feed, X along the sensor bar. There is no host feed command: `y_pos` is
 /// what selects a frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScanArea {
-    pub x_pos: u32,
-    pub y_pos: u32,
-    pub x_size: u32,
-    pub y_size: u32,
-}
+pub use crate::scanners::ScanArea;
 
 impl ScanArea {
     /// One whole frame at `y_pos`, spanning the adapter's full scan area

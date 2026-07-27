@@ -5,7 +5,7 @@
 //! than they are. Every file written here carries a profile saying the data is linear, and the
 //! samples themselves are left exactly as they came off the scanner.
 
-use crate::scanners::ls9000ed::decode::{Luma16, Rgb16};
+use crate::decode::{Luma16, Rgb16};
 use image::{
     ExtendedColorType, ImageEncoder, ImageError, ImageFormat, ImageResult,
     codecs::tiff::TiffEncoder, error::EncodingError,
