@@ -155,6 +155,12 @@ fn wait_for_holder<T: nkscan::scsi::Transport>(scanner: &mut Ls9000ed<T>) -> Res
     // Loading one raises a holder change and a reset, and those would otherwise surface as a
     // CHECK CONDITION on whatever ran next
     scanner.drain_unit_attentions()?;
+
+    // The page above reports the holder the moment it is detected, but the scanner spends
+    // seconds afterwards coming up. That shows as NotReady/Initializing, which is not a unit
+    // attention and so survives the drain, and the first real command then gets refused with
+    // CommandSequenceError several seconds later.
+    scanner.wait_until_ready()?;
     Ok(holder)
 }
 
