@@ -7,6 +7,9 @@
 
 pub mod capabilities;
 pub mod cdbs;
+pub mod decode;
+pub mod dtc;
+pub mod metering;
 
 /// A color the scanner's lamp emits, which is also the window it is scanned through
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -111,6 +114,22 @@ pub fn native_dots(millimeters: f32, dots_per_inch: u32) -> u32 {
     (millimeters * dots_per_inch as f32 / MM_PER_INCH)
         .round()
         .max(0.0) as u32
+}
+
+/// A length-prefixed, NUL-terminated ASCII name out of a VPD page
+///
+/// The count covers the terminator, so an 11-character name arrives as 12. Which page carries
+/// one is per model — the LS-50's adapter names itself on 0x46, the LS-5000's on 0x01 — but the
+/// shape is the same, and pages 0x60/0x61 carry parameter names in it too.
+pub fn page_name(data: &[u8]) -> Option<String> {
+    let len = usize::from(*data.first()?);
+    let text: String = data
+        .get(1..1 + len)?
+        .iter()
+        .take_while(|&&byte| byte != 0)
+        .map(|&byte| char::from(byte))
+        .collect();
+    (!text.is_empty() && text.is_ascii()).then_some(text)
 }
 
 /// The per-channel analog gain out of a window descriptor's vendor tail

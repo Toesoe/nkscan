@@ -106,6 +106,14 @@ impl Ls9000Job {
 }
 
 impl Job for Ls9000Job {
+    fn reject_unsupported(&self, cli: &Cli) -> Result<()> {
+        // Both are otherwise only discovered building the final frame's settings, after
+        // autofocus and a host-side metering pass that can run past a minute
+        dpi_9000(cli.dpi)?;
+        multisample(cli.multisample)?;
+        Ok(())
+    }
+
     fn prepare(&mut self, cli: &Cli) -> Result<usize> {
         self.wait_for_holder()?;
 
@@ -134,6 +142,10 @@ impl Job for Ls9000Job {
 
     fn eject(&mut self) -> Result<()> {
         Ok(self.scanner.eject()?)
+    }
+
+    fn lock_gain(&mut self) {
+        self.fixed = true;
     }
 
     fn scan_frame(&mut self, cli: &Cli, index: usize) -> Result<Image> {

@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use cdbs::vendor_read_write::{VendorPayload, VendorRead};
-use decode::{DecodeError, FrameDecoder};
+use decode::{DecodeError, frame_decoder};
 use dtc::Dtc;
 use geometry::ScanSettings;
 use holder::Holder;
@@ -391,7 +391,7 @@ where
         self.arm(settings, gain, ScanMode::Normal)?;
         self.scan(channels(settings))?;
 
-        let mut decoder = FrameDecoder::new(settings);
+        let mut decoder = frame_decoder(settings);
         // The scanner hands back exactly one padded line per read
         let chunk = settings.bytes_per_line() as u32;
         self.read_into_with(&mut decoder, chunk, progress)?;

@@ -5,7 +5,7 @@
 
 use crate::scanners::nikon::capabilities::{self as nikon, Capabilities};
 use crate::scsi::{self as scsi};
-use crate::scsi::{Transport, TransportExt, cdbs::VendorPage, cdbs::VpdInquiry, cdbs::VpdPage};
+use crate::scsi::{Transport, TransportExt, cdbs::VpdInquiry, cdbs::VpdPage};
 
 const PAGE: u8 = 0xC1;
 /// Covers the last field we read, at offset 78. The unit answers with 83.
@@ -17,18 +17,6 @@ const ALLOCATION_LENGTH: u8 = 87;
 /// 0xC1 and no healthy unit has been seen to withhold it.
 pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Capabilities, scsi::Error> {
     nikon::read(transport, ALLOCATION_LENGTH)
-}
-
-impl VendorPage for Capabilities {
-    const PAGE_CODE: u8 = PAGE;
-    const ALLOCATION_LENGTH: u8 = ALLOCATION_LENGTH;
-
-    fn from_page(page: &VpdPage) -> Option<Self> {
-        if page.page_code != PAGE {
-            return None;
-        }
-        Self::parse(&page.data).ok()
-    }
 }
 
 /// Frames sensed on the loaded strip, 0 for none
@@ -91,6 +79,7 @@ pub(super) mod fixture {
 mod tests {
     use super::{fixture::captured, *};
     use crate::scanners::nikon::capabilities::ResolutionRange;
+    use crate::scsi::cdbs::VendorPage;
 
     /// `max_x`/`max_y` subtract one from these, so a zero would wrap into a window the size of
     /// the address space rather than failing anywhere near the bad page

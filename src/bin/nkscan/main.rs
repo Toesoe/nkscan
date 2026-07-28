@@ -9,11 +9,12 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use ls50::Ls50Job;
+use ls5000::Ls5000Job;
 use ls9000::Ls9000Job;
 use nkscan::{
     decode::Image,
     output,
-    scanners::ls50ed,
+    scanners::{ls50ed, ls5000ed},
     scsi::{Transport, TransportExt, usb::UsbTransport},
 };
 use nusb::MaybeFuture;
@@ -83,6 +84,10 @@ pub struct Cli {
 
     /// Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its
     /// infrared mask <basename>_<n>_ir.tiff
+    ///
+    /// `n` continues from whatever is already on disk under this basename, rather than
+    /// restarting at 0, so scanning several strips into the same directory does not overwrite
+    /// an earlier batch.
     #[arg(long, default_value = "scan")]
     basename: PathBuf,
 
@@ -97,13 +102,14 @@ pub struct Cli {
     #[arg(long)]
     pitch: Option<f32>,
 
-    /// Hold the white balance during autoexposure, so the film keeps its cast. LS-9000 only.
+    /// Hold the white balance during autoexposure, so the film keeps its cast. Not on the LS-50.
     #[arg(long)]
     lock_wb: bool,
 
     /// Multisampling, trading scan time for noise. One of 1,2,4,8,16. LS-9000 only.
     #[arg(long, default_value_t = 1)]
     multisample: usize,
+
 
     /// Single-line CCD mode. Slow, but may improve banding. LS-9000 only.
     #[arg(long)]
@@ -112,6 +118,16 @@ pub struct Cli {
     /// Send the film back out when everything is done
     #[arg(long)]
     eject: bool,
+
+    /// Scan every strip of the roll, not just the one that's loaded
+    ///
+    /// Automates the roll-analysis workflow: the first frame scanned is autoexposed as usual,
+    /// then that exposure holds for every frame after it, on this strip and the ones that
+    /// follow, so the whole roll comes back under one gain. Autofocus still runs per frame.
+    /// Between strips it ejects the film and pauses; load the next strip and press Enter to
+    /// continue, or Ctrl-C to stop when the roll is done.
+    #[arg(long)]
+    batch: bool,
 }
 
 /// Where to put the focus motor before a pass
@@ -192,6 +208,32 @@ pub fn reading(what: &str) -> ProgressBar {
     bar
 }
 
+/// The next unused frame number for `basename`
+///
+/// One past the highest `<basename>_<n>.tiff` already on disk, or 0 if there is none, so a batch
+/// of scans keeps numbering across runs instead of restarting at the current frame's index.
+fn next_index(basename: &Path) -> usize {
+    let dir = basename.parent().filter(|p| !p.as_os_str().is_empty());
+    let dir = dir.unwrap_or_else(|| Path::new("."));
+    let prefix = format!(
+        "{}_",
+        basename.file_name().unwrap_or_default().to_string_lossy()
+    );
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let rest = name.to_string_lossy().strip_prefix(&prefix)?.to_owned();
+            rest.strip_suffix(".tiff")?.parse::<usize>().ok()
+        })
+        .max()
+        .map_or(0, |n| n + 1)
+}
+
 fn write_frame(frame: &Image, basename: &Path, index: usize) -> Result<()> {
     let path = basename.with_file_name(format!(
         "{}_{index}.tiff",
@@ -248,6 +290,14 @@ const MODELS: &[Model] = &[
             product: ls50ed::PRODUCT_ID,
         },
         open: Ls50Job::open,
+    },
+    Model {
+        name: "LS-5000 ED",
+        attach: Attach::Usb {
+            vendor: ls5000ed::VENDOR_ID,
+            product: ls5000ed::PRODUCT_ID,
+        },
+        open: Ls5000Job::open,
     },
 ];
 
@@ -452,16 +502,50 @@ fn main() -> Result<()> {
     outcome
 }
 
-/// The workflow, once, whichever scanner is on the other end
+/// The workflow, whichever scanner is on the other end, once around for `--batch`'s every
+/// strip and just the once otherwise
 fn run(job: &mut dyn Job, cli: &Cli) -> Result<()> {
     job.reject_unsupported(cli)?;
-    let placed = job.prepare(cli)?;
-    info!(frames = placed, "Frames placed");
 
-    for index in cli.selected(placed)? {
-        let frame = job.scan_frame(cli, index)?;
-        write_frame(&frame, &cli.basename, index)?;
+    let mut next = next_index(&cli.basename);
+    let mut strip = 0usize;
+    loop {
+        // Every frame log below names its own index, which repeats strip to strip, so a batch
+        // run tags them with which strip that was. A single-strip run has no ambiguity to
+        // resolve, so it stays out of the log there.
+        let _span = cli.batch.then(|| info_span!("strip", strip).entered());
+
+        let placed = job.prepare(cli)?;
+        info!(frames = placed, "Frames placed");
+
+        for index in cli.selected(placed)? {
+            let frame = job.scan_frame(cli, index)?;
+            write_frame(&frame, &cli.basename, next)?;
+            next += 1;
+            // The first frame scanned sets the roll's exposure; everything after reuses it.
+            // A no-op once it is already locked, so calling this per frame is harmless.
+            if cli.batch {
+                job.lock_gain();
+            }
+        }
+
+        if !cli.batch {
+            return Ok(());
+        }
+        // Film comes out under motor control on both scanners, not by hand, so it has to be
+        // ejected before the next strip can go in
+        job.eject()?;
+        pause_for_reload()?;
+        strip += 1;
     }
+}
+
+/// Block for the caller to load the next strip before `--batch` moves on to it
+fn pause_for_reload() -> Result<()> {
+    use std::io::Write;
+    print!("Strip finished and ejected. Load the next one and press Enter to continue, or Ctrl-C to stop: ");
+    std::io::stdout().flush()?;
+    std::io::stdin().read_line(&mut String::new())?;
     Ok(())
 }
 
@@ -476,6 +560,11 @@ pub trait Job {
     /// Focus, expose and scan one frame
     fn scan_frame(&mut self, cli: &Cli, index: usize) -> Result<Image>;
 
+    /// Stop metering and hold whatever gain the last scanned frame settled on, for `--batch`
+    ///
+    /// A no-op by default, for a job that already reuses its first metered gain on its own.
+    fn lock_gain(&mut self) {}
+
     fn eject(&mut self) -> Result<()>;
 
     /// Refuse a knob this scanner does not have, rather than quietly doing something else
@@ -485,4 +574,5 @@ pub trait Job {
 }
 
 mod ls50;
+mod ls5000;
 mod ls9000;

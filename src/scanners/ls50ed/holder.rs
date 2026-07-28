@@ -67,19 +67,7 @@ impl VendorPage for Holder {
     }
 }
 
-/// A length-prefixed, NUL-terminated ASCII name out of a VPD page
-///
-/// The count covers the terminator, so an 11-character name arrives as 12.
-fn page_name(data: &[u8]) -> Option<String> {
-    let len = usize::from(*data.first()?);
-    let text: String = data
-        .get(1..1 + len)?
-        .iter()
-        .take_while(|&&byte| byte != 0)
-        .map(|&byte| char::from(byte))
-        .collect();
-    (!text.is_empty() && text.is_ascii()).then_some(text)
-}
+use crate::scanners::nikon::page_name;
 
 impl<T> Ls50ed<T>
 where
