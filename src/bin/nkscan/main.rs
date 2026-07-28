@@ -1,10 +1,4 @@
-//! Scan film on whichever Nikon Coolscan is attached.
-//!
-//! The two scanners this drives share a workflow: open, wake the mechanism, work out where the
-//! frames are, then focus, expose, scan and write each one. They differ in how some of those
-//! steps happen, which is what the [`Job`] trait is for, and in a handful of knobs only one of
-//! them has, which are refused rather than ignored.
-
+//! Scan film on whichever Nikon Coolscan is attached
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
