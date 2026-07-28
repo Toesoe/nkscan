@@ -72,7 +72,7 @@ as above, without any additional terms or conditions.
 
 ## Related Projects and References
 
-[coolscanpy](https://github.com/rohanpandula/coolscanpy/)
-[Coolscan RE](https://github.com/kevihiiin/Nikon-Coolscan-RE)
-[coolscan-mods](https://github.com/kosma/coolscan-mods)
-[sane-coolscan3](http://sane-project.org/man/sane-coolscan3.5.html)
+- [coolscanpy](https://github.com/rohanpandula/coolscanpy/)
+- [Coolscan RE](https://github.com/kevihiiin/Nikon-Coolscan-RE)
+- [coolscan-mods](https://github.com/kosma/coolscan-mods)
+- [sane-coolscan3](http://sane-project.org/man/sane-coolscan3.5.html)
