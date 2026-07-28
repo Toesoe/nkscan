@@ -57,6 +57,8 @@ For this, I tell the program how many frames per strip, include the IR pass, loc
 nkscan --frames 3 --ir --lock-wb --multisample 2 --batch
 ```
 
+Personally, I find this much faster than anything I could do in NikonScan or Vuescan.
+
 ## License
 
 Dual licensed under either of
