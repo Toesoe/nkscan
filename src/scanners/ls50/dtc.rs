@@ -4,7 +4,7 @@
 //! whose high byte is the channel. Two of these are SCSI-2 codes rather than vendor ones, hence
 //! the per-variant mapping to [`DataTypeCode`].
 
-use super::Ls50ed;
+use super::Ls50;
 use crate::scanners::nikon::Channel;
 use crate::scsi::{
     self as scsi, Transport, TransportExt,
@@ -62,7 +62,7 @@ impl From<Dtc> for DataTypeCode {
 /// READ(10)/SEND(10) plumbing
 ///
 /// Both carry a plain `0x00` control byte: only SET WINDOW needs bit 7 on this model.
-impl<T> Ls50ed<T>
+impl<T> Ls50<T>
 where
     T: Transport,
 {

@@ -9,9 +9,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub mod ls5000ed;
-pub mod ls50ed;
-pub mod ls9000ed;
+pub mod ls5000;
+pub mod ls50;
+pub mod ls9000;
 pub mod nikon;
 
 /// A window into the scanner's field of view

@@ -23,7 +23,7 @@ pub fn frame_decoder(settings: &ScanSettings) -> FrameDecoder {
 mod tests {
     use super::*;
     use crate::decode::StreamDecoder;
-    use crate::scanners::ls5000ed::geometry::{Dpi, Samples, whole_frame};
+    use crate::scanners::ls5000::geometry::{Dpi, Samples, whole_frame};
 
     fn settings(ir: bool) -> ScanSettings {
         let capabilities = super::super::capabilities::fixture::capabilities();

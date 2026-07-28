@@ -9,8 +9,8 @@ use nkscan::{
     decode::Image,
     scanners::{
         FilmHolder, Focus, Scanner,
-        ls50ed::{
-            Ls50ed,
+        ls50::{
+            Ls50,
             boundaries::FrameBoundaries,
             calibration::DEFAULT_GAIN,
             geometry::{Dpi, ScanSettings, native_dots},
@@ -22,7 +22,7 @@ use nkscan::{
 use tracing::*;
 
 pub struct Ls50Job {
-    scanner: Ls50ed<Box<dyn Transport>>,
+    scanner: Ls50<Box<dyn Transport>>,
     frames: FrameBoundaries,
     gain: ChannelExposures,
     /// Set once the gain is settled, by `--gain` or by the one metering pass
@@ -31,7 +31,7 @@ pub struct Ls50Job {
 
 impl Ls50Job {
     pub fn open(transport: Box<dyn Transport>) -> Result<Box<dyn Job>> {
-        let mut scanner = Ls50ed::new(transport)?;
+        let mut scanner = Ls50::new(transport)?;
         info!(
             identity = ?scanner.identify()?,
             holder = ?scanner.holder()?,

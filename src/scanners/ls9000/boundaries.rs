@@ -6,7 +6,7 @@
 //! then the real per-frame positions once the overview scan has actually located the frames.
 
 use super::{
-    Ls9000ed,
+    Ls9000,
     dtc::{self, Dtc},
 };
 use crate::{
@@ -65,7 +65,7 @@ impl FrameRect {
     /// A window length has to be a whole number of these at every resolution we send.
     const BLOCK_DOTS: u32 = 3 * 12;
 
-    /// The middle of the frame, which is where [`autofocus`](Ls9000ed::autofocus) wants aiming
+    /// The middle of the frame, which is where [`autofocus`](Ls9000::autofocus) wants aiming
     pub fn center(self) -> (u32, u32) {
         (
             self.x_left + (self.x_right - self.x_left) / 2,
@@ -384,7 +384,7 @@ fn even_up(extents: &[(usize, usize)], rows: usize) -> Vec<(usize, usize)> {
         .collect()
 }
 
-impl<T> Ls9000ed<T>
+impl<T> Ls9000<T>
 where
     T: Transport,
 {

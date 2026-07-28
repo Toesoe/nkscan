@@ -53,10 +53,10 @@ const WINDOW_COUNT: u32 = 5;
 const VENDOR_CONTROL: u8 = 0x80;
 /// The most tries a SCAN gets before we call it a refusal. Nikon Scan needs up to four.
 const MAX_SCAN_ATTEMPTS: usize = 8;
-/// How often [`wait_until_ready`](Ls9000ed::wait_until_ready) asks. Nikon Scan polls at
+/// How often [`wait_until_ready`](Ls9000::wait_until_ready) asks. Nikon Scan polls at
 /// roughly this rate through an autofocus.
 pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
-/// How long [`wait_until_ready`](Ls9000ed::wait_until_ready) keeps asking before giving up.
+/// How long [`wait_until_ready`](Ls9000::wait_until_ready) keeps asking before giving up.
 /// Long enough for a calibration, which Nikon Scan's own UI says can take two minutes.
 const READY_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -97,13 +97,13 @@ fn stage_target(length: u32) -> i32 {
 }
 
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
-pub struct Ls9000ed<T> {
+pub struct Ls9000<T> {
     pub(crate) transport: T,
     capabilities: Capabilities,
 }
 
 /// The coolscan 9000 is SCSI-only, so we can gate here on scsi backends
-impl<T> Ls9000ed<T>
+impl<T> Ls9000<T>
 where
     T: Transport,
 {
@@ -122,7 +122,7 @@ where
         // The geometry this will accept comes from the device
         let capabilities = capabilities::read(&mut transport)?;
         debug!(?capabilities, "Scanner capabilities");
-        let mut scanner = Ls9000ed {
+        let mut scanner = Ls9000 {
             transport,
             capabilities,
         };
@@ -314,7 +314,7 @@ where
     }
 }
 
-impl<T> Scanner for Ls9000ed<T>
+impl<T> Scanner for Ls9000<T>
 where
     T: Transport,
 {
@@ -336,7 +336,7 @@ where
     }
 }
 
-impl<T> FilmHolder for Ls9000ed<T>
+impl<T> FilmHolder for Ls9000<T>
 where
     T: Transport,
 {
@@ -347,7 +347,7 @@ where
     }
 }
 
-impl<T> Focus for Ls9000ed<T>
+impl<T> Focus for Ls9000<T>
 where
     T: Transport,
 {
@@ -374,7 +374,7 @@ where
 /// Either half of a scan can fail: the transport, or decoding what came back
 pub type ScanError = crate::scanners::ReadError<decode::DecodeError>;
 
-impl<T> Ls9000ed<T>
+impl<T> Ls9000<T>
 where
     T: Transport,
 {
@@ -582,7 +582,7 @@ mod tests {
     /// process before anything else is attempted.
     #[test]
     fn opening_settles_readiness_before_reading_geometry() {
-        let scanner = Ls9000ed::new(mock()).expect("opens");
+        let scanner = Ls9000::new(mock()).expect("opens");
         assert_eq!(
             scanner.transport.opcode_sequence(),
             [
@@ -612,7 +612,7 @@ mod tests {
                 }),
             },
         );
-        let scanner = Ls9000ed::new(transport).expect("opens once the unit has come up");
+        let scanner = Ls9000::new(transport).expect("opens once the unit has come up");
         // The refused try, the one that settles the wait, then the drain
         assert_eq!(scanner.transport.count(0x00), 3);
         assert_eq!(scanner.transport.opcode_sequence()[0], 0x00);
@@ -622,7 +622,7 @@ mod tests {
     /// infrared as well as the visible channels
     #[test]
     fn calibrating_reads_frame_setup_before_staging_windows() {
-        let mut scanner = Ls9000ed::new(mock()).expect("opens");
+        let mut scanner = Ls9000::new(mock()).expect("opens");
         scanner
             .calibrate(calibration::DEFAULT_GAIN)
             .expect("calibrates");
@@ -668,7 +668,7 @@ mod tests {
             }),
         };
         let transport = mock().failing(0x1B, refusal()).failing(0x1B, refusal());
-        let mut scanner = Ls9000ed::new(transport).expect("opens");
+        let mut scanner = Ls9000::new(transport).expect("opens");
 
         scanner.scan(&Channel::RGB).expect("succeeds on the third");
         assert_eq!(scanner.transport.count(0x1B), 3);
@@ -691,7 +691,7 @@ mod tests {
                 }),
             },
         );
-        let mut scanner = Ls9000ed::new(transport).expect("opens");
+        let mut scanner = Ls9000::new(transport).expect("opens");
 
         assert!(scanner.scan(&Channel::RGB).is_err());
         assert_eq!(scanner.transport.count(0x1B), 1);

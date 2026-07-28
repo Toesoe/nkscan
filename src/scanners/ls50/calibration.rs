@@ -4,7 +4,7 @@
 //! without streaming an image, and the result comes back through GET WINDOW. There is nothing
 //! host-side for a target or a percentile to act on.
 
-use super::{Ls50ed, geometry::ScanSettings, window::ScanMode};
+use super::{Ls50, geometry::ScanSettings, window::ScanMode};
 use crate::scanners::nikon::{Channel, ChannelExposures};
 use crate::scsi::{self, Transport};
 use tracing::*;
@@ -20,7 +20,7 @@ pub const DEFAULT_GAIN: ChannelExposures = ChannelExposures {
     ir: 0,
 };
 
-impl<T> Ls50ed<T>
+impl<T> Ls50<T>
 where
     T: Transport,
 {

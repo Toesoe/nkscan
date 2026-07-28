@@ -1,7 +1,7 @@
 //! Scan geometry and sampling settings
 //!
 //! Everything is in 1/4000-in dots, the sensor's native pitch, since
-//! [`Ls50ed::new`](super::Ls50ed::new) pins the measurement units to a 4000 divisor at open.
+//! [`Ls50::new`](super::Ls50::new) pins the measurement units to a 4000 divisor at open.
 
 use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
 
@@ -48,7 +48,7 @@ impl Dpi {
     /// Firmware divisor; scan dpi = optical/k
     ///
     /// `_1333` is 4000/3 named to the nearest whole DPI, as
-    /// [`ls9000ed`](crate::scanners::ls9000ed::Dpi) names the same division.
+    /// [`ls9000`](crate::scanners::ls9000::Dpi) names the same division.
     pub fn divisor(self) -> u32 {
         match self {
             Dpi::_4000 => 1,
@@ -128,7 +128,7 @@ impl ScanSettings {
         (w * pitch, h * pitch)
     }
 
-    /// Where [`autofocus`](super::Ls50ed::autofocus) wants aiming
+    /// Where [`autofocus`](super::Ls50::autofocus) wants aiming
     ///
     /// Against [`native_dims`](Self::native_dims), not the window's own size: the descriptor
     /// carries the pitch-rounded extent and that is what the scanner covers.

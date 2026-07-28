@@ -2,9 +2,9 @@
 //!
 //! Inferred from what the firmware advertises on page 0x00, keyed off page codes rather than
 //! Nikon's labels, which confuse MA-21 with SA-21. Adapters with page 0x46 also name
-//! themselves, see [`adapter_name`](Ls50ed::adapter_name).
+//! themselves, see [`adapter_name`](Ls50::adapter_name).
 
-use super::Ls50ed;
+use super::Ls50;
 use crate::{
     scanners::Scanner,
     scsi::{
@@ -69,7 +69,7 @@ impl VendorPage for Holder {
 
 use crate::scanners::nikon::page_name;
 
-impl<T> Ls50ed<T>
+impl<T> Ls50<T>
 where
     T: Transport,
 {

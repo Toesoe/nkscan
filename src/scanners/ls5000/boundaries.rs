@@ -7,7 +7,7 @@
 //!
 //! An adapter with no table falls back on [`FrameBoundaries::evenly_spaced`].
 
-use super::{Ls5000ed, dtc::Dtc};
+use super::{Ls5000, dtc::Dtc};
 use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
 use crate::scsi::{self, Transport};
 
@@ -111,7 +111,7 @@ impl FrameBoundaries {
     }
 }
 
-impl<T> Ls5000ed<T>
+impl<T> Ls5000<T>
 where
     T: Transport,
 {

@@ -10,8 +10,8 @@ use nkscan::{
     decode::Image,
     scanners::{
         FilmHolder, Focus, ScanArea, Scanner,
-        ls9000ed::{
-            Ls9000ed,
+        ls9000::{
+            Ls9000,
             boundaries::{FrameBoundaries, FrameRect},
             calibration::{DEFAULT_GAIN, Metering},
             geometry::{CcdMode, Dpi, Multisample, ScanSettings, native_dots},
@@ -28,7 +28,7 @@ use tracing::*;
 const HOLDER_POLL: Duration = Duration::from_millis(500);
 
 pub struct Ls9000Job {
-    scanner: Ls9000ed<Box<dyn Transport>>,
+    scanner: Ls9000<Box<dyn Transport>>,
     frames: FrameBoundaries,
     gain: ChannelExposures,
     /// Set when `--gain` fixed it, so the per-frame metering is skipped
@@ -37,7 +37,7 @@ pub struct Ls9000Job {
 
 impl Ls9000Job {
     pub fn open(transport: Box<dyn Transport>) -> Result<Box<dyn Job>> {
-        let mut scanner = Ls9000ed::new(transport)?;
+        let mut scanner = Ls9000::new(transport)?;
         let identity = scanner.identify()?;
         info!("Connected to {} {}", identity.vendor, identity.product);
         Ok(Box::new(Self {

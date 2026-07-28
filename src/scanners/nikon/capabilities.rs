@@ -146,7 +146,7 @@ mod tests {
 
     /// Captured pages from two different units, so the shared offsets stay pinned to real
     /// hardware rather than to whichever caller was refactored last
-    fn ls9000ed_page() -> Vec<u8> {
+    fn ls9000_page() -> Vec<u8> {
         hex(
             "01 00 3B 00 0F 00 00 01 00 01 01 17 42 12 0F A0 0F A0 02 9A 00 00 23 03 \
              00 00 00 00 00 00 00 00 00 00 23 04 0F A0 0F A0 01 4D 00 00 87 54 00 00 \
@@ -155,7 +155,7 @@ mod tests {
         )
     }
 
-    fn ls50ed_page() -> Vec<u8> {
+    fn ls50_page() -> Vec<u8> {
         hex(
             "03 00 3A 00 0F 00 00 00 40 01 01 00 01 31 0F A0 0F A0 00 5A 00 00 00 00 \
              00 00 00 00 00 00 00 00 00 00 0F 6A 0F A0 0F A0 00 5A 00 00 BA 38 00 00 \
@@ -171,8 +171,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_the_ls9000ed_page() {
-        let caps = Capabilities::parse(&ls9000ed_page()).unwrap();
+    fn parses_the_ls9000_page() {
+        let caps = Capabilities::parse(&ls9000_page()).unwrap();
         assert_eq!(caps.max_bits, 16);
         assert_eq!(caps.boundary_x, 8964);
         assert_eq!(caps.boundary_y, 13176);
@@ -181,8 +181,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_the_ls50ed_page() {
-        let caps = Capabilities::parse(&ls50ed_page()).unwrap();
+    fn parses_the_ls50_page() {
+        let caps = Capabilities::parse(&ls50_page()).unwrap();
         assert_eq!(caps.max_bits, 14);
         assert_eq!(caps.boundary_x, 3946);
         assert_eq!(caps.boundary_y, 5959);
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn a_zero_boundary_is_not_a_usable_page() {
         for offset in [32, 54] {
-            let mut page = ls50ed_page();
+            let mut page = ls50_page();
             page[offset..offset + 4].fill(0);
             assert!(Capabilities::parse(&page).is_err(), "zero at {offset}");
         }
@@ -203,6 +203,6 @@ mod tests {
 
     #[test]
     fn a_short_page_is_rejected() {
-        assert!(Capabilities::parse(&ls50ed_page()[..78]).is_err());
+        assert!(Capabilities::parse(&ls50_page()[..78]).is_err());
     }
 }

@@ -54,7 +54,7 @@ const MAX_SCAN_ATTEMPTS: usize = 30;
 const SCAN_RETRY_PAUSE: Duration = Duration::from_millis(500);
 /// How often the driver asks a busy scanner whether it has settled
 pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
-/// How long [`wait_until_ready`](Ls50ed::wait_until_ready) keeps asking before giving up
+/// How long [`wait_until_ready`](Ls50::wait_until_ready) keeps asking before giving up
 ///
 /// Generous on purpose: a pass reports NotReady throughout and an autoexposure measured 29 s.
 /// Firing early leaves the next command reaching a moving scanner.
@@ -89,12 +89,12 @@ fn identity_gamma_table() -> Vec<u8> {
 ///
 /// Generic over the transport, but this model has no SCSI bus, so in practice
 /// [`UsbTransport`](crate::scsi::usb::UsbTransport).
-pub struct Ls50ed<T> {
+pub struct Ls50<T> {
     pub(crate) transport: T,
     capabilities: Capabilities,
 }
 
-impl<T> Ls50ed<T>
+impl<T> Ls50<T>
 where
     T: Transport,
 {
@@ -118,7 +118,7 @@ where
         let capabilities = capabilities::read(&mut transport)?;
         debug!(?capabilities, "Scanner capabilities");
 
-        let mut scanner = Ls50ed {
+        let mut scanner = Ls50 {
             transport,
             capabilities,
         };
@@ -244,7 +244,7 @@ where
     }
 }
 
-impl<T> Scanner for Ls50ed<T>
+impl<T> Scanner for Ls50<T>
 where
     T: Transport,
 {
@@ -264,7 +264,7 @@ where
     }
 }
 
-impl<T> FilmHolder for Ls50ed<T>
+impl<T> FilmHolder for Ls50<T>
 where
     T: Transport,
 {
@@ -275,7 +275,7 @@ where
     }
 }
 
-impl<T> Focus for Ls50ed<T>
+impl<T> Focus for Ls50<T>
 where
     T: Transport,
 {
@@ -302,7 +302,7 @@ where
 pub type ScanError = crate::scanners::ReadError<DecodeError>;
 
 /// The scan drive: warm-up, arming, and draining the image
-impl<T> Ls50ed<T>
+impl<T> Ls50<T>
 where
     T: Transport,
 {
@@ -560,7 +560,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scanners::{ScanArea, ls50ed::geometry::Dpi};
+    use crate::scanners::{ScanArea, ls50::geometry::Dpi};
     use crate::scsi::{DataDirection, Error, SenseData};
     use boundaries::FrameBoundaries;
 
@@ -762,7 +762,7 @@ mod tests {
     }
 
     /// What a caller does per frame
-    fn scan_one(scanner: &mut Ls50ed<ScanMock>, settings: &ScanSettings) -> Image {
+    fn scan_one(scanner: &mut Ls50<ScanMock>, settings: &ScanSettings) -> Image {
         scanner.warm_up().unwrap();
         scanner
             .scan_image(settings, calibration::DEFAULT_GAIN)
@@ -771,7 +771,7 @@ mod tests {
 
     #[test]
     fn scan_decodes_an_rgb_frame() {
-        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(rgb_image(), 10)).unwrap();
         let frame = scan_one(&mut scanner, &settings(false));
         assert_eq!(frame.rgb.dimensions(), (1, 2));
         assert!(frame.ir.is_none());
@@ -787,7 +787,7 @@ mod tests {
             be_line(&[2, 0, 2, 0, 2, 0, 91]),
         ]
         .concat();
-        let mut scanner = Ls50ed::new(ScanMock::new(image, 14)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(image, 14)).unwrap();
         let frame = scan_one(&mut scanner, &settings(true));
         assert_eq!(frame.rgb.get_pixel(0, 0).0, [1u16, 1, 1]);
         let ir = frame.ir.expect("IR plane captured");
@@ -800,7 +800,7 @@ mod tests {
     /// pending with nothing to drain it and an empty image would come back as a success
     #[test]
     fn a_window_narrower_than_a_pixel_is_refused_before_arming() {
-        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(rgb_image(), 10)).unwrap();
         let settings = ScanSettings {
             window: ScanArea { x_size: 0, ..TINY },
             ..settings(false)
@@ -816,7 +816,7 @@ mod tests {
     /// timeout on a pass that was never going to stream
     #[test]
     fn multi_sampling_is_refused_rather_than_armed() {
-        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(rgb_image(), 10)).unwrap();
         let settings = ScanSettings {
             samples: 2,
             ..settings(false)
@@ -836,7 +836,7 @@ mod tests {
         mock.expect_exposure = measured;
         mock.measured_exposure = Some(measured);
 
-        let mut scanner = Ls50ed::new(mock).unwrap();
+        let mut scanner = Ls50::new(mock).unwrap();
         let settings = settings(false);
         scanner.warm_up().unwrap();
         let gain = scanner
@@ -859,7 +859,7 @@ mod tests {
             &[0.0],
             capabilities.max_x(),
         );
-        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(rgb_image(), 10)).unwrap();
         scanner.warm_up().unwrap();
 
         for rect in &boundaries.0 {
@@ -886,7 +886,7 @@ mod tests {
     fn autofocus_targets_the_frame_center() {
         // Nothing streams, so this can aim at a whole frame: native (3944, 5956) at 1000 DPI,
         // centered on (1972, 2978)
-        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(rgb_image(), 10)).unwrap();
         let whole_frame = ScanSettings {
             window: ScanArea::frame(0, capabilities::fixture::capabilities()),
             ..settings(false)
@@ -902,7 +902,7 @@ mod tests {
     #[test]
     fn a_truncated_pass_is_an_error() {
         // Two lines declared, one delivered
-        let mut scanner = Ls50ed::new(ScanMock::new(be_line(&[1, 0, 1, 0, 1]), 10)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(be_line(&[1, 0, 1, 0, 1]), 10)).unwrap();
         scanner.warm_up().unwrap();
         assert!(matches!(
             scanner.scan_image(&settings(false), calibration::DEFAULT_GAIN),
@@ -914,7 +914,7 @@ mod tests {
     #[test]
     fn a_window_past_the_reported_area_is_refused() {
         let capabilities = capabilities::fixture::capabilities();
-        let mut scanner = Ls50ed::new(ScanMock::new(rgb_image(), 10)).unwrap();
+        let mut scanner = Ls50::new(ScanMock::new(rgb_image(), 10)).unwrap();
         let settings = ScanSettings {
             window: ScanArea {
                 y_size: capabilities.boundary_y * 2,
@@ -932,7 +932,7 @@ mod tests {
     /// have to stay the ones Nikon Scan sends
     #[test]
     fn opening_pins_the_units_with_the_captured_parameter_list() {
-        let scanner = Ls50ed::new(mock()).unwrap();
+        let scanner = Ls50::new(mock()).unwrap();
         assert_eq!(
             scanner
                 .transport
@@ -949,7 +949,7 @@ mod tests {
     /// Opening reads the geometry off the device rather than assuming it
     #[test]
     fn opening_takes_its_geometry_from_the_device() {
-        let scanner = Ls50ed::new(mock()).unwrap();
+        let scanner = Ls50::new(mock()).unwrap();
         assert_eq!(
             scanner.capabilities(),
             capabilities::fixture::capabilities()
@@ -990,7 +990,7 @@ mod tests {
             }
         }
 
-        let mut scanner = Ls50ed::new(MotorState).unwrap();
+        let mut scanner = Ls50::new(MotorState).unwrap();
         assert_eq!(
             scanner.probe_vendor(0x42, 13).unwrap(),
             [
@@ -1004,7 +1004,7 @@ mod tests {
     #[test]
     fn opening_without_a_capability_page_fails() {
         assert!(matches!(
-            Ls50ed::new(crate::scsi::mock::MockTransport::new()),
+            Ls50::new(crate::scsi::mock::MockTransport::new()),
             Err(scsi::Error::InvalidResponse(_))
         ));
     }

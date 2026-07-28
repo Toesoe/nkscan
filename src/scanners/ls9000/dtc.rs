@@ -2,7 +2,7 @@
 //!
 //! READ(10) and SEND(10) address a vendor structure with a data-type code and a 16-bit qualifier.
 
-use super::Ls9000ed;
+use super::Ls9000;
 use crate::scanners::nikon::Channel;
 use crate::scsi::{
     self as scsi, Transport, TransportExt,
@@ -70,7 +70,7 @@ impl From<Dtc> for DataTypeCode {
 }
 
 /// READ(10)/SEND(10) plumbing for vendor structures
-impl<T> Ls9000ed<T>
+impl<T> Ls9000<T>
 where
     T: Transport,
 {

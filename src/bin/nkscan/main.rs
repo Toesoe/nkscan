@@ -14,7 +14,7 @@ use ls9000::Ls9000Job;
 use nkscan::{
     decode::Image,
     output,
-    scanners::{ls50ed, ls5000ed},
+    scanners::{ls50, ls5000},
     scsi::{Transport, TransportExt, usb::UsbTransport},
 };
 use nusb::MaybeFuture;
@@ -285,16 +285,16 @@ const MODELS: &[Model] = &[
     Model {
         name: "LS-50 ED",
         attach: Attach::Usb {
-            vendor: ls50ed::VENDOR_ID,
-            product: ls50ed::PRODUCT_ID,
+            vendor: ls50::VENDOR_ID,
+            product: ls50::PRODUCT_ID,
         },
         open: Ls50Job::open,
     },
     Model {
         name: "LS-5000 ED",
         attach: Attach::Usb {
-            vendor: ls5000ed::VENDOR_ID,
-            product: ls5000ed::PRODUCT_ID,
+            vendor: ls5000::VENDOR_ID,
+            product: ls5000::PRODUCT_ID,
         },
         open: Ls5000Job::open,
     },
