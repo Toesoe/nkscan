@@ -7,7 +7,7 @@
 //! geometry the metering pass runs over.
 
 use super::{
-    ScanError, Ls5000ed,
+    Ls5000ed, ScanError,
     geometry::{METER_RESOLUTION, Samples, ScanSettings},
 };
 use crate::scanners::{

@@ -15,7 +15,10 @@ pub enum VendorPayload {
     /// Focus setpoint, big-endian at bytes 1..5
     Focus(u32),
     /// Autofocus at `(x, y)` in native dots
-    AutoFocus { x: u32, y: u32 },
+    AutoFocus {
+        x: u32,
+        y: u32,
+    },
     Lamp,
     Eject,
     /// Bytes off an uncharacterized subcode, left for the caller to make sense of

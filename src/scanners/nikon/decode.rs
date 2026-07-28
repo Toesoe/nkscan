@@ -59,12 +59,7 @@ impl PlanarLines {
 ///
 /// Each driver wraps this with its own geometry, since what `stride` and `n_colors` are is a
 /// property of the scan settings rather than of the stream format.
-pub fn planar_decoder(
-    width: usize,
-    height: usize,
-    n_colors: usize,
-    stride: usize,
-) -> FrameDecoder {
+pub fn planar_decoder(width: usize, height: usize, n_colors: usize, stride: usize) -> FrameDecoder {
     Blocked::wrap(PlanarLines::new(width, height, n_colors, stride))
 }
 

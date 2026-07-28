@@ -419,11 +419,7 @@ where
     /// Arm one pass: windows, then the window read-back. The caller issues the SCAN.
     ///
     /// No gamma table is uploaded: there is no hardware LUT on these scanners.
-    fn arm(
-        &mut self,
-        settings: &ScanSettings,
-        gain: ChannelExposures,
-    ) -> Result<(), scsi::Error> {
+    fn arm(&mut self, settings: &ScanSettings, gain: ChannelExposures) -> Result<(), scsi::Error> {
         // Refused rather than put on the wire. A multi-sampled pass does not stream a planar
         // image: it sends every sample for the host to average, in a record shape this driver
         // does not decode. Arming one would read the declared length off a longer stream and
