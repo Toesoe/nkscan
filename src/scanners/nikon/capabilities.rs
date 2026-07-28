@@ -4,10 +4,28 @@
 //! constants, which matters most for [`boundary_y`](Capabilities::boundary_y). Not every field
 //! is populated by every unit.
 
-use crate::scsi::{self, Transport, TransportExt, cdbs::VpdInquiry};
+use crate::scsi::{
+    self, Transport, TransportExt,
+    cdbs::{VendorPage, VpdInquiry, VpdPage},
+};
 
 /// The page code this lives on
 pub const PAGE: u8 = 0xC1;
+
+/// What every unit seen answers this page with
+pub const ALLOCATION_LENGTH: u8 = 87;
+
+impl VendorPage for Capabilities {
+    const PAGE_CODE: u8 = PAGE;
+    const ALLOCATION_LENGTH: u8 = ALLOCATION_LENGTH;
+
+    fn from_page(page: &VpdPage) -> Option<Self> {
+        if page.page_code != PAGE {
+            return None;
+        }
+        Self::parse(&page.data).ok()
+    }
+}
 
 /// Device-reported limits and geometry
 ///

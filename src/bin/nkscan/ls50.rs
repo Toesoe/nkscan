@@ -61,6 +61,8 @@ impl Job for Ls50Job {
         if cli.lock_wb {
             bail!("--lock-wb is not controllable on an LS-50 ED; use --gain to fix the ratios");
         }
+        // Otherwise only discovered building the first frame's settings, after warming up
+        dpi_50(cli.dpi)?;
         Ok(())
     }
 

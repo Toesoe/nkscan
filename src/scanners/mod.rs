@@ -10,6 +10,7 @@ use std::{
 };
 
 pub mod ls50ed;
+pub mod ls5000ed;
 pub mod ls9000ed;
 pub mod nikon;
 

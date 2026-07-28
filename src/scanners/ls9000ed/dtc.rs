@@ -10,7 +10,7 @@ use crate::scsi::{
 };
 
 /// Vendor DTC reads are framed by a fixed 6-byte header
-pub const HEADER_LEN: u32 = 6;
+pub use crate::scanners::nikon::dtc::HEADER_LEN;
 
 /// A vendor data structure on this scanner
 ///
@@ -97,14 +97,13 @@ where
         channel: Option<Channel>,
         probe: u32,
     ) -> Result<Vec<u8>, scsi::Error> {
-        let header = self.read_dtc(dtc, channel, probe)?;
-        let length = header
-            .get(4..6)
-            .map(|l| u16::from_be_bytes([l[0], l[1]]))
-            .ok_or(scsi::Error::InvalidResponse(
-                "vendor DTC read shorter than its 6-byte header",
-            ))?;
-        self.read_dtc(dtc, channel, HEADER_LEN + u32::from(length))
+        crate::scanners::nikon::dtc::read_framed(
+            &mut self.transport,
+            dtc.into(),
+            dtc.dtq(channel),
+            probe,
+            super::VENDOR_CONTROL,
+        )
     }
 
     /// Write a vendor data structure
