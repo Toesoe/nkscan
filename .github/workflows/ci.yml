@@ -1,0 +1,41 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+        paths-ignore: &docs-paths
+            - "**.md"
+            - "LICENSE-*"
+    pull_request:
+        branches: [main]
+        paths-ignore: *docs-paths
+    workflow_dispatch:
+
+# Cancel superseded runs for the same branch/PR - these nix jobs are heavy.
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    check:
+        name: Nix Flake Check
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            security-events: write # upload clippy findings as code scanning results
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Nix
+              uses: DeterminateSystems/nix-installer-action@v13
+
+            - name: Setup Nix cache
+              uses: DeterminateSystems/magic-nix-cache-action@v7
+
+            - name: Run flake checks
+              run: nix flake check --print-build-logs --keep-going
