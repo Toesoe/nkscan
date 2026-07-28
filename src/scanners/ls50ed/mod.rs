@@ -103,6 +103,11 @@ where
     /// Film motion waits for [`warm_up`](Self::warm_up), so read-only callers never spin
     /// the motor.
     pub fn new(mut transport: T) -> Result<Self, scsi::Error> {
+        // A scanner still coming up from power-on refuses everything, INQUIRY included
+        let coming_up: Status =
+            crate::scanners::wait_while_initializing(&mut transport, READY_TIMEOUT, POLL_INTERVAL)?;
+        trace!(?coming_up, "Scanner state before the capability read");
+
         // A cold start queues several unit attentions and everything below would choke on
         // one. Drained before the capability read, so a stray CHECK CONDITION cannot look
         // like a device with no geometry to report.

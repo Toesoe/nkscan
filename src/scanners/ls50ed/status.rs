@@ -55,6 +55,11 @@ impl ScannerStatus for Status {
         }
     }
 
+    /// [`NeedsInit`](Self::NeedsInit) is not one of these: that one wants a command, not time
+    fn is_initializing(&self) -> bool {
+        matches!(self, Self::Initializing)
+    }
+
     /// The device queues these and reports one per command, clearing it as it goes, so a
     /// caller has to keep asking until it gets something else
     fn is_unit_attention(&self) -> bool {
