@@ -1,6 +1,8 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    crane.url = "github:ipetkov/crane";
+    flake-utils.url = "github:numtide/flake-utils";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -10,37 +12,92 @@
   outputs = {
     self,
     nixpkgs,
+    crane,
+    flake-utils,
     rust-overlay,
     ...
-  }: let
-    system = "x86_64-linux";
-    overlays = [(import rust-overlay)];
-    pkgs = import nixpkgs {inherit system overlays;};
+  }:
+    flake-utils.lib.eachDefaultSystem (
+      system: let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [(import rust-overlay)];
+        };
 
-    rust = pkgs.rust-bin.stable.latest.default.override {
-      extensions = ["rust-src" "rust-analyzer"];
-      # The Windows backend is behind cfg(target_os = "windows"), so it is never
-      # typechecked by a native build. This is what lets `cargo check --target
-      # x86_64-pc-windows-gnu` compile it without a Windows machine.
-      targets = ["x86_64-pc-windows-gnu"];
-    };
-  in {
-    devShells.${system}.default = pkgs.mkShell {
-      buildInputs = with pkgs; [
-        rust
-        rust-bindgen
-        # Linking, rather than just checking, the Windows target
-        pkgsCross.mingwW64.stdenv.cc
-      ];
+        inherit (pkgs) lib;
 
-      # Cargo needs telling which linker to use for the cross target, and rustc needs the
-      # mingw pthreads it links against. Scoped to the one target so a native build is
-      # untouched.
-      #
-      # `cargo build --target x86_64-pc-windows-gnu` works from here; running the tests does
-      # not, since wine has no scsiscan.sys to talk to anyway. Run those on the Windows host.
-      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "${pkgs.pkgsCross.mingwW64.stdenv.cc}/bin/x86_64-w64-mingw32-cc";
-      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS = "-L ${pkgs.pkgsCross.mingwW64.windows.pthreads}/lib";
-    };
-  };
+        craneLib = (crane.mkLib pkgs).overrideToolchain (
+          p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
+        );
+        src = craneLib.cleanCargoSource ./.;
+
+        commonArgs = {
+          inherit src;
+          strictDeps = true;
+          nativeBuildInputs = with pkgs;
+            []
+            ++ lib.optionals stdenv.isDarwin [libiconv];
+          buildInputs = [];
+        };
+
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+        nkscan = craneLib.buildPackage (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            doCheck = false; # handled by nextest
+            cargoExtraArgs = "--features=cli";
+          }
+        );
+      in {
+        # Checks for nix flake check
+        checks = {
+          inherit nkscan;
+
+          clippy = craneLib.cargoClippy (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+            }
+          );
+
+          crate-fmt = craneLib.cargoFmt {
+            inherit src;
+          };
+
+          toml-fmt = craneLib.taploFmt {
+            src = pkgs.lib.sources.sourceFilesBySuffices src [".toml"];
+          };
+
+          nextest = craneLib.cargoNextest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              partitions = 1;
+              partitionType = "count";
+              cargoNextestPartitionsExtraArgs = "--no-tests=pass";
+            }
+          );
+        };
+        # Devshell
+        devShells.default = craneLib.devShell {
+          checks = self.checks.${system};
+          packages = with pkgs; [
+            cargo-outdated
+          ];
+        };
+
+        # Flake entrypoint
+        apps.default = flake-utils.lib.mkApp {
+          drv = nkscan;
+        };
+
+        # Package output
+        packages = {
+          default = nkscan;
+        };
+      }
+    );
 }
