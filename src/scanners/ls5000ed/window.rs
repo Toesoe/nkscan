@@ -1,6 +1,6 @@
 //! Vendor-specific window descriptor fields, LS-5000 ED
 
-use super::geometry::{ScanSettings, Samples};
+use super::geometry::{Samples, ScanSettings};
 use crate::scanners::nikon::Channel;
 use crate::scsi::cdbs::{CompressionType, ImageCompositionCode, PaddingType, WindowDescriptor};
 
@@ -118,7 +118,10 @@ mod tests {
         assert_eq!(&bytes[6..14], &[0u8; 8]); // at the origin
         let (width, length) = settings.native_dims();
         assert_eq!(u32::from_be_bytes(bytes[14..18].try_into().unwrap()), width);
-        assert_eq!(u32::from_be_bytes(bytes[18..22].try_into().unwrap()), length);
+        assert_eq!(
+            u32::from_be_bytes(bytes[18..22].try_into().unwrap()),
+            length
+        );
         assert_eq!(bytes[25], 0x05); // RGB
         assert_eq!(bytes[26], 0x10); // 16-bit
         assert_eq!(

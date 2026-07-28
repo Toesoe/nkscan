@@ -249,7 +249,10 @@ mod tests {
         let capabilities = super::super::capabilities::fixture::capabilities();
         let s = settings(Dpi::_4000, false);
         assert_eq!(s.native_dims(), (3946, 5959));
-        assert_eq!(s.native_dims(), (capabilities.boundary_x, capabilities.boundary_y));
+        assert_eq!(
+            s.native_dims(),
+            (capabilities.boundary_x, capabilities.boundary_y)
+        );
         assert_eq!(s.output_dims(), (3946, 5959));
     }
 

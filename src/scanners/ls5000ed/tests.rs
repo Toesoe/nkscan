@@ -4,10 +4,13 @@
 //! the command *order*, which is the part a mock can catch and a byte comparison cannot.
 
 use super::*;
-use crate::scanners::{ScanArea, ls5000ed::geometry::{Dpi, Samples}};
+use crate::scanners::nikon::metering::Metering;
+use crate::scanners::{
+    ScanArea,
+    ls5000ed::geometry::{Dpi, Samples},
+};
 use crate::scsi::{DataDirection, Error, SenseData, mock::MockTransport};
 use boundaries::FrameBoundaries;
-use crate::scanners::nikon::metering::Metering;
 
 /// Samples as their big-endian wire bytes, the way the scanner sends them
 fn be_line(samples: &[u16]) -> Vec<u8> {
@@ -226,7 +229,10 @@ impl Transport for ScanMock {
 /// The 1x2 frame [`TINY`] asks for: two lines of one RGB pixel, each plane padded to two
 /// samples, so R at 0, G at 2, B at 4, over a 512-byte line stride
 fn rgb_image() -> Vec<u8> {
-    padded(&[be_line(&[1, 0, 1, 0, 1]), be_line(&[2, 0, 2, 0, 2])], STRIDE)
+    padded(
+        &[be_line(&[1, 0, 1, 0, 1]), be_line(&[2, 0, 2, 0, 2])],
+        STRIDE,
+    )
 }
 
 /// What `TINY` computes to at `Dpi::_1000`: three planes of two samples, padded to 512
@@ -284,7 +290,8 @@ fn scan_reads_the_scan_parameters_before_it_is_accepted() {
 #[test]
 fn a_scan_that_is_always_refused_gives_up() {
     let mut scanner =
-        Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32).refusing(MAX_SCAN_ATTEMPTS + 1)).unwrap();
+        Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32).refusing(MAX_SCAN_ATTEMPTS + 1))
+            .unwrap();
     scanner.warm_up().unwrap();
     assert!(matches!(
         scanner.scan_image(&settings(false, 1), calibration::DEFAULT_GAIN),
@@ -307,7 +314,7 @@ fn channels_are_armed_and_scanned_infrared_first() {
     // Captured before the SCAN clears them
     let armed = {
         let settings = settings(true, 1);
-        scanner.arm(&settings, calibration::DEFAULT_GAIN, ).unwrap();
+        scanner.arm(&settings, calibration::DEFAULT_GAIN).unwrap();
         scanner.transport.windows_set.clone()
     };
     assert_eq!(armed, [9, 1, 2, 3]);
@@ -411,7 +418,7 @@ fn metering_scans_and_scales_the_gain_off_the_image() {
         .autoexpose(frame, calibration::DEFAULT_GAIN, one_pass)
         .unwrap();
 
-// The mock serves a dim frame, so every channel asks for more gain than it started with,
+    // The mock serves a dim frame, so every channel asks for more gain than it started with,
     // and nothing bounds where it lands
     for channel in crate::scanners::nikon::Channel::RGB {
         assert!(
@@ -448,7 +455,11 @@ fn autofocus_targets_the_frame_center() {
 #[test]
 fn a_truncated_pass_is_an_error() {
     // Two lines declared, one delivered
-    let mut scanner = Ls5000ed::new(ScanMock::new(padded(&[be_line(&[1, 0, 1, 0, 1])], STRIDE), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000ed::new(ScanMock::new(
+        padded(&[be_line(&[1, 0, 1, 0, 1])], STRIDE),
+        STRIDE as u32,
+    ))
+    .unwrap();
     scanner.warm_up().unwrap();
     assert!(matches!(
         scanner.scan_image(&settings(false, 1), calibration::DEFAULT_GAIN),
@@ -477,7 +488,9 @@ fn the_window_bound_is_inclusive_of_the_reported_boundary() {
     let capabilities = capabilities::fixture::capabilities();
     let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
 
-    fn window_at(capabilities: crate::scanners::nikon::capabilities::Capabilities) -> WindowDescriptor {
+    fn window_at(
+        capabilities: crate::scanners::nikon::capabilities::Capabilities,
+    ) -> WindowDescriptor {
         WindowParams {
             samples: Samples::default(),
             exposure: 0,
@@ -546,7 +559,10 @@ fn opening_pins_the_units_with_the_captured_parameter_list() {
 #[test]
 fn opening_takes_its_geometry_from_the_device() {
     let scanner = Ls5000ed::new(mock()).unwrap();
-    assert_eq!(scanner.capabilities(), capabilities::fixture::capabilities());
+    assert_eq!(
+        scanner.capabilities(),
+        capabilities::fixture::capabilities()
+    );
 }
 
 /// Page 0x00 advertises 0xC1 on every unit seen, so silence means something is wrong and

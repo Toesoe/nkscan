@@ -110,7 +110,6 @@ pub struct Cli {
     #[arg(long, default_value_t = 1)]
     multisample: usize,
 
-
     /// Single-line CCD mode. Slow, but may improve banding. LS-9000 only.
     #[arg(long)]
     singleline: bool,
@@ -543,7 +542,9 @@ fn run(job: &mut dyn Job, cli: &Cli) -> Result<()> {
 /// Block for the caller to load the next strip before `--batch` moves on to it
 fn pause_for_reload() -> Result<()> {
     use std::io::Write;
-    print!("Strip finished and ejected. Load the next one and press Enter to continue, or Ctrl-C to stop: ");
+    print!(
+        "Strip finished and ejected. Load the next one and press Enter to continue, or Ctrl-C to stop: "
+    );
     std::io::stdout().flush()?;
     std::io::stdin().read_line(&mut String::new())?;
     Ok(())

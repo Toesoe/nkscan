@@ -103,7 +103,8 @@ mod tests {
             payload: vec![0x11; 4],
             asked: Vec::new(),
         };
-        let out = read_framed(&mut transport, DataTypeCode::Vendor(0x8C), 0x0103, 10, 0x80).unwrap();
+        let out =
+            read_framed(&mut transport, DataTypeCode::Vendor(0x8C), 0x0103, 10, 0x80).unwrap();
         assert_eq!(transport.asked, [10, 10]);
         assert_eq!(out.len(), 10);
     }
@@ -114,13 +115,7 @@ mod tests {
     fn a_response_too_short_to_carry_a_length_is_an_error() {
         let mut transport = MockTransport::new();
         assert!(matches!(
-            read_framed(
-                &mut transport,
-                DataTypeCode::Vendor(0x87),
-                0x0000,
-                4,
-                0x80
-            ),
+            read_framed(&mut transport, DataTypeCode::Vendor(0x87), 0x0000, 4, 0x80),
             Err(scsi::Error::InvalidResponse(_))
         ));
     }

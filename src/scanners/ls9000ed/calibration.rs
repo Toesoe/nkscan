@@ -116,7 +116,6 @@ where
     }
 }
 
-
 /// The metering itself is shared: this scanner and the LS-5000 both let the host decide the
 /// gains from a low-resolution pass. Only the pass geometry and the defaults differ.
 pub use crate::scanners::nikon::metering::{Metering, meter, meter_ir, meter_locked};

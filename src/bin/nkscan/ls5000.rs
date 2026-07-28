@@ -11,8 +11,9 @@ use nkscan::{
     scanners::{
         FilmHolder, Focus, Scanner,
         ls5000ed::{
-            Ls5000ed, calibration,
+            Ls5000ed,
             boundaries::FrameBoundaries,
+            calibration,
             geometry::{Dpi, Samples, ScanSettings, native_dots},
         },
         nikon::{ChannelExposures, metering::Metering},
@@ -66,7 +67,7 @@ impl Job for Ls5000Job {
         if cli.singleline {
             bail!("--singleline is an LS-9000 option, and this is an LS-5000 ED");
         }
-// Armed correctly but never decoded: a multi-sampled pass streams every sample rather
+        // Armed correctly but never decoded: a multi-sampled pass streams every sample rather
         // than one averaged image, and that readout is not implemented
         if cli.multisample != 1 {
             bail!(
@@ -93,7 +94,10 @@ impl Job for Ls5000Job {
                 blue: values[2],
                 // This model meters infrared rather than driving it off a zeroed field, so an
                 // omitted fourth value keeps the default instead of blacking the plane out
-                ir: values.get(3).copied().unwrap_or(calibration::DEFAULT_GAIN.ir),
+                ir: values
+                    .get(3)
+                    .copied()
+                    .unwrap_or(calibration::DEFAULT_GAIN.ir),
             };
             self.fixed = true;
             info!(gain = ?self.gain, "Autoexposure off, scanning at a fixed gain");

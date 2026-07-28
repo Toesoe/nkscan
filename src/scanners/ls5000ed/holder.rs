@@ -22,7 +22,7 @@ pub enum Holder {
     /// No adapter-specific page. 0xF8/0xFB/0xFC are advertised with an adapter loaded
     /// too, so this is a fallback rather than a positive match.
     None,
-    /// 0x47 with 0xE2, the motorised roll feeder. 
+    /// 0x47 with 0xE2, the motorised roll feeder.
     RollFeeder,
     /// 0x47 without 0xE2
     SixStrip,
