@@ -108,6 +108,17 @@ where
     T: Transport,
 {
     pub fn new(mut transport: T) -> Result<Self, scsi::Error> {
+        // A scanner still coming up from power-on refuses everything, INQUIRY included, so this
+        // goes before the geometry read rather than after it.
+        let coming_up: Status =
+            crate::scanners::wait_while_initializing(&mut transport, READY_TIMEOUT, POLL_INTERVAL)?;
+        trace!(?coming_up, "Scanner state before the geometry read");
+
+        // Everything below would choke on a queued unit attention, and there can be several:
+        // ejecting a holder raises both a holder change and a reset.
+        let initial_status: Status = crate::scanners::drain_unit_attentions(&mut transport)?;
+        debug!(?initial_status, "Scanner state at open");
+
         // The geometry this will accept comes from the device
         let capabilities = capabilities::read(&mut transport)?;
         debug!(?capabilities, "Scanner capabilities");
@@ -115,11 +126,6 @@ where
             transport,
             capabilities,
         };
-
-        // Everything below would choke on a queued unit attention, and there can be several:
-        // ejecting a holder raises both a holder change and a reset.
-        let initial_status = scanner.drain_unit_attentions()?;
-        debug!(?initial_status, "Scanner state at open");
 
         // We always want exclusive access for the lifetime of this handle
         scanner.reserve()?;
@@ -570,22 +576,46 @@ mod tests {
         MockTransport::new().with_page(0xC1, capabilities::fixture::raw_page())
     }
 
-    /// The order matters and is documented as mattering: the units have to be set before any
-    /// SET WINDOW, and the abort has to clear a pass left pending by a killed process before
-    /// anything else is attempted.
+    /// The order matters and is documented as mattering: readiness is settled before the
+    /// geometry read, since a scanner still coming up refuses INQUIRY too; the units have to be
+    /// set before any SET WINDOW; and the abort has to clear a pass left pending by a killed
+    /// process before anything else is attempted.
     #[test]
-    fn opening_reads_geometry_then_reserves_aborts_and_sets_units() {
+    fn opening_settles_readiness_before_reading_geometry() {
         let scanner = Ls9000ed::new(mock()).expect("opens");
         assert_eq!(
             scanner.transport.opcode_sequence(),
             [
+                0x00, // TEST UNIT READY, waiting out the power-on and draining unit attentions
                 0x12, // INQUIRY, the capability page
-                0x00, // TEST UNIT READY, draining unit attentions
                 0x16, // RESERVE
                 0xC0, // vendor ABORT
                 0x15, // MODE SELECT, the measurement units
             ]
         );
+    }
+
+    /// A scanner fresh off a power cycle answers the first commands with an AbortedCommand
+    /// that clears on its own, so opening waits it out instead of giving up
+    #[test]
+    fn opening_waits_out_a_unit_that_has_not_self_configured() {
+        let transport = mock().failing(
+            0x00,
+            scsi::Error::Status {
+                status: 0x02,
+                sense: Some(scsi::SenseData {
+                    key: 0x0B,
+                    asc: 0x3E,
+                    ascq: 0x00,
+                    ili: false,
+                    deferred: false,
+                }),
+            },
+        );
+        let scanner = Ls9000ed::new(transport).expect("opens once the unit has come up");
+        // The refused try, the one that settles the wait, then the drain
+        assert_eq!(scanner.transport.count(0x00), 3);
+        assert_eq!(scanner.transport.opcode_sequence()[0], 0x00);
     }
 
     /// Nikon Scan reads the frame setup before staging any window, and the staging covers

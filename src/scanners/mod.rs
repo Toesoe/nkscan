@@ -4,6 +4,10 @@ use crate::{
     decode::StreamDecoder,
     scsi::{self, TransportExt},
 };
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 pub mod ls50ed;
 pub mod ls9000ed;
@@ -51,6 +55,9 @@ pub trait ScannerStatus: Sized {
 
     /// Whether reading this state is what clears it
     fn is_unit_attention(&self) -> bool;
+
+    /// Whether the unit is still bringing itself up, so waiting is what clears it
+    fn is_initializing(&self) -> bool;
 }
 
 /// Readiness out of TEST UNIT READY, with transient not-ready folded in as an ok state
@@ -95,6 +102,36 @@ where
     Err(scsi::Error::InvalidResponse(
         "scanner kept reporting unit attentions",
     ))
+}
+
+/// Spin until the unit has configured itself, which a cold power-on has not
+///
+/// Everything is refused until then, INQUIRY included, so this runs before a handle exists and
+/// before anything reads geometry. Not a unit attention: reporting it does not clear it, only
+/// waiting does.
+pub fn wait_while_initializing<S, T>(
+    transport: &mut T,
+    timeout: Duration,
+    poll: Duration,
+) -> Result<S, scsi::Error>
+where
+    S: ScannerStatus + std::fmt::Debug,
+    T: scsi::Transport + ?Sized,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        let status = status_of::<S, T>(transport)?;
+        if !status.is_initializing() {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            return Err(scsi::Error::InvalidResponse(
+                "scanner never finished configuring itself",
+            ));
+        }
+        tracing::debug!(?status, "Waiting for the scanner to come up");
+        sleep(poll);
+    }
 }
 
 /// What every scanner can do, whatever it is on the other end of the transport

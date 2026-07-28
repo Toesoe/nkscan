@@ -67,6 +67,10 @@ impl ScannerStatus for Status {
         }
     }
 
+    fn is_initializing(&self) -> bool {
+        matches!(self, Self::Initializing)
+    }
+
     /// Whether this state came from a unit attention
     ///
     /// The device queues these and reports one per command, clearing it as it goes, so a
