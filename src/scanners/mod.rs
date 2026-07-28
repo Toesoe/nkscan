@@ -9,8 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub mod ls5000;
 pub mod ls50;
+pub mod ls5000;
 pub mod ls9000;
 pub mod nikon;
 
