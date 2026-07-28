@@ -12,7 +12,7 @@ Please reach out if you have a scanner we can test! Even just dumps of USB/SCSI 
 
 |                            | Linux    | Windows  |
 |----------------------------|----------|----------|
-| LS-9000 ED (Coolscan 9000) | Tested   | Tested   |
+| LS-9000 (Coolscan 9000)    | Tested   | Tested   |
 | LS-50 (Coolscan V)         | Tested   | Untested |
 | LS-5000 (Coolscan 5000)    | Untested | Untested |
 

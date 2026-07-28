@@ -81,7 +81,7 @@ impl From<WindowParams> for Vec<u8> {
 mod tests {
     use super::*;
     use crate::scanners::{
-        ls5000ed::{capabilities::fixture, geometry::whole_frame},
+        ls5000::{capabilities::fixture, geometry::whole_frame},
         nikon::exposure_from_vendor,
     };
 

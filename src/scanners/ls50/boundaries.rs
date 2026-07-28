@@ -4,7 +4,7 @@
 //! Positions are one pitch apart plus the caller's per-frame correction, and a pass takes its
 //! window from [`FrameRect::scan_area`] so the two cannot disagree about where a frame is.
 
-use super::{Ls50ed, dtc::Dtc, geometry::frame_offset};
+use super::{Ls50, dtc::Dtc, geometry::frame_offset};
 use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
 use crate::scsi::{self, Transport};
 
@@ -92,7 +92,7 @@ impl FrameBoundaries {
     }
 }
 
-impl<T> Ls50ed<T>
+impl<T> Ls50<T>
 where
     T: Transport,
 {

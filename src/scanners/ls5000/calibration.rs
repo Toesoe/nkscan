@@ -7,7 +7,7 @@
 //! geometry the metering pass runs over.
 
 use super::{
-    Ls5000ed, ScanError,
+    Ls5000, ScanError,
     geometry::{METER_RESOLUTION, Samples, ScanSettings},
 };
 use crate::scanners::{
@@ -31,7 +31,7 @@ pub const DEFAULT_GAIN: ChannelExposures = ChannelExposures {
     ir: 280_000,
 };
 
-impl<T> Ls5000ed<T>
+impl<T> Ls5000<T>
 where
     T: Transport,
 {

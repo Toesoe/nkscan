@@ -7,7 +7,7 @@ use super::*;
 use crate::scanners::nikon::metering::Metering;
 use crate::scanners::{
     ScanArea,
-    ls5000ed::geometry::{Dpi, Samples},
+    ls5000::geometry::{Dpi, Samples},
 };
 use crate::scsi::{DataDirection, Error, SenseData, mock::MockTransport};
 use boundaries::FrameBoundaries;
@@ -238,7 +238,7 @@ fn rgb_image() -> Vec<u8> {
 /// What `TINY` computes to at `Dpi::_1000`: three planes of two samples, padded to 512
 const STRIDE: usize = 512;
 
-fn scan_one(scanner: &mut Ls5000ed<ScanMock>, settings: &ScanSettings) -> Image {
+fn scan_one(scanner: &mut Ls5000<ScanMock>, settings: &ScanSettings) -> Image {
     scanner.warm_up().unwrap();
     scanner
         .scan_image(settings, calibration::DEFAULT_GAIN)
@@ -247,7 +247,7 @@ fn scan_one(scanner: &mut Ls5000ed<ScanMock>, settings: &ScanSettings) -> Image 
 
 #[test]
 fn scan_decodes_an_rgb_frame() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     let frame = scan_one(&mut scanner, &settings(false, 1));
     assert_eq!(frame.rgb.dimensions(), (1, 2));
     assert!(frame.ir.is_none());
@@ -265,7 +265,7 @@ fn scan_decodes_an_rgbi_frame() {
         ],
         STRIDE,
     );
-    let mut scanner = Ls5000ed::new(ScanMock::new(image, STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(image, STRIDE as u32)).unwrap();
     let frame = scan_one(&mut scanner, &settings(true, 1));
     assert_eq!(frame.rgb.get_pixel(0, 0).0, [1u16, 1, 1]);
     let ir = frame.ir.expect("IR plane captured");
@@ -277,7 +277,7 @@ fn scan_decodes_an_rgbi_frame() {
 /// retry rather than before it. Arming alone does not clear the gate.
 #[test]
 fn scan_reads_the_scan_parameters_before_it_is_accepted() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32).refusing(3)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32).refusing(3)).unwrap();
     scan_one(&mut scanner, &settings(false, 1));
     assert!(
         !scanner.transport.scanned_ungated,
@@ -290,7 +290,7 @@ fn scan_reads_the_scan_parameters_before_it_is_accepted() {
 #[test]
 fn a_scan_that_is_always_refused_gives_up() {
     let mut scanner =
-        Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32).refusing(MAX_SCAN_ATTEMPTS + 1))
+        Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32).refusing(MAX_SCAN_ATTEMPTS + 1))
             .unwrap();
     scanner.warm_up().unwrap();
     assert!(matches!(
@@ -309,7 +309,7 @@ fn channels_are_armed_and_scanned_infrared_first() {
         ],
         STRIDE,
     );
-    let mut scanner = Ls5000ed::new(ScanMock::new(image, STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(image, STRIDE as u32)).unwrap();
     scanner.warm_up().unwrap();
     // Captured before the SCAN clears them
     let armed = {
@@ -326,7 +326,7 @@ fn channels_are_armed_and_scanned_infrared_first() {
 /// Armed correctly, but refused before it reaches the wire: the readout is not implemented
 #[test]
 fn a_multi_sampled_pass_is_refused_rather_than_armed() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     scanner.warm_up().unwrap();
 
     assert!(matches!(
@@ -342,7 +342,7 @@ fn a_multi_sampled_pass_is_refused_rather_than_armed() {
 /// Every window a single-sampled pass arms carries the same tail, and the gain it was given
 #[test]
 fn every_window_of_a_pass_is_armed_alike() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     scanner.warm_up().unwrap();
     scanner
         .arm(&settings(false, 1), calibration::DEFAULT_GAIN)
@@ -365,7 +365,7 @@ fn every_window_of_a_pass_is_armed_alike() {
 /// Image reads are bulk and 512-aligned, not one line at a time
 #[test]
 fn image_reads_are_bulk_and_aligned() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     scan_one(&mut scanner, &settings(false, 1));
 
     let reads = &scanner.transport.image_reads;
@@ -383,7 +383,7 @@ fn image_reads_are_bulk_and_aligned() {
 /// ask for zero bytes and stall
 #[test]
 fn the_chunk_is_never_smaller_than_a_line() {
-    let mut scanner = Ls5000ed::new(mock()).unwrap();
+    let mut scanner = Ls5000::new(mock()).unwrap();
     let capabilities = capabilities::fixture::capabilities();
     let full = ScanSettings {
         resolution: Dpi::_4000.to_dpi(),
@@ -400,7 +400,7 @@ fn the_chunk_is_never_smaller_than_a_line() {
 /// gains come off the image rather than out of a register
 #[test]
 fn metering_scans_and_scales_the_gain_off_the_image() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     scanner.warm_up().unwrap();
 
     // Sized so the metering resolution lands on the same 1x2 frame the mock serves
@@ -437,7 +437,7 @@ fn metering_scans_and_scales_the_gain_off_the_image() {
 
 #[test]
 fn autofocus_targets_the_frame_center() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     let capabilities = capabilities::fixture::capabilities();
     let whole_frame = ScanSettings {
         window: geometry::whole_frame(0, capabilities),
@@ -455,7 +455,7 @@ fn autofocus_targets_the_frame_center() {
 #[test]
 fn a_truncated_pass_is_an_error() {
     // Two lines declared, one delivered
-    let mut scanner = Ls5000ed::new(ScanMock::new(
+    let mut scanner = Ls5000::new(ScanMock::new(
         padded(&[be_line(&[1, 0, 1, 0, 1])], STRIDE),
         STRIDE as u32,
     ))
@@ -471,7 +471,7 @@ fn a_truncated_pass_is_an_error() {
 /// pending with nothing to drain it and an empty image would come back as a success
 #[test]
 fn a_window_narrower_than_a_pixel_is_refused_before_arming() {
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     let settings = ScanSettings {
         window: ScanArea { x_size: 0, ..TINY },
         ..settings(false, 1)
@@ -486,7 +486,7 @@ fn a_window_narrower_than_a_pixel_is_refused_before_arming() {
 #[test]
 fn the_window_bound_is_inclusive_of_the_reported_boundary() {
     let capabilities = capabilities::fixture::capabilities();
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
 
     fn window_at(
         capabilities: crate::scanners::nikon::capabilities::Capabilities,
@@ -521,7 +521,7 @@ fn the_window_bound_is_inclusive_of_the_reported_boundary() {
 fn a_roll_yields_a_frame_per_record() {
     let capabilities = capabilities::fixture::capabilities();
     let table = FrameBoundaries::evenly_spaced(3, capabilities.frame_pitch);
-    let mut scanner = Ls5000ed::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     scanner.warm_up().unwrap();
 
     for record in &table.0 {
@@ -542,7 +542,7 @@ fn a_roll_yields_a_frame_per_record() {
 /// Assembled from the mode page rather than held as a blob, so the wire bytes are pinned
 #[test]
 fn opening_pins_the_units_with_the_captured_parameter_list() {
-    let scanner = Ls5000ed::new(mock()).unwrap();
+    let scanner = Ls5000::new(mock()).unwrap();
     assert_eq!(
         scanner
             .transport
@@ -558,7 +558,7 @@ fn opening_pins_the_units_with_the_captured_parameter_list() {
 
 #[test]
 fn opening_takes_its_geometry_from_the_device() {
-    let scanner = Ls5000ed::new(mock()).unwrap();
+    let scanner = Ls5000::new(mock()).unwrap();
     assert_eq!(
         scanner.capabilities(),
         capabilities::fixture::capabilities()
@@ -570,7 +570,7 @@ fn opening_takes_its_geometry_from_the_device() {
 #[test]
 fn opening_without_a_capability_page_fails() {
     assert!(matches!(
-        Ls5000ed::new(MockTransport::new()),
+        Ls5000::new(MockTransport::new()),
         Err(scsi::Error::InvalidResponse(_))
     ));
 }

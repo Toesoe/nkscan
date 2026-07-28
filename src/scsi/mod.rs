@@ -351,7 +351,7 @@ impl<T: Transport + ?Sized> Transport for Box<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{scanners::ls9000ed::Ls9000ed, scsi::cdbs::TestUnitReady};
+    use crate::{scanners::ls9000::Ls9000, scsi::cdbs::TestUnitReady};
 
     /// Picking a backend at runtime has to compile. These never run.
     #[test]
@@ -361,8 +361,8 @@ mod tests {
         }
         fn _drives_a_scanner(
             transport: Box<dyn Transport>,
-        ) -> Result<Ls9000ed<Box<dyn Transport>>, Error> {
-            Ls9000ed::new(transport)
+        ) -> Result<Ls9000<Box<dyn Transport>>, Error> {
+            Ls9000::new(transport)
         }
     }
 }

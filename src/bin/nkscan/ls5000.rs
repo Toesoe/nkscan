@@ -10,8 +10,8 @@ use nkscan::{
     decode::Image,
     scanners::{
         FilmHolder, Focus, Scanner,
-        ls5000ed::{
-            Ls5000ed,
+        ls5000::{
+            Ls5000,
             boundaries::FrameBoundaries,
             calibration,
             geometry::{Dpi, Samples, ScanSettings, native_dots},
@@ -23,7 +23,7 @@ use nkscan::{
 use tracing::*;
 
 pub struct Ls5000Job {
-    scanner: Ls5000ed<Box<dyn Transport>>,
+    scanner: Ls5000<Box<dyn Transport>>,
     frames: FrameBoundaries,
     gain: ChannelExposures,
     /// Set once the gain is settled, by `--gain` or by the one metering pass
@@ -32,7 +32,7 @@ pub struct Ls5000Job {
 
 impl Ls5000Job {
     pub fn open(transport: Box<dyn Transport>) -> Result<Box<dyn Job>> {
-        let mut scanner = Ls5000ed::new(transport)?;
+        let mut scanner = Ls5000::new(transport)?;
         info!(
             identity = ?scanner.identify()?,
             holder = ?scanner.holder()?,

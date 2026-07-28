@@ -4,7 +4,7 @@
 //! Nikon's labels. The roll feeder advertises 0x47 and 0xE2 together, and names itself on
 //! page 0x01.
 
-use super::Ls5000ed;
+use super::Ls5000;
 use crate::{
     scanners::{Scanner, nikon::page_name},
     scsi::{
@@ -73,7 +73,7 @@ impl Holder {
     }
 }
 
-impl<T> Ls5000ed<T>
+impl<T> Ls5000<T>
 where
     T: Transport,
 {

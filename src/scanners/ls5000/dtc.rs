@@ -3,9 +3,9 @@
 //! READ(10) and SEND(10) address a data structure with a data-type code and a 16-bit qualifier
 //! whose high byte is the channel. The vendor structures are framed: six bytes of header
 //! carrying the payload length, so most reads here go through
-//! [`read_framed_dtc`](Ls5000ed::read_framed_dtc).
+//! [`read_framed_dtc`](Ls5000::read_framed_dtc).
 
-use super::Ls5000ed;
+use super::Ls5000;
 use crate::scanners::nikon::Channel;
 use crate::scsi::{
     self as scsi, Transport, TransportExt,
@@ -23,7 +23,7 @@ pub enum Dtc {
     Image,
     /// Scan parameters, readable only while a scan is pending
     ///
-    /// SCAN is refused until this has been read, so [`scan`](Ls5000ed::scan) reads it between
+    /// SCAN is refused until this has been read, so [`scan`](Ls5000::scan) reads it between
     /// attempts. Payloads look like `NN 09 80 NN`.
     ScanParameters,
     /// Per-channel dark current
@@ -87,7 +87,7 @@ impl From<Dtc> for DataTypeCode {
 ///
 /// Every command here carries the vendor control byte. There is no writer: the only structure
 /// written on this scanner is the roll table, which belongs with the whole-roll workflow.
-impl<T> Ls5000ed<T>
+impl<T> Ls5000<T>
 where
     T: Transport,
 {

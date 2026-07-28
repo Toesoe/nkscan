@@ -82,10 +82,10 @@ impl From<WindowParams> for Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scanners::{ScanArea, ls50ed::geometry::Dpi, nikon::exposure_from_vendor};
+    use crate::scanners::{ScanArea, ls50::geometry::Dpi, nikon::exposure_from_vendor};
 
     fn settings(dpi: Dpi) -> ScanSettings {
-        let capabilities = crate::scanners::ls50ed::capabilities::fixture::capabilities();
+        let capabilities = crate::scanners::ls50::capabilities::fixture::capabilities();
         ScanSettings {
             dpi,
             ir: false,
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn frame_selection_rides_the_window_origin() {
-        let capabilities = crate::scanners::ls50ed::capabilities::fixture::capabilities();
+        let capabilities = crate::scanners::ls50::capabilities::fixture::capabilities();
         let pitch = capabilities.frame_pitch;
         let settings = ScanSettings {
             window: ScanArea::frame(pitch, capabilities),

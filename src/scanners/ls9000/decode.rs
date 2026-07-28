@@ -399,7 +399,7 @@ mod overview_tests {
 #[cfg(test)]
 mod frame_tests {
     use super::*;
-    use crate::scanners::ls9000ed::{
+    use crate::scanners::ls9000::{
         geometry::{CcdMode, Dpi, Multisample},
         window::BaseQuality,
     };

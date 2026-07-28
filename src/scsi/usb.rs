@@ -57,7 +57,7 @@ pub struct UsbTransport {
 impl UsbTransport {
     /// Open the first device matching `vendor_id:product_id`, claim interface 0,
     /// and grab its bulk endpoints. The ids belong to the scanner that answers to
-    /// them, see [`ls50ed`](crate::scanners::ls50ed).
+    /// them, see [`ls50`](crate::scanners::ls50).
     ///
     /// `claim_interface`, not `detach_and_claim`: these are vendor-class devices
     /// with no kernel driver bound. A unit that turns out to be held by something

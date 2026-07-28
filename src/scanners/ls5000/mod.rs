@@ -61,7 +61,7 @@ const MAX_SCAN_ATTEMPTS: usize = 8;
 const SCAN_RETRY_PAUSE: Duration = Duration::from_millis(500);
 /// How often the driver asks a busy scanner whether it has settled
 pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
-/// How long [`wait_until_ready`](Ls5000ed::wait_until_ready) keeps asking before giving up
+/// How long [`wait_until_ready`](Ls5000::wait_until_ready) keeps asking before giving up
 ///
 /// Generous on purpose: a pass reports NotReady throughout, and repositioning a roll is slow.
 /// Firing early leaves the next command reaching a moving transport.
@@ -97,12 +97,12 @@ fn is_not_ready(sense: &scsi::SenseData) -> bool {
 ///
 /// Generic over the transport, but this model has no SCSI bus, so in practice
 /// [`UsbTransport`](crate::scsi::usb::UsbTransport).
-pub struct Ls5000ed<T> {
+pub struct Ls5000<T> {
     pub(crate) transport: T,
     capabilities: Capabilities,
 }
 
-impl<T> Ls5000ed<T>
+impl<T> Ls5000<T>
 where
     T: Transport,
 {
@@ -124,7 +124,7 @@ where
         let capabilities = capabilities::read(&mut transport)?;
         debug!(?capabilities, "Scanner capabilities");
 
-        let mut scanner = Ls5000ed {
+        let mut scanner = Ls5000 {
             transport,
             capabilities,
         };
@@ -251,7 +251,7 @@ where
     }
 }
 
-impl<T> Scanner for Ls5000ed<T>
+impl<T> Scanner for Ls5000<T>
 where
     T: Transport,
 {
@@ -271,7 +271,7 @@ where
     }
 }
 
-impl<T> FilmHolder for Ls5000ed<T>
+impl<T> FilmHolder for Ls5000<T>
 where
     T: Transport,
 {
@@ -282,7 +282,7 @@ where
     }
 }
 
-impl<T> Focus for Ls5000ed<T>
+impl<T> Focus for Ls5000<T>
 where
     T: Transport,
 {
@@ -308,7 +308,7 @@ where
 pub type ScanError = crate::scanners::ReadError<DecodeError>;
 
 /// The scan drive: warm-up, arming, and draining the image
-impl<T> Ls5000ed<T>
+impl<T> Ls5000<T>
 where
     T: Transport,
 {

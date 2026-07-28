@@ -1,7 +1,11 @@
-//! Interpreting TEST UNIT READY sense data for the LS-50
+//! Interpreting TEST UNIT READY sense data for the LS-5000
 //!
 //! NOT READY and UNIT ATTENTION are transient by definition (SPC-2 Table 69), so anything
 //! under those keys is a readiness state, named or not.
+//!
+//! The named codes are unverified on this model. Anything unrecognized falls through to
+//! [`Other`](Status::Other), which keeps its sense key, so a mislabel costs a name rather
+//! than correctness.
 
 use crate::{
     scanners::ScannerStatus,
@@ -15,7 +19,7 @@ pub enum Status {
     /// 02 04/01, warming up
     Initializing,
     /// 02 04/02. Does not clear on its own: the scanner wants
-    /// [`warm_up`](super::Ls50ed::warm_up) to run the self-test.
+    /// [`warm_up`](super::Ls5000::warm_up) to run.
     NeedsInit,
     /// 02 3A/00. The adapter is still reported by
     /// [`holder`](crate::scanners::FilmHolder::holder).
@@ -108,7 +112,6 @@ mod tests {
 
     #[test]
     fn recognizes_cold_start_unit_attentions() {
-        // A real cold start drains these in order before GOOD
         for (asc, ascq, expected) in [
             (0x29, 0x00, Status::Reset),
             (0x28, 0x00, Status::MediumChanged),
@@ -120,36 +123,32 @@ mod tests {
         }
     }
 
-    /// 3F/04 is another Coolscan's reset code, not ours, so it lands in `Other`
+    /// The named table is unverified, so the fallthrough is what carries a cold start
     #[test]
-    fn another_models_reset_code_is_not_our_named_reset() {
+    fn an_unnamed_unit_attention_still_drains() {
+        let status = Status::from_sense(&sense(0x06, 0x3F, 0x04)).unwrap();
         assert_eq!(
-            Status::from_sense(&sense(0x06, 0x3F, 0x04)),
-            Some(Status::Other(
+            status,
+            Status::Other(
                 SenseKey::UnitAttention,
                 AdditionalSenseCode::Other(0x3F, 0x04)
-            ))
+            )
         );
+        assert!(status.is_unit_attention());
+        assert!(status.is_transient());
+    }
+
+    /// An unnamed not-ready is waited out, not drained: draining one would spin to the limit
+    #[test]
+    fn an_unnamed_not_ready_is_waited_out_rather_than_drained() {
+        let status = Status::from_sense(&sense(0x02, 0x00, 0x00)).unwrap();
+        assert!(!status.is_unit_attention());
+        assert!(status.is_transient());
     }
 
     #[test]
     fn unrecognized_sense_is_not_a_state() {
         assert_eq!(Status::from_sense(&sense(0x05, 0x24, 0x00)), None);
-    }
-
-    /// Draining a NotReady would spin until the limit, so only unit attentions qualify
-    #[test]
-    fn only_unit_attentions_are_drainable() {
-        for state in [Status::Ready, Status::Initializing, Status::NoFilm] {
-            assert!(!state.is_unit_attention(), "{state:?}");
-        }
-        assert!(
-            !Status::Other(
-                SenseKey::NotReady,
-                AdditionalSenseCode::LogicalUnitNotReadyCauseNotReportable
-            )
-            .is_unit_attention()
-        );
     }
 
     #[test]

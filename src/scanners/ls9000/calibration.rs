@@ -3,7 +3,7 @@
 //! A session-level preamble, not part of any scan. Nikon Scan runs it once, gating the first SCAN.
 
 use super::{
-    Ls9000ed,
+    Ls9000,
     boundaries::FrameBoundaries,
     dtc::{self, Dtc},
     geometry::{CcdMode, Multisample},
@@ -25,7 +25,7 @@ use tracing::*;
 ///
 /// The ratios are what matter. [`meter`] rescales the absolute anyway, and [`meter_locked`]
 /// scales all three by one factor and cannot touch the ratios at all. It is a property of the
-/// hardware, so [`white_balance`](super::Ls9000ed::white_balance) re-measures it per unit.
+/// hardware, so [`white_balance`](super::Ls9000::white_balance) re-measures it per unit.
 ///
 /// Infrared is only a starting point, and only used by a pass that does not meter it:
 /// [`meter_ir`] measures it whenever one is captured. The dyes are near transparent in
@@ -47,7 +47,7 @@ fn calibration_window() -> ScanArea {
     }
 }
 
-impl<T> Ls9000ed<T>
+impl<T> Ls9000<T>
 where
     T: Transport,
 {

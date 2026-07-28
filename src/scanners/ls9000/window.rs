@@ -55,7 +55,7 @@ impl WindowParams {
     /// Build the SET WINDOW descriptor for `window` at `x_resolution` DPI
     ///
     /// This scanner only ever does multi-level RGB at 16 bits with no halftoning, padding or
-    /// compression, so those are fixed. The id is left for [`set_window`](super::Ls9000ed::set_window).
+    /// compression, so those are fixed. The id is left for [`set_window`](super::Ls9000::set_window).
     pub fn descriptor(self, x_resolution: u16, window: ScanArea) -> WindowDescriptor {
         WindowDescriptor {
             id: 0,

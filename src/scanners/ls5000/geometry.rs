@@ -1,7 +1,7 @@
 //! Scan geometry and sampling settings
 //!
 //! Everything is in 1/4000-in dots, the sensor's native pitch, since
-//! [`Ls5000ed::new`](super::Ls5000ed::new) pins the measurement units to a 4000 divisor at open.
+//! [`Ls5000::new`](super::Ls5000::new) pins the measurement units to a 4000 divisor at open.
 
 use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
 
@@ -79,7 +79,7 @@ impl Dpi {
 ///
 /// The scanner does not combine them: a multi-sampled pass streams every sample and the host
 /// averages. That readout is a different shape from the planar one this driver decodes — see
-/// `docs/OPEN_QUESTIONS.md` — so [`arm`](super::Ls5000ed::arm) refuses a count above 1 rather
+/// `docs/OPEN_QUESTIONS.md` — so [`arm`](super::Ls5000::arm) refuses a count above 1 rather
 /// than putting one on the wire. The encoding is here because it is the part that is known.
 ///
 /// The count goes on the wire as a nibble, so 16 is the ceiling.
@@ -171,7 +171,7 @@ impl ScanSettings {
         (self.window.x_size, self.window.y_size)
     }
 
-    /// Where [`autofocus`](super::Ls5000ed::autofocus) wants aiming
+    /// Where [`autofocus`](super::Ls5000::autofocus) wants aiming
     pub fn center(&self) -> (u32, u32) {
         let (width, length) = self.native_dims();
         (
