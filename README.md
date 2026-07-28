@@ -20,7 +20,7 @@ MacOS support is planned, but just stubbed out for the moment.
 
 ## Usage
 
-``` bash
+```
 Usage: nkscan [OPTIONS]
 
 Options:
