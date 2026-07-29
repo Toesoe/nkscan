@@ -22,7 +22,7 @@ use nkscan::{
     },
     scsi::Transport,
 };
-use std::time::Duration;
+use std::{fs::File, time::Duration};
 use tracing::*;
 
 const HOLDER_POLL: Duration = Duration::from_millis(500);
@@ -197,12 +197,30 @@ impl Job for Ls9000Job {
 
         info!(frame = index, "Scanning");
         let bar = reading("Scanning");
-        let frame = self
-            .scanner
-            .scan_image_with(&settings, self.gain, |read, total| {
-                bar.set_length(total);
-                bar.set_position(read);
-            })?;
+        // TEMPORARY: NKSCAN_DUMP_RAW=1 also tees the undecoded stream to disk, alongside
+        // whichever <basename>_<n>.tiff this frame becomes, for debugging the three-line
+        // interleave corruption at non-native DPI. Remove once that's fixed.
+        let frame = if std::env::var_os("NKSCAN_DUMP_RAW").is_some() {
+            let next = crate::next_index(&cli.basename);
+            let path = cli.basename.with_file_name(format!(
+                "{}_{next}.raw",
+                cli.basename.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            info!(path = %path.display(), "Dumping the raw scan stream");
+            let mut dump = File::create(&path)
+                .with_context(|| format!("creating {} for the raw dump", path.display()))?;
+            self.scanner
+                .scan_image_with_dump(&settings, self.gain, &mut dump, |read, total| {
+                    bar.set_length(total);
+                    bar.set_position(read);
+                })?
+        } else {
+            self.scanner
+                .scan_image_with(&settings, self.gain, |read, total| {
+                    bar.set_length(total);
+                    bar.set_position(read);
+                })?
+        };
         bar.finish_and_clear();
         Ok(frame)
     }
