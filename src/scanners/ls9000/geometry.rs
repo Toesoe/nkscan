@@ -78,6 +78,12 @@ impl Dpi {
     pub fn to_dpi(self) -> u16 {
         (4000 / self.divisor()) as u16
     }
+
+    /// Every division the firmware offers, lowest divisor first
+    ///
+    /// Not all of them reach a frame window: the sensor bar has its own floor, which
+    /// [`Capabilities`](crate::scanners::nikon::capabilities::Capabilities) reports.
+    pub const ALL: [Dpi; 5] = [Dpi::_4000, Dpi::_2000, Dpi::_1333, Dpi::_666, Dpi::_333];
 }
 
 impl ScanArea {

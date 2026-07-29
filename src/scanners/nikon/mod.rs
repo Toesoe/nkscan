@@ -119,8 +119,8 @@ pub fn native_dots(millimeters: f32, dots_per_inch: u32) -> u32 {
 /// A length-prefixed, NUL-terminated ASCII name out of a VPD page
 ///
 /// The count covers the terminator, so an 11-character name arrives as 12. Which page carries
-/// one is per model — the LS-50's adapter names itself on 0x46, the LS-5000's on 0x01 — but the
-/// shape is the same, and pages 0x60/0x61 carry parameter names in it too.
+/// one is per model: the LS-50's adapter names itself on 0x46, the LS-5000's on 0x01. The shape
+/// is the same either way, and pages 0x60/0x61 carry parameter names in it too.
 pub fn page_name(data: &[u8]) -> Option<String> {
     let len = usize::from(*data.first()?);
     let text: String = data

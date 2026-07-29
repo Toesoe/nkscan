@@ -221,6 +221,8 @@ where
                 "window longer than the adapter's reported scan area",
             ));
         }
+        self.capabilities
+            .allows_resolution(descriptor.x_resolution, descriptor.y_resolution)?;
 
         descriptor.id = channel.to_id();
         match self

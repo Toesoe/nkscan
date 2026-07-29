@@ -6,6 +6,7 @@
 
 use crate::{Cli, FocusMode, Job, reading};
 use anyhow::{Result, bail};
+use nkscan::scanners::nikon::capabilities::ResolutionRange;
 use nkscan::{
     decode::Image,
     scanners::{
@@ -50,7 +51,7 @@ impl Ls5000Job {
     fn settings(&self, cli: &Cli, index: usize) -> Result<ScanSettings> {
         let capabilities = self.scanner.capabilities();
         Ok(ScanSettings {
-            resolution: dpi_5000(cli.dpi)?.to_dpi(),
+            resolution: dpi_5000(cli.dpi, capabilities.x_resolution)?.to_dpi(),
             ir: cli.ir,
             samples: Samples::new(cli.multisample as u8).ok_or_else(|| {
                 let legal: Vec<String> = Samples::ALL.iter().map(u8::to_string).collect();
@@ -76,7 +77,7 @@ impl Job for Ls5000Job {
             );
         }
         // Otherwise only discovered building the first frame's settings, after warming up
-        dpi_5000(cli.dpi)?;
+        dpi_5000(cli.dpi, self.scanner.capabilities().x_resolution)?;
         Ok(())
     }
 
@@ -182,15 +183,9 @@ impl Job for Ls5000Job {
     }
 }
 
-fn dpi_5000(requested: Option<u16>) -> Result<Dpi> {
+fn dpi_5000(requested: Option<u16>, offered: ResolutionRange) -> Result<Dpi> {
     let Some(requested) = requested else {
         return Ok(Dpi::_4000);
     };
-    Dpi::ALL
-        .into_iter()
-        .find(|mode| mode.to_dpi() == requested)
-        .ok_or_else(|| {
-            let legal: Vec<String> = Dpi::ALL.iter().map(|m| m.to_dpi().to_string()).collect();
-            anyhow::anyhow!("--dpi expected one of {}", legal.join(", "))
-        })
+    crate::resolve_dpi(requested, &Dpi::ALL, offered, Dpi::to_dpi)
 }

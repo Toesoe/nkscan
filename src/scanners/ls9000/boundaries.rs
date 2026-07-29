@@ -414,10 +414,7 @@ mod tests {
     };
 
     /// What [`FrameRect::BLOCK_DOTS`] claims: a window aligned to it divides at every
-    /// resolution on the ladder, and its stage extent is a whole number of CCD blocks.
-    ///
-    /// The two constants live in different modules and neither mentions the other, so nothing
-    /// else would notice a new resolution that breaks the relationship.
+    /// resolution on the ladder, with a stage extent of whole CCD blocks
     #[test]
     fn a_block_aligned_window_divides_at_every_resolution() {
         for dpi in [Dpi::_4000, Dpi::_2000, Dpi::_1333, Dpi::_666, Dpi::_333] {
@@ -433,7 +430,9 @@ mod tests {
                     window: rect.scan_area(),
                 };
                 let at = format!("{} DPI, {blocks} blocks", dpi.to_dpi());
-                let stages = settings.stages().unwrap_or_else(|| panic!("{at}: indivisible"));
+                let stages = settings
+                    .stages()
+                    .unwrap_or_else(|| panic!("{at}: indivisible"));
                 assert_eq!(stages % settings.ccd_block(), 0, "{at}: partial CCD block");
             }
         }

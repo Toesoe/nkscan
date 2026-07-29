@@ -5,6 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use ls50::Ls50Job;
 use ls5000::Ls5000Job;
 use ls9000::Ls9000Job;
+use nkscan::scanners::nikon::capabilities::ResolutionRange;
 use nkscan::{
     decode::Image,
     output,
@@ -199,6 +200,29 @@ pub fn reading(what: &str) -> ProgressBar {
             .progress_chars("=> "),
     );
     bar
+}
+
+/// Resolve a `--dpi` request against a model's ladder and the range the device reports
+///
+/// Dividing the sensor evenly is not enough: a ladder entry under the reported floor is
+/// refused, so the error lists only the offered ones.
+pub fn resolve_dpi<D: Copy>(
+    requested: u16,
+    ladder: &[D],
+    offered: ResolutionRange,
+    to_dpi: fn(D) -> u16,
+) -> Result<D> {
+    let legal: Vec<D> = ladder
+        .iter()
+        .copied()
+        .filter(|&mode| offered.allows(to_dpi(mode)))
+        .collect();
+    if let Some(&mode) = legal.iter().find(|&&mode| to_dpi(mode) == requested) {
+        return Ok(mode);
+    }
+
+    let names: Vec<String> = legal.iter().map(|&mode| to_dpi(mode).to_string()).collect();
+    bail!("--dpi expected one of {}", names.join(", "))
 }
 
 /// The next unused frame number for `basename`
@@ -571,3 +595,44 @@ pub trait Job {
 mod ls50;
 mod ls5000;
 mod ls9000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A model ladder with one rung under the floor an LS-9000 reports
+    const LADDER: [u16; 4] = [4000, 2000, 1333, 333];
+
+    fn offered(min: u16) -> ResolutionRange {
+        ResolutionRange {
+            optical: 4000,
+            min,
+            max: 4000,
+        }
+    }
+
+    #[test]
+    fn a_resolution_the_device_reaches_resolves() {
+        assert_eq!(
+            resolve_dpi(1333, &LADDER, offered(666), |dpi| dpi).unwrap(),
+            1333
+        );
+        // the same rung on a unit that divides further
+        assert_eq!(
+            resolve_dpi(333, &LADDER, offered(90), |dpi| dpi).unwrap(),
+            333
+        );
+    }
+
+    /// Under the floor and off the ladder are the same complaint, and neither names a rung the
+    /// device will not take
+    #[test]
+    fn a_resolution_the_device_does_not_reach_is_refused() {
+        for asked in [333, 800] {
+            let err = resolve_dpi(asked, &LADDER, offered(666), |dpi| dpi)
+                .unwrap_err()
+                .to_string();
+            assert_eq!(err, "--dpi expected one of 4000, 2000, 1333");
+        }
+    }
+}

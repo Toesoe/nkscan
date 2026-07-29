@@ -52,10 +52,21 @@ mod tests {
     }
 
     /// Both window resolutions the library sends have to be ones the device offers
+    ///
+    /// The floors are exact and asymmetric: the bar divides to 666 DPI, the stage to 333. That
+    /// makes the 666x333 prescan the coarsest frame window, and puts 333 DPI out of reach.
     #[test]
     fn the_resolutions_we_send_are_offered() {
         let caps = Capabilities::parse(&captured()).unwrap();
-        assert!(caps.x_resolution.min <= 666 && 4000 <= caps.x_resolution.max);
-        assert!(caps.y_resolution.min <= 333 && 4000 <= caps.y_resolution.max);
+        assert_eq!((caps.x_resolution.min, caps.x_resolution.max), (666, 4000));
+        assert_eq!((caps.y_resolution.min, caps.y_resolution.max), (333, 4000));
+        // the whole-number divisions that clear the bar's floor
+        for dpi in [4000u16, 2000, 1333, 666] {
+            assert!(
+                dpi >= caps.x_resolution.min,
+                "{dpi} below the reported floor"
+            );
+        }
+        assert!(333 < caps.x_resolution.min);
     }
 }
