@@ -5,7 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use ls50::Ls50Job;
 use ls5000::Ls5000Job;
 use ls9000::Ls9000Job;
-use nkscan::scanners::nikon::capabilities::ResolutionRange;
+use nkscan::scanners::nikon::{ChannelExposures, capabilities::ResolutionRange};
 use nkscan::{
     decode::Image,
     output,
@@ -46,12 +46,12 @@ pub struct Cli {
     /// Frames on the loaded strip
     ///
     /// Every one is declared to the scanner whether or not it gets scanned, since a pass that
-    /// cannot see the whole table leaves the film where it is. Omitted, a USB scanner is asked
-    /// how many it can see and a SCSI one assumes one frame.
+    /// cannot see the whole table leaves the film where it is. Left out, a USB scanner is asked
+    /// how many it can see; a SCSI one needs either this or --pitch.
     #[arg(long)]
     frames: Option<usize>,
 
-    /// Which of those to actually scan, zero-indexed, comma separated. All by default.
+    /// Which frames to actually scan, zero-indexed and comma separated. All of them by default.
     #[arg(long, value_delimiter = ',')]
     frame: Vec<usize>,
 
@@ -166,6 +166,13 @@ impl Cli {
         self.pitch.is_some() || !self.offset.is_empty()
     }
 
+    /// How many frames to look for, for a scanner that cannot count them itself
+    fn frames_to_find(&self) -> Result<usize> {
+        self.frames.context(
+            "--frames says how many to look for; give --pitch to place them by hand instead",
+        )
+    }
+
     /// Where frame `index` starts, in mm, with the last given offset repeating
     fn offset_mm(&self, index: usize) -> f32 {
         match self.offset.len() {
@@ -225,6 +232,15 @@ pub fn resolve_dpi<D: Copy>(
     bail!("--dpi expected one of {}", names.join(", "))
 }
 
+/// A metered gain written the way `--gain` takes it, so a logged one can be pasted back
+pub fn gain_spec(gain: &ChannelExposures, ir: bool) -> String {
+    let mut spec = format!("{},{},{}", gain.red, gain.green, gain.blue);
+    if ir {
+        spec.push_str(&format!(",{}", gain.ir));
+    }
+    spec
+}
+
 /// The next unused frame number for `basename`
 ///
 /// One past the highest `<basename>_<n>.tiff` already on disk, or 0 if there is none, so a batch
@@ -257,7 +273,8 @@ fn write_frame(frame: &Image, basename: &Path, index: usize) -> Result<()> {
         basename.file_name().unwrap_or_default().to_string_lossy()
     ));
     output::write_rgb16_tiff(&mut BufWriter::new(File::create(&path)?), &frame.rgb)?;
-    info!(path = %path.display(), dimensions = ?frame.rgb.dimensions(), "Wrote TIFF");
+    let (width, height) = frame.rgb.dimensions();
+    info!("Wrote {} ({width}x{height})", path.display());
 
     if let Some(ir) = &frame.ir {
         let ir_path = path.with_file_name(format!(
@@ -265,7 +282,7 @@ fn write_frame(frame: &Image, basename: &Path, index: usize) -> Result<()> {
             path.file_stem().unwrap_or_default().to_string_lossy()
         ));
         output::write_luma16_tiff(&mut BufWriter::new(File::create(&ir_path)?), ir)?;
-        info!(path = %ir_path.display(), "Wrote the infrared plane");
+        info!("Wrote {} (infrared)", ir_path.display());
     }
     Ok(())
 }
@@ -495,12 +512,7 @@ fn open_scsi(_path: &Path) -> Result<Box<dyn Transport>> {
 // ---- the workflow
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    init_logging();
     let cli = Cli::parse();
 
     let mut job = open(&cli)?;
@@ -512,11 +524,28 @@ fn main() -> Result<()> {
         match job.eject() {
             Ok(()) => info!("Ejected"),
             Err(e) if outcome.is_ok() => return Err(e),
-            Err(e) => warn!(%e, "Could not eject"),
+            Err(e) => warn!("Could not eject: {e}"),
         }
     }
 
     outcome
+}
+
+/// Progress on stderr, so a caller can redirect it away from the images without losing it
+///
+/// `RUST_LOG` is taken as a request for the developer view, timestamps and targets and all.
+/// Without it the levels below `info` are off and the format is trimmed to what a scan is
+/// actually telling you.
+fn init_logging() {
+    let subscriber = tracing_subscriber::fmt().with_writer(std::io::stderr);
+    match tracing_subscriber::EnvFilter::try_from_default_env() {
+        Ok(filter) => subscriber.with_env_filter(filter).init(),
+        Err(_) => subscriber
+            .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+            .without_time()
+            .with_target(false)
+            .init(),
+    }
 }
 
 /// The workflow, whichever scanner is on the other end, once around for `--batch`'s every
@@ -525,17 +554,18 @@ fn run(job: &mut dyn Job, cli: &Cli) -> Result<()> {
     job.reject_unsupported(cli)?;
 
     let mut next = next_index(&cli.basename);
-    let mut strip = 0usize;
+    let mut strip = 1usize;
     loop {
-        // Every frame log below names its own index, which repeats strip to strip, so a batch
-        // run tags them with which strip that was. A single-strip run has no ambiguity to
-        // resolve, so it stays out of the log there.
-        let _span = cli.batch.then(|| info_span!("strip", strip).entered());
+        // Frame indices restart with every strip, so a batch run says which one it is on
+        if cli.batch {
+            info!("Strip {strip}");
+        }
 
         let placed = job.prepare(cli)?;
-        info!(frames = placed, "Frames placed");
+        let selected = cli.selected(placed)?;
+        info!("{placed} frames placed, scanning {}", selected.len());
 
-        for index in cli.selected(placed)? {
+        for index in selected {
             let frame = job.scan_frame(cli, index)?;
             write_frame(&frame, &cli.basename, next)?;
             next += 1;
@@ -560,10 +590,10 @@ fn run(job: &mut dyn Job, cli: &Cli) -> Result<()> {
 /// Block for the caller to load the next strip before `--batch` moves on to it
 fn pause_for_reload() -> Result<()> {
     use std::io::Write;
-    print!(
+    eprint!(
         "Strip finished and ejected. Load the next one and press Enter to continue, or Ctrl-C to stop: "
     );
-    std::io::stdout().flush()?;
+    std::io::stderr().flush()?;
     std::io::stdin().read_line(&mut String::new())?;
     Ok(())
 }

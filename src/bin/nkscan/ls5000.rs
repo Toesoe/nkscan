@@ -34,12 +34,9 @@ pub struct Ls5000Job {
 impl Ls5000Job {
     pub fn open(transport: Box<dyn Transport>) -> Result<Box<dyn Job>> {
         let mut scanner = Ls5000::new(transport)?;
-        info!(
-            identity = ?scanner.identify()?,
-            holder = ?scanner.holder()?,
-            adapter = ?scanner.adapter_name(),
-            "Scanner open"
-        );
+        let identity = scanner.identify()?;
+        info!("Connected to {} {}", identity.vendor, identity.product);
+        debug!(holder = ?scanner.holder()?, adapter = ?scanner.adapter_name(), "Adapter");
         Ok(Box::new(Self {
             scanner,
             frames: FrameBoundaries(Vec::new()),
@@ -101,7 +98,10 @@ impl Job for Ls5000Job {
                     .unwrap_or(calibration::DEFAULT_GAIN.ir),
             };
             self.fixed = true;
-            info!(gain = ?self.gain, "Autoexposure off, scanning at a fixed gain");
+            info!(
+                "Autoexposure off, holding gain {}",
+                crate::gain_spec(&self.gain, cli.ir)
+            );
         }
 
         let capabilities = self.scanner.capabilities();
@@ -110,7 +110,7 @@ impl Job for Ls5000Job {
         // they are. Placing them by pitch is the fallback, not the default.
         let sensed = match self.scanner.roll_table() {
             Ok(table) if !table.0.is_empty() => {
-                info!(frames = table.0.len(), "Read the roll transport table");
+                info!("Roll transport reports {} frames", table.0.len());
                 Some(table)
             }
             Ok(_) => None,
@@ -143,7 +143,7 @@ impl Job for Ls5000Job {
 
         match cli.focus {
             FocusMode::Auto => {
-                info!(frame = index, "Autofocusing");
+                info!("Frame {index}: autofocusing");
                 self.scanner.autofocus(settings.center())?;
             }
             // A setpoint skips the per-frame autofocus pass entirely
@@ -153,7 +153,7 @@ impl Job for Ls5000Job {
         // Slow, and what it measures is the film rather than the frame, so it runs once and
         // the answer carries down the roll
         if !self.fixed {
-            info!(lock_wb = cli.lock_wb, "Metering");
+            info!("Metering");
             let metering = Metering {
                 lock_white_balance: cli.lock_wb,
                 ..Metering::default()
@@ -162,14 +162,13 @@ impl Job for Ls5000Job {
                 .scanner
                 .autoexpose(settings.window, self.gain, metering)?;
             self.fixed = true;
-            info!(gain = ?self.gain, "Metered");
+            info!("Metered gain {}", crate::gain_spec(&self.gain, cli.ir));
         }
 
         info!(
-            frame = index,
-            resolution = settings.res(),
-            samples = settings.samples.count(),
-            "Scanning"
+            "Frame {index}: scanning at {} DPI, {}x sampled",
+            settings.res(),
+            settings.samples.count()
         );
         let bar = reading("Scanning");
         let frame = self

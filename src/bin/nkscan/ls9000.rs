@@ -66,7 +66,7 @@ impl Ls9000Job {
         }
         self.scanner.drain_unit_attentions()?;
         self.scanner.wait_until_ready()?;
-        info!(?holder, "Holder loaded");
+        info!("Holder loaded: {holder:?}");
         Ok(())
     }
 
@@ -77,7 +77,7 @@ impl Ls9000Job {
             .pitch
             .map(native_dots)
             .unwrap_or(ScanArea::STRIP_DOTS / count.max(1));
-        info!(pitch, count, "Placing frames by hand");
+        debug!(pitch, count, "Placing frames by hand");
         FrameBoundaries(
             (0..count)
                 .map(|i| {
@@ -90,9 +90,7 @@ impl Ls9000Job {
 
     /// An 83-DPI pass over the whole strip, then look for the frames in it
     fn search(&mut self, cli: &Cli) -> Result<FrameBoundaries> {
-        let Some(count) = cli.frames else {
-            bail!("--frames says how many to look for; give --pitch to place them by hand instead")
-        };
+        let count = cli.frames_to_find()?;
         info!("Taking an overview to find the frames");
         let bar = reading("Overview");
         let overview = self.scanner.overview_with(DEFAULT_GAIN, |read, total| {
@@ -111,6 +109,9 @@ impl Job for Ls9000Job {
         // autofocus and a host-side metering pass that can run past a minute
         dpi_9000(cli.dpi, self.scanner.capabilities().x_resolution)?;
         multisample(cli.multisample)?;
+        if !cli.placed_by_hand() {
+            cli.frames_to_find()?;
+        }
         Ok(())
     }
 
@@ -128,7 +129,10 @@ impl Job for Ls9000Job {
                 ir: values.get(3).copied().unwrap_or(self.gain.ir),
             };
             self.fixed = true;
-            info!(gain = ?self.gain, "Autoexposure off, scanning at a fixed gain");
+            info!(
+                "Autoexposure off, holding gain {}",
+                crate::gain_spec(&self.gain, cli.ir)
+            );
         }
 
         self.frames = if cli.placed_by_hand() {
@@ -152,7 +156,7 @@ impl Job for Ls9000Job {
         let rect = self.frames.0[index];
         match cli.focus {
             FocusMode::Auto => {
-                info!(frame = index, "Autofocusing");
+                info!("Frame {index}: autofocusing");
                 self.scanner.autofocus(rect.center())?;
             }
             // A setpoint skips the per-frame autofocus pass entirely
@@ -163,7 +167,7 @@ impl Job for Ls9000Job {
 
         // Host-side and per frame, since it meters the frame's own content
         if !self.fixed {
-            info!(frame = index, "Metering");
+            info!("Frame {index}: metering");
             let bar = reading("Metering");
             let (gain, _) = self.scanner.autoexpose_with(
                 &base,
@@ -178,7 +182,10 @@ impl Job for Ls9000Job {
                 },
             )?;
             bar.finish_and_clear();
-            info!(frame = index, ?gain, "Metered");
+            info!(
+                "Frame {index}: metered gain {}",
+                crate::gain_spec(&gain, cli.ir)
+            );
             self.gain = gain;
         }
 
@@ -195,7 +202,7 @@ impl Job for Ls9000Job {
             ..base
         };
 
-        info!(frame = index, "Scanning");
+        info!("Frame {index}: scanning");
         let bar = reading("Scanning");
         let frame = self
             .scanner

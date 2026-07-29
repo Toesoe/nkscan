@@ -32,12 +32,9 @@ pub struct Ls50Job {
 impl Ls50Job {
     pub fn open(transport: Box<dyn Transport>) -> Result<Box<dyn Job>> {
         let mut scanner = Ls50::new(transport)?;
-        info!(
-            identity = ?scanner.identify()?,
-            holder = ?scanner.holder()?,
-            adapter = ?scanner.adapter_name(),
-            "Scanner open"
-        );
+        let identity = scanner.identify()?;
+        info!("Connected to {} {}", identity.vendor, identity.product);
+        debug!(holder = ?scanner.holder()?, adapter = ?scanner.adapter_name(), "Adapter");
         Ok(Box::new(Self {
             scanner,
             frames: FrameBoundaries(Vec::new()),
@@ -86,7 +83,10 @@ impl Job for Ls50Job {
                 ir: 0,
             };
             self.fixed = true;
-            info!(gain = ?self.gain, "Autoexposure off, scanning at a fixed gain");
+            info!(
+                "Autoexposure off, holding gain {}",
+                crate::gain_spec(&self.gain, false)
+            );
         }
 
         let capabilities = self.scanner.capabilities();
@@ -120,7 +120,7 @@ impl Job for Ls50Job {
 
         match cli.focus {
             FocusMode::Auto => {
-                info!(frame = index, "Autofocusing");
+                info!("Frame {index}: autofocusing");
                 self.scanner.autofocus(settings.center())?;
             }
             // A setpoint skips the per-frame autofocus pass entirely
@@ -133,10 +133,10 @@ impl Job for Ls50Job {
             info!("Metering");
             self.gain = self.scanner.autoexpose(&settings, self.gain)?;
             self.fixed = true;
-            info!(gain = ?self.gain, "Metered");
+            info!("Metered gain {}", crate::gain_spec(&self.gain, false));
         }
 
-        info!(frame = index, resolution = settings.res(), "Scanning");
+        info!("Frame {index}: scanning at {} DPI", settings.res());
         let bar = reading("Scanning");
         let frame = self
             .scanner
