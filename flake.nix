@@ -26,6 +26,9 @@
 
         inherit (pkgs) lib;
 
+        # We're going to build python wheels as well, so we need a python
+        python = pkgs.python3;
+
         craneLib = (crane.mkLib pkgs).overrideToolchain (
           p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
         );
@@ -34,15 +37,19 @@
         commonArgs = {
           inherit src;
           strictDeps = true;
+          env = {
+            PYO3_PYTHON = python.interpreter;
+            PYO3_BUILD_EXTENSION_MODULE = true;
+          };
           nativeBuildInputs = with pkgs;
-            []
+            [python]
             ++ lib.optionals stdenv.isDarwin [libiconv];
           buildInputs = [];
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        nkscan = craneLib.buildPackage (
+        nkscan-cli = craneLib.buildPackage (
           commonArgs
           // {
             inherit cargoArtifacts;
@@ -53,7 +60,7 @@
       in {
         # Checks for nix flake check
         checks = {
-          inherit nkscan;
+          nkscan = nkscan-cli;
 
           clippy = craneLib.cargoClippy (
             commonArgs
@@ -91,12 +98,12 @@
 
         # Flake entrypoint
         apps.default = flake-utils.lib.mkApp {
-          drv = nkscan;
+          drv = nkscan-cli;
         };
 
         # Package output
         packages = {
-          default = nkscan;
+          default = nkscan-cli;
         };
       }
     );

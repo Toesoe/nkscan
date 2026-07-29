@@ -408,6 +408,36 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scanners::ls9000::{
+        geometry::{CcdMode, Dpi, Multisample, ScanSettings},
+        window::BaseQuality,
+    };
+
+    /// What [`FrameRect::BLOCK_DOTS`] claims: a window aligned to it divides at every
+    /// resolution on the ladder, and its stage extent is a whole number of CCD blocks.
+    ///
+    /// The two constants live in different modules and neither mentions the other, so nothing
+    /// else would notice a new resolution that breaks the relationship.
+    #[test]
+    fn a_block_aligned_window_divides_at_every_resolution() {
+        for dpi in [Dpi::_4000, Dpi::_2000, Dpi::_1333, Dpi::_666, Dpi::_333] {
+            // One block, half a 6x6 frame, and a whole one
+            for blocks in [1, 122, 244] {
+                let rect = FrameRect::aligned(0, blocks * FrameRect::BLOCK_DOTS);
+                let settings = ScanSettings {
+                    ccd_mode: CcdMode::ThreeLine,
+                    ir: false,
+                    dpi,
+                    quality: BaseQuality::Scan,
+                    multisample: Multisample::X1,
+                    window: rect.scan_area(),
+                };
+                let at = format!("{} DPI, {blocks} blocks", dpi.to_dpi());
+                let stages = settings.stages().unwrap_or_else(|| panic!("{at}: indivisible"));
+                assert_eq!(stages % settings.ccd_block(), 0, "{at}: partial CCD block");
+            }
+        }
+    }
 
     fn wire(hex: &[&str]) -> Vec<u8> {
         hex.join(" ")

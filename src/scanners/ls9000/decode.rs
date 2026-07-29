@@ -199,10 +199,13 @@ impl FrameTranspose {
 
     /// Transpose the freshly filled block into its output strip
     ///
-    /// One block covers `self.block` stage positions, which in three-line mode
-    /// map to a contiguous run of `self.block * lines` output columns.
-    /// Iterating column-outer, sensor-inner keeps a chunk of the output column
-    /// in cache while the input is read sequentially down the bar.
+    /// The CCD's lines sit [`block`](Self::block) output columns apart, so a block of that many
+    /// stage positions is what it takes to tile a contiguous run of columns: the stage advances
+    /// one column per position, and line `l` lays its samples down `l * block` columns ahead of
+    /// line 0. A block's `block * lines` columns therefore run `[line 0 x block][line 1 x
+    /// block][line 2 x block]`, and the strip column splits back into a stage position and a
+    /// line. Iterating column-outer, sensor-inner keeps a chunk of the output column in cache
+    /// while the input is read sequentially down the bar.
     fn emit_block(&mut self, staging: &[u8]) {
         let first_col = self.block_index * self.block * self.lines;
         let strip_cols = self.block * self.lines;
@@ -213,8 +216,6 @@ impl FrameTranspose {
             let p_end = (p0 + CHUNK).min(self.height);
 
             for col in 0..strip_cols {
-                // A block's columns run [line 0 x N][line 1 x N][line 2 x N],
-                // so the strip column splits into a stage position and a line.
                 let (stage, line) = if self.lines == 3 {
                     (col % self.block, col / self.block)
                 } else {
@@ -450,6 +451,58 @@ mod frame_tests {
                 reference,
                 "chunk size {size}"
             );
+        }
+    }
+
+    /// The three-line CCD lays its lines down `ccd_block` output columns apart, so a block of
+    /// that many stage positions tiles `block * 3` columns as `[line 0 x block][line 1 x
+    /// block][line 2 x block]`.
+    ///
+    /// Measured off a 2000-DPI three-line capture with the seam probe: at the right block size
+    /// the adjacent-column correlation is flat, and every other size leaves a periodic dip.
+    /// Single-line settings can't catch a regression here, since their block is 1.
+    #[test]
+    fn three_line_columns_are_block_interleaved() {
+        // 2000 DPI puts the lines 6 columns apart, so one block is 6 stage positions and 18
+        // columns: exactly one block wide, 2 sensor pixels tall.
+        let settings = ScanSettings {
+            ccd_mode: CcdMode::ThreeLine,
+            dpi: Dpi::_2000,
+            window: ScanArea {
+                x_pos: 0,
+                y_pos: 0,
+                x_size: 4,
+                y_size: 36,
+            },
+            ..settings()
+        };
+        let (block, lines) = (settings.ccd_block() as usize, 3);
+        assert_eq!((block, settings.stages()), (6, Some(6)));
+        let (width, height) = settings.output_dims().unwrap();
+        let (width, height) = (width as usize, height as usize);
+        assert_eq!((width, height), (18, 2));
+
+        let stream = tagged(settings.expected_bytes().unwrap() as usize);
+        let got = decode_in_chunks(&settings, &stream, stream.len());
+
+        let (rsamp, stage_stride) = (height * lines, 3 * height * lines);
+        for x in 0..width {
+            // The inverse of the layout above: a column names its line and stage position.
+            let (b, c) = (x / (block * lines), x % (block * lines));
+            let (line, stage) = (c / block, c % block);
+            let g = b * block + stage;
+            for y in 0..height {
+                // The sensor bar reads out opposite to increasing y.
+                let p = height - 1 - y;
+                for channel in 0..3 {
+                    let sample = g * stage_stride + channel * rsamp + p * lines + line;
+                    assert_eq!(
+                        got[(y * width + x) * 3 + channel],
+                        (sample as u16) & 0x3FFF,
+                        "channel {channel} at {x},{y}"
+                    );
+                }
+            }
         }
     }
 

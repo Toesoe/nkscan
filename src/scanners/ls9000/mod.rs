@@ -439,6 +439,63 @@ where
         Ok(decoder.finish().map_err(ScanError::Decode)?.to_owned())
     }
 
+    /// [`scan_image_with`](Self::scan_image_with), also teeing the raw undecoded stream to
+    /// `dump` as it arrives
+    ///
+    /// TEMPORARY: for capturing a byte-identical reference of a three-line, non-native-DPI
+    /// scan while debugging the interleave corruption at those settings. Remove once that's
+    /// fixed.
+    pub fn scan_image_with_dump<F: FnMut(u64, u64)>(
+        &mut self,
+        settings: &ScanSettings,
+        gain: ChannelExposures,
+        dump: &mut impl std::io::Write,
+        mut progress: F,
+    ) -> Result<Image, ScanError> {
+        let channels: &[Channel] = if settings.ir {
+            &[Channel::Ir, Channel::Red, Channel::Green, Channel::Blue]
+        } else {
+            &Channel::RGB
+        };
+        for &channel in channels {
+            let params = WindowParams {
+                ccd: settings.ccd_mode,
+                multisample: settings.multisample,
+                quality: settings.quality,
+                window_kind: WindowKind::Frame,
+                exposure: gain.get(channel),
+            };
+            self.set_window(
+                channel,
+                params.descriptor(settings.dpi.to_dpi(), settings.window),
+            )?;
+        }
+
+        self.scan(channels)?;
+        self.wait_until_ready()?;
+
+        let chunk = self.transport.max_transfer();
+        let mut decoder = decode::FrameDecoder::new(settings).map_err(ScanError::Decode)?;
+        let expected = decoder.expected_bytes();
+        let mut received = 0u64;
+        while received < expected {
+            let want = u64::from(chunk).min(expected - received) as u32;
+            let bytes = self.read_chunk(want)?;
+            if bytes.is_empty() {
+                return Err(scsi::Error::InvalidResponse(
+                    "image read returned nothing before the expected length",
+                )
+                .into());
+            }
+            dump.write_all(&bytes).expect("writing the raw dump");
+            received += bytes.len() as u64;
+            decoder.push(&bytes).map_err(ScanError::Decode)?;
+            progress(received, expected);
+        }
+
+        Ok(decoder.finish().map_err(ScanError::Decode)?.to_owned())
+    }
+
     /// Find the gain that fills the range, by scanning the window and measuring it
     ///
     /// Starts from `from` rather than what the scanner has staged, since gain persists across
