@@ -8,6 +8,7 @@ use crate::scsi::{
     self, Transport, TransportExt,
     cdbs::{VendorPage, VpdInquiry, VpdPage},
 };
+use tracing::warn;
 
 /// The page code this lives on
 pub const PAGE: u8 = 0xC1;
@@ -68,6 +69,13 @@ pub struct ResolutionRange {
     pub max: u16,
 }
 
+impl ResolutionRange {
+    /// Whether the device offers this resolution on this axis
+    pub fn allows(self, dpi: u16) -> bool {
+        (self.min..=self.max).contains(&dpi)
+    }
+}
+
 impl Capabilities {
     /// The last scannable dot along the sensor bar
     ///
@@ -80,6 +88,28 @@ impl Capabilities {
     /// The last scannable dot along the feed, one frame's worth. See [`max_x`](Self::max_x).
     pub fn max_y(&self) -> u32 {
         self.boundary_y - 1
+    }
+
+    /// Refuse a window resolution the device says it will not divide to
+    ///
+    /// The firmware answers one with an invalid field in the parameter list, which can land
+    /// long after the window was built. The two axes have their own floors.
+    pub fn allows_resolution(&self, x: u16, y: u16) -> Result<(), scsi::Error> {
+        for (axis, dpi, range) in [("x", x, self.x_resolution), ("y", y, self.y_resolution)] {
+            if !range.allows(dpi) {
+                warn!(
+                    axis,
+                    dpi,
+                    min = range.min,
+                    max = range.max,
+                    "Refusing a window resolution the device does not offer"
+                );
+                return Err(scsi::Error::Unsupported(
+                    "window resolution outside the range the scanner reports",
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn parse(data: &[u8]) -> Result<Self, scsi::Error> {

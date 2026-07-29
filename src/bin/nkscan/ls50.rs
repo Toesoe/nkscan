@@ -15,7 +15,7 @@ use nkscan::{
             calibration::DEFAULT_GAIN,
             geometry::{Dpi, ScanSettings, native_dots},
         },
-        nikon::ChannelExposures,
+        nikon::{ChannelExposures, capabilities::ResolutionRange},
     },
     scsi::Transport,
 };
@@ -62,7 +62,7 @@ impl Job for Ls50Job {
             bail!("--lock-wb is not controllable on an LS-50 ED; use --gain to fix the ratios");
         }
         // Otherwise only discovered building the first frame's settings, after warming up
-        dpi_50(cli.dpi)?;
+        dpi_50(cli.dpi, self.scanner.capabilities().x_resolution)?;
         Ok(())
     }
 
@@ -108,7 +108,7 @@ impl Job for Ls50Job {
     fn scan_frame(&mut self, cli: &Cli, index: usize) -> Result<Image> {
         let capabilities = self.scanner.capabilities();
         let settings = ScanSettings {
-            dpi: dpi_50(cli.dpi)?,
+            dpi: dpi_50(cli.dpi, self.scanner.capabilities().x_resolution)?,
             ir: cli.ir,
             samples: 1,
             window: self.frames.0[index].scan_area(capabilities),
@@ -149,15 +149,9 @@ impl Job for Ls50Job {
     }
 }
 
-fn dpi_50(requested: Option<u16>) -> Result<Dpi> {
+fn dpi_50(requested: Option<u16>, offered: ResolutionRange) -> Result<Dpi> {
     let Some(requested) = requested else {
         return Ok(Dpi::_4000);
     };
-    Dpi::ALL
-        .into_iter()
-        .find(|mode| mode.to_dpi() == requested)
-        .ok_or_else(|| {
-            let legal: Vec<String> = Dpi::ALL.iter().map(|m| m.to_dpi().to_string()).collect();
-            anyhow::anyhow!("--dpi expected one of {}", legal.join(", "))
-        })
+    crate::resolve_dpi(requested, &Dpi::ALL, offered, Dpi::to_dpi)
 }

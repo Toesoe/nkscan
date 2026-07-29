@@ -78,8 +78,8 @@ impl Dpi {
 /// How many times the sensor reads each line
 ///
 /// The scanner does not combine them: a multi-sampled pass streams every sample and the host
-/// averages. That readout is a different shape from the planar one this driver decodes — see
-/// `docs/OPEN_QUESTIONS.md` — so [`arm`](super::Ls5000::arm) refuses a count above 1 rather
+/// averages. That readout is a different shape from the planar one this driver decodes (see
+/// `docs/OPEN_QUESTIONS.md`), so [`arm`](super::Ls5000::arm) refuses a count above 1 rather
 /// than putting one on the wire. The encoding is here because it is the part that is known.
 ///
 /// The count goes on the wire as a nibble, so 16 is the ceiling.

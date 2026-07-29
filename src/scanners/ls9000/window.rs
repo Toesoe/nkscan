@@ -54,11 +54,9 @@ impl WindowParams {
 
     /// Whether to ask the scanner to average the sensor bar down to `x_resolution`
     ///
-    /// The single-line CCD divides the sensor axis either way — the 83-DPI overview is a
-    /// `Scan` and still comes back divided by 48 — but the three-line CCD reads the bar out at
-    /// its native pitch unless this is set. Without it a 2000-DPI three-line scan returns 8964
-    /// samples per sweep instead of 4482, so the driver reads half a frame's worth of a
-    /// double-height image and unscrambles it into nonsense.
+    /// The single-line CCD divides the sensor axis either way, but the three-line CCD reads
+    /// the bar out at its native pitch unless this is set: 8964 samples per sweep at 2000 DPI
+    /// rather than 4482.
     fn averaging(self, x_resolution: u16) -> bool {
         matches!(self.quality, BaseQuality::Preview)
             || (matches!(self.ccd, CcdMode::ThreeLine) && x_resolution < Dpi::_4000.to_dpi())
@@ -101,11 +99,9 @@ impl WindowParams {
         // High nibble is the multi-sample repeat count minus one
         buf[0] = ((value.multisample.count() - 1) << 4) as u8;
 
-        // Bit 7 asks the scanner not to average the sensor bar down, and pairs with buf[3]:
-        // (0x81, 0x02) reads it out at the native pitch, (0x01, 0x04) averages. Nikon Scan
-        // only ever pairs the first with a 4000-DPI scan and the second with the half-height
-        // prescan, which is why this used to be read as the sampling mode. See
-        // [`averaging`](Self::averaging) for what it actually costs to get wrong.
+        // Bit 7 pairs with buf[3]: (0x81, 0x02) reads the sensor bar out at its native pitch,
+        // (0x01, 0x04) averages it down to the window's resolution. See
+        // [`averaging`](Self::averaging).
         //
         // Bit 0 is positive film on other Coolscans. Clearing it here is accepted and reads
         // back cleared, but the image is identical, so leave it set.
@@ -225,11 +221,10 @@ mod tests {
     }
 
     /// A three-line scan below 4000 DPI has to ask for averaging, or the sensor bar comes back
-    /// at its native pitch: a 2000-DPI capture returns 8964 samples per sweep, not 4482.
+    /// at its native pitch: 8964 samples per sweep at 2000 DPI, not 4482.
     ///
-    /// No capture of Nikon Scan doing this exists — its traces are all 4000-DPI scans and
-    /// 666-DPI prescans — so the bytes here are inferred from those two and from what the
-    /// scanner does when they are wrong.
+    /// Inferred rather than captured. Nikon Scan's traces hold no reduced-resolution three-line
+    /// scan, only 4000-DPI scans and 666-DPI prescans.
     #[test]
     fn a_reduced_resolution_three_line_scan_asks_for_averaging() {
         let bytes = params(BaseQuality::Scan).vendor(2000);
@@ -237,7 +232,7 @@ mod tests {
     }
 
     /// The single-line CCD divides the sensor axis whichever way the averaging bits are set,
-    /// and the 83-DPI overview is the capture that proves it, so leave those windows alone
+    /// which the 83-DPI overview capture shows, so leave those windows alone
     #[test]
     fn a_reduced_resolution_single_line_scan_does_not() {
         let bytes = WindowParams {

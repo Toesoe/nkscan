@@ -199,13 +199,10 @@ impl FrameTranspose {
 
     /// Transpose the freshly filled block into its output strip
     ///
-    /// The CCD's lines sit [`block`](Self::block) output columns apart, so a block of that many
-    /// stage positions is what it takes to tile a contiguous run of columns: the stage advances
-    /// one column per position, and line `l` lays its samples down `l * block` columns ahead of
-    /// line 0. A block's `block * lines` columns therefore run `[line 0 x block][line 1 x
-    /// block][line 2 x block]`, and the strip column splits back into a stage position and a
-    /// line. Iterating column-outer, sensor-inner keeps a chunk of the output column in cache
-    /// while the input is read sequentially down the bar.
+    /// The CCD's lines sit [`block`](Self::block) columns apart and the stage advances one
+    /// column per position, so a block of that many positions tiles a contiguous run as
+    /// `[line 0 x block][line 1 x block][line 2 x block]`. Iterating column-outer keeps a chunk
+    /// of the output column in cache while the input is read down the bar.
     fn emit_block(&mut self, staging: &[u8]) {
         let first_col = self.block_index * self.block * self.lines;
         let strip_cols = self.block * self.lines;
@@ -454,17 +451,16 @@ mod frame_tests {
         }
     }
 
-    /// The three-line CCD lays its lines down `ccd_block` output columns apart, so a block of
-    /// that many stage positions tiles `block * 3` columns as `[line 0 x block][line 1 x
-    /// block][line 2 x block]`.
+    /// The three-line CCD lays its lines `ccd_block` columns apart, so a block of that many
+    /// stage positions tiles `block * 3` columns.
     ///
-    /// Measured off a 2000-DPI three-line capture with the seam probe: at the right block size
-    /// the adjacent-column correlation is flat, and every other size leaves a periodic dip.
-    /// Single-line settings can't catch a regression here, since their block is 1.
+    /// Measured with a seam probe: at the right block size the adjacent-column correlation is
+    /// flat, and every other size leaves a periodic dip. Single-line settings have a block of 1
+    /// and cannot catch a regression here.
     #[test]
     fn three_line_columns_are_block_interleaved() {
-        // 2000 DPI puts the lines 6 columns apart, so one block is 6 stage positions and 18
-        // columns: exactly one block wide, 2 sensor pixels tall.
+        // 2000 DPI puts the lines 6 columns apart: one block of 6 stage positions, 18
+        // columns wide and 2 sensor pixels tall
         let settings = ScanSettings {
             ccd_mode: CcdMode::ThreeLine,
             dpi: Dpi::_2000,

@@ -18,11 +18,11 @@ use nkscan::{
             holder::Holder,
             window::BaseQuality,
         },
-        nikon::ChannelExposures,
+        nikon::{ChannelExposures, capabilities::ResolutionRange},
     },
     scsi::Transport,
 };
-use std::{fs::File, time::Duration};
+use std::time::Duration;
 use tracing::*;
 
 const HOLDER_POLL: Duration = Duration::from_millis(500);
@@ -109,7 +109,7 @@ impl Job for Ls9000Job {
     fn reject_unsupported(&self, cli: &Cli) -> Result<()> {
         // Both are otherwise only discovered building the final frame's settings, after
         // autofocus and a host-side metering pass that can run past a minute
-        dpi_9000(cli.dpi)?;
+        dpi_9000(cli.dpi, self.scanner.capabilities().x_resolution)?;
         multisample(cli.multisample)?;
         Ok(())
     }
@@ -183,7 +183,7 @@ impl Job for Ls9000Job {
         }
 
         let settings = ScanSettings {
-            dpi: dpi_9000(cli.dpi)?,
+            dpi: dpi_9000(cli.dpi, self.scanner.capabilities().x_resolution)?,
             quality: BaseQuality::Scan,
             ir: cli.ir,
             multisample: multisample(cli.multisample)?,
@@ -197,33 +197,22 @@ impl Job for Ls9000Job {
 
         info!(frame = index, "Scanning");
         let bar = reading("Scanning");
-        // TEMPORARY: NKSCAN_DUMP_RAW=1 also tees the undecoded stream to disk, alongside
-        // whichever <basename>_<n>.tiff this frame becomes, for debugging the three-line
-        // interleave corruption at non-native DPI. Remove once that's fixed.
-        let frame = if std::env::var_os("NKSCAN_DUMP_RAW").is_some() {
-            let next = crate::next_index(&cli.basename);
-            let path = cli.basename.with_file_name(format!(
-                "{}_{next}.raw",
-                cli.basename.file_name().unwrap_or_default().to_string_lossy()
-            ));
-            info!(path = %path.display(), "Dumping the raw scan stream");
-            let mut dump = File::create(&path)
-                .with_context(|| format!("creating {} for the raw dump", path.display()))?;
-            self.scanner
-                .scan_image_with_dump(&settings, self.gain, &mut dump, |read, total| {
-                    bar.set_length(total);
-                    bar.set_position(read);
-                })?
-        } else {
-            self.scanner
-                .scan_image_with(&settings, self.gain, |read, total| {
-                    bar.set_length(total);
-                    bar.set_position(read);
-                })?
-        };
+        let frame = self
+            .scanner
+            .scan_image_with(&settings, self.gain, |read, total| {
+                bar.set_length(total);
+                bar.set_position(read);
+            })?;
         bar.finish_and_clear();
         Ok(frame)
     }
+}
+
+fn dpi_9000(requested: Option<u16>, offered: ResolutionRange) -> Result<Dpi> {
+    let Some(requested) = requested else {
+        return Ok(Dpi::_4000);
+    };
+    crate::resolve_dpi(requested, &Dpi::ALL, offered, Dpi::to_dpi)
 }
 
 fn multisample(count: usize) -> Result<Multisample> {
@@ -235,20 +224,4 @@ fn multisample(count: usize) -> Result<Multisample> {
         16 => Multisample::X16,
         _ => bail!("--multisample must be one of 1,2,4,8,16"),
     })
-}
-
-/// The divisions of the sensor this model offers, which it has no `ALL` of its own for
-const LS9000_DPI: [Dpi; 5] = [Dpi::_4000, Dpi::_2000, Dpi::_1333, Dpi::_666, Dpi::_333];
-
-fn dpi_9000(requested: Option<u16>) -> Result<Dpi> {
-    let Some(requested) = requested else {
-        return Ok(Dpi::_4000);
-    };
-    LS9000_DPI
-        .into_iter()
-        .find(|mode| mode.to_dpi() == requested)
-        .ok_or_else(|| {
-            let legal: Vec<String> = LS9000_DPI.iter().map(|m| m.to_dpi().to_string()).collect();
-            anyhow::anyhow!("--dpi expected one of {}", legal.join(", "))
-        })
 }

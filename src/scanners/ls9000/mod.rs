@@ -226,19 +226,22 @@ where
         channel: Channel,
         mut descriptor: WindowDescriptor,
     ) -> Result<(), scsi::Error> {
-        // The kind lives in the vendor tail, which is the only place it survives to
-        if descriptor.vendor.get(2) == Some(&FRAME_WINDOW_KIND)
-            && descriptor.length > self.capabilities.boundary_y
-        {
-            warn!(
-                length = descriptor.length,
-                boundary = self.capabilities.boundary_y,
-                stage_target = stage_target(descriptor.length),
-                "Refusing a frame window past the reported boundary"
-            );
-            return Err(scsi::Error::Unsupported(
-                "frame window longer than the scanner's reported Y boundary would stall the stage",
-            ));
+        // The kind lives in the vendor tail, the only place it survives to. Both limits bind
+        // frame windows only: the 83-DPI overview breaks each of them and is taken.
+        if descriptor.vendor.get(2) == Some(&FRAME_WINDOW_KIND) {
+            if descriptor.length > self.capabilities.boundary_y {
+                warn!(
+                    length = descriptor.length,
+                    boundary = self.capabilities.boundary_y,
+                    stage_target = stage_target(descriptor.length),
+                    "Refusing a frame window past the reported boundary"
+                );
+                return Err(scsi::Error::Unsupported(
+                    "frame window longer than the scanner's reported Y boundary would stall the stage",
+                ));
+            }
+            self.capabilities
+                .allows_resolution(descriptor.x_resolution, descriptor.y_resolution)?;
         }
 
         descriptor.id = channel.to_id();
@@ -435,63 +438,6 @@ where
         let chunk = self.transport.max_transfer();
         let mut decoder = decode::FrameDecoder::new(settings).map_err(ScanError::Decode)?;
         self.read_into_with(&mut decoder, chunk, progress)?;
-
-        Ok(decoder.finish().map_err(ScanError::Decode)?.to_owned())
-    }
-
-    /// [`scan_image_with`](Self::scan_image_with), also teeing the raw undecoded stream to
-    /// `dump` as it arrives
-    ///
-    /// TEMPORARY: for capturing a byte-identical reference of a three-line, non-native-DPI
-    /// scan while debugging the interleave corruption at those settings. Remove once that's
-    /// fixed.
-    pub fn scan_image_with_dump<F: FnMut(u64, u64)>(
-        &mut self,
-        settings: &ScanSettings,
-        gain: ChannelExposures,
-        dump: &mut impl std::io::Write,
-        mut progress: F,
-    ) -> Result<Image, ScanError> {
-        let channels: &[Channel] = if settings.ir {
-            &[Channel::Ir, Channel::Red, Channel::Green, Channel::Blue]
-        } else {
-            &Channel::RGB
-        };
-        for &channel in channels {
-            let params = WindowParams {
-                ccd: settings.ccd_mode,
-                multisample: settings.multisample,
-                quality: settings.quality,
-                window_kind: WindowKind::Frame,
-                exposure: gain.get(channel),
-            };
-            self.set_window(
-                channel,
-                params.descriptor(settings.dpi.to_dpi(), settings.window),
-            )?;
-        }
-
-        self.scan(channels)?;
-        self.wait_until_ready()?;
-
-        let chunk = self.transport.max_transfer();
-        let mut decoder = decode::FrameDecoder::new(settings).map_err(ScanError::Decode)?;
-        let expected = decoder.expected_bytes();
-        let mut received = 0u64;
-        while received < expected {
-            let want = u64::from(chunk).min(expected - received) as u32;
-            let bytes = self.read_chunk(want)?;
-            if bytes.is_empty() {
-                return Err(scsi::Error::InvalidResponse(
-                    "image read returned nothing before the expected length",
-                )
-                .into());
-            }
-            dump.write_all(&bytes).expect("writing the raw dump");
-            received += bytes.len() as u64;
-            decoder.push(&bytes).map_err(ScanError::Decode)?;
-            progress(received, expected);
-        }
 
         Ok(decoder.finish().map_err(ScanError::Decode)?.to_owned())
     }
@@ -729,6 +675,28 @@ mod tests {
 
         scanner.scan(&Channel::RGB).expect("succeeds on the third");
         assert_eq!(scanner.transport.count(0x1B), 3);
+    }
+
+    /// The reported limits bind frame windows only, so the coarse overview gets through
+    #[test]
+    fn only_a_frame_window_is_held_to_the_reported_limits() {
+        let mut scanner = Ls9000::new(mock()).expect("opens");
+        let params = |window_kind| WindowParams {
+            ccd: geometry::CcdMode::SingleLine,
+            multisample: geometry::Multisample::X1,
+            quality: BaseQuality::Scan,
+            window_kind,
+            exposure: 0,
+        };
+        let frame = ScanArea::centered(0, ScanArea::FILM_WIDTH_DOTS, 3600);
+
+        // 333 DPI is under the 666 this unit reports across the bar
+        let under = params(WindowKind::Frame).descriptor(333, frame);
+        assert!(scanner.set_window(Channel::Red, under).is_err());
+
+        // The overview is coarser still, and longer than the reported Y boundary
+        let overview = params(WindowKind::Overview).descriptor(83, ScanArea::overview());
+        assert!(scanner.set_window(Channel::Red, overview).is_ok());
     }
 
     /// Anything other than a vendor-specific refusal is a real error, not something to sit
