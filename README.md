@@ -62,9 +62,8 @@ Personally, I find this much faster than anything I could do in NikonScan or Vue
 
 ## Python
 
-The same driver ships as a Python extension, so a scan comes back as a numpy array rather than
-a file. Frames arrive as linear 16-bit ADC counts, exactly what the scanner produced, which is
-what you want if something downstream is doing the inversion.
+We also ship the driver as a Python extension, which simplifies use in from Python-based scanning/inversion programs.
+The image data comes back as zero-copy numpy arrays in linear 16-bit ADC counts.
 
 ```
 pip install nkscan
@@ -88,13 +87,10 @@ with nkscan.Session(device.id) as session:
     session.eject()
 ```
 
-The scanner is released for the minutes a pass takes, so a progress callback can drive a UI and
-returning `False` from it stops the scan. Failures worth retrying share a `nkscan.TransientError`
-base, so one `except` covers a link glitch or a short read without swallowing a real problem like
-`nkscan.MediaError`.
+The scan may take minutes, so a progress callback can drive a UI and returning `False` from it stops the scan.
+Failures worth retrying share a `nkscan.TransientError` base, so one `except` covers a link glitch or a short read without swallowing a real problem like `nkscan.MediaError`.
 
-Building it from source needs [maturin](https://www.maturin.rs/); the dev shell in `flake.nix`
-has it, along with a Python carrying numpy.
+Building it from source needs [maturin](https://www.maturin.rs/); the dev shell in `flake.nix` has it, along with a Python carrying numpy.
 
 ```
 maturin develop
