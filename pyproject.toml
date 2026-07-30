@@ -4,11 +4,10 @@ build-backend = "maturin"
 
 [project]
 name = "nkscan"
-description = "Drive a Nikon Coolscan film scanner and get frames back as numpy arrays"
+description = "A platform-agnostic, performant interface to Nikon film scanners"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-authors = [{ name = "Kiran Shila" }]
-# Taken from Cargo.toml, so the crate and the wheel cannot disagree about it
+authors = [{ name = "Kira Shila" }]
 dynamic = ["version"]
 requires-python = ">=3.13"
 classifiers = [
