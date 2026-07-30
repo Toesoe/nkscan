@@ -1,0 +1,3 @@
+LIBRARY NKDSBP2.dll
+EXPORTS
+    NkDriverEntry @1
