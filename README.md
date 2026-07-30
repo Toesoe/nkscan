@@ -26,6 +26,8 @@ While the 9000 has the best support right now, there are still some gaps in capa
 - The Coolscan V workflow assumes a strip holder, not a full roll holder. I need more dumps of payloads/RE work to understand the typical flow for those (or the other inserts like the bulk slide loader)
 - The Coolscan 5000 path is totally untested. Someone should try it ;)
 
+If you would like to contribute support for new scanners, please take a look at scsi_proxy/README.md
+
 ## Usage
 
 ```
