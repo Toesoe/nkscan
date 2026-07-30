@@ -58,7 +58,17 @@ jobs:
                   args: --release --out dist
                   manylinux: auto
 
-            - name: Check it installs, imports and is tagged for redistribution
+            # The runner's default python is older than the abi3 floor, so pip would refuse a
+            # cp313 wheel. Both versions are installed to prove the point of abi3: one wheel
+            # covers the floor and every interpreter after it.
+            - name: Install the interpreters the wheel claims to support
+              uses: actions/setup-python@v5
+              with:
+                  python-version: |
+                      3.13
+                      3.14
+
+            - name: Check it is tagged for redistribution
               run: |
                   ls -l dist/
                   # abi3 names one interpreter floor and works on every later one, so a wheel
@@ -69,10 +79,16 @@ jobs:
                       *) echo "::error::$wheel will not install off this machine" && exit 1 ;;
                     esac
                   done
-                  python3 -m pip install --upgrade pip
-                  python3 -m pip install dist/*.whl
-                  python3 - <<'PY'
-                  import nkscan
+
+            - name: Check it installs and imports on every one of them
+              run: |
+                  for python in python3.13 python3.14; do
+                    echo "--- $python"
+                    "$python" -m pip install --upgrade pip
+                    "$python" -m pip install dist/*.whl
+                    "$python" - <<'PY'
+                  import nkscan, sys
+                  print("  running on", sys.version.split()[0])
                   # No scanner is attached to a runner, so this exercises enumeration finding none
                   assert nkscan.list_devices() == []
                   assert issubclass(nkscan.TransportError, nkscan.TransientError)
@@ -80,5 +96,6 @@ jobs:
                       nkscan.Session("nonsense")
                   except nkscan.DeviceNotFound:
                       pass
-                  print("import, enumeration and error hierarchy all fine")
+                  print("  import, enumeration and error hierarchy all fine")
                   PY
+                  done
