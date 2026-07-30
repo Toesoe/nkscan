@@ -16,7 +16,15 @@ Please reach out if you have a scanner we can test! Even just dumps of USB/SCSI 
 | LS-50 (Coolscan V)         | Tested   | Untested |
 | LS-5000 (Coolscan 5000)    | Untested | Untested |
 
-MacOS support is planned, but just stubbed out for the moment.
+MacOS Firewire support is planned, but just stubbed out for the moment. It should work for USB scanners, like the Coolscan V.
+
+### Caveat Emptor
+
+While the 9000 has the best support right now, there are still some gaps in capability based on what I have.
+
+- The Coolscan 9000 workflow assumes a medium format strip film holder. The frame detection algorithm will not work for others, but you can manually place the frames for the time being. If someone has the 35 holder or others, please reach out and we can add the missing logic.
+- The Coolscan V workflow assumes a strip holder, not a full roll holder. I need more dumps of payloads/RE work to understand the typical flow for those (or the other inserts like the bulk slide loader)
+- The Coolscan 5000 path is totally untested. Someone should try it ;)
 
 ## Usage
 
