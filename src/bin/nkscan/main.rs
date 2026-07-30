@@ -2,46 +2,34 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use ls50::Ls50Job;
-use ls5000::Ls5000Job;
-use ls9000::Ls9000Job;
-use nkscan::scanners::nikon::{ChannelExposures, capabilities::ResolutionRange};
 use nkscan::{
     decode::Image,
+    devices::{self, Attach, DeviceCapabilities, DeviceInfo},
     output,
-    scanners::{ls50 as ls50_scanner, ls5000 as ls5000_scanner},
-    scsi::{Transport, TransportExt, usb::UsbTransport},
+    scanners::Flow,
+    session::{Exposure, FocusMode, FrameSettings, Placement, Prepare, Session},
 };
-use nusb::MaybeFuture;
 use std::{
     fs::File,
     io::BufWriter,
     path::{Path, PathBuf},
+    time::Duration,
 };
 use tracing::*;
-
-/// The SCSI transport for this platform
-///
-/// macOS has an unimplemented stub whose signature differs, so SCSI is not offered there. USB
-/// is, so a mac can still drive an LS-50.
-#[cfg(target_os = "linux")]
-use nkscan::scsi::linux::SgDevice as ScsiDevice;
-#[cfg(target_os = "windows")]
-use nkscan::scsi::windows::ScsiScanDevice as ScsiDevice;
-
-/// Only the platforms with a SCSI transport ask a device who it is
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-use nkscan::scsi::cdbs::Inquiry;
 
 #[derive(Parser)]
 #[command(version, about)]
 /// Scan film on a Nikon Coolscan
 pub struct Cli {
-    /// Device path, skipping the search. `/dev/sg*` on Linux, `\\.\Scanner0` on Windows.
+    /// Which scanner to use, as `--list` reports it. Only needed when more than one is attached.
     ///
-    /// Not needed for a USB scanner, which is found by its ids.
+    /// A bare device path or `usb` also works.
     #[arg(long)]
     device: Option<PathBuf>,
+
+    /// List the scanners attached and exit, without touching any of them
+    #[arg(long)]
+    list: bool,
 
     /// Frames on the loaded strip
     ///
@@ -124,29 +112,6 @@ pub struct Cli {
     batch: bool,
 }
 
-/// Where to put the focus motor before a pass
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusMode {
-    /// Let the scanner find focus, once per frame
-    Auto,
-    /// Drive the motor to this setpoint and leave it there
-    At(u16),
-}
-
-impl std::str::FromStr for FocusMode {
-    type Err = String;
-
-    fn from_str(text: &str) -> std::result::Result<Self, String> {
-        match text {
-            "auto" => Ok(FocusMode::Auto),
-            other => other
-                .parse()
-                .map(FocusMode::At)
-                .map_err(|_| format!("expected `auto` or a setpoint, got `{other}`")),
-        }
-    }
-}
-
 impl Cli {
     /// Frames the caller asked for, defaulting to all of them
     fn selected(&self, placed: usize) -> Result<Vec<usize>> {
@@ -173,11 +138,60 @@ impl Cli {
         )
     }
 
-    /// Where frame `index` starts, in mm, with the last given offset repeating
-    fn offset_mm(&self, index: usize) -> f32 {
-        match self.offset.len() {
-            0 => 0.0,
-            n => self.offset[index.min(n - 1)],
+    /// What the flags ask for before any frame is scanned
+    ///
+    /// Which discovery to use comes from what the scanner can do rather than from which model it
+    /// is: one finds frames with an overview pass, one has a transport that senses them, and one
+    /// can only be told where they are.
+    fn prepare(&self, capabilities: &DeviceCapabilities) -> Result<Prepare> {
+        let placement = if self.placed_by_hand() {
+            Placement::Pitch {
+                frames: self.frames.map(|n| n as u32),
+                pitch_mm: self.pitch,
+                offsets_mm: self.offset.clone(),
+            }
+        } else if capabilities.detects_frames {
+            Placement::Detect {
+                frames: self.frames_to_find()?,
+            }
+        } else if capabilities.senses_frames {
+            Placement::Sensed {
+                frames: self.frames.map(|n| n as u32),
+            }
+        } else {
+            Placement::Pitch {
+                frames: self.frames.map(|n| n as u32),
+                pitch_mm: None,
+                offsets_mm: Vec::new(),
+            }
+        };
+
+        let exposure = match self.gains()? {
+            Some(values) => Exposure::Fixed {
+                visible: [values[0], values[1], values[2]],
+                ir: values.get(3).copied(),
+            },
+            None => Exposure::Auto {
+                lock_white_balance: self.lock_wb,
+            },
+        };
+
+        Ok(Prepare {
+            placement,
+            exposure,
+            wait_for_media: WAIT_FOR_MEDIA,
+        })
+    }
+
+    /// What the flags ask of each frame's pass
+    fn frame_settings(&self) -> FrameSettings {
+        FrameSettings {
+            dpi: self.dpi.unwrap_or(4000),
+            ir: self.ir,
+            focus: self.focus,
+            multisample: self.multisample as u8,
+            single_line: self.singleline,
+            window: None,
         }
     }
 
@@ -198,6 +212,9 @@ impl Cli {
     }
 }
 
+/// How long to wait for a holder before giving up, matching how long a person takes to load one
+const WAIT_FOR_MEDIA: Duration = Duration::from_secs(300);
+
 /// A bar that fills as a pass is read off the scanner
 pub fn reading(what: &str) -> ProgressBar {
     let bar = ProgressBar::no_length().with_message(what.to_owned());
@@ -207,38 +224,6 @@ pub fn reading(what: &str) -> ProgressBar {
             .progress_chars("=> "),
     );
     bar
-}
-
-/// Resolve a `--dpi` request against a model's ladder and the range the device reports
-///
-/// Dividing the sensor evenly is not enough: a ladder entry under the reported floor is
-/// refused, so the error lists only the offered ones.
-pub fn resolve_dpi<D: Copy>(
-    requested: u16,
-    ladder: &[D],
-    offered: ResolutionRange,
-    to_dpi: fn(D) -> u16,
-) -> Result<D> {
-    let legal: Vec<D> = ladder
-        .iter()
-        .copied()
-        .filter(|&mode| offered.allows(to_dpi(mode)))
-        .collect();
-    if let Some(&mode) = legal.iter().find(|&&mode| to_dpi(mode) == requested) {
-        return Ok(mode);
-    }
-
-    let names: Vec<String> = legal.iter().map(|&mode| to_dpi(mode).to_string()).collect();
-    bail!("--dpi expected one of {}", names.join(", "))
-}
-
-/// A metered gain written the way `--gain` takes it, so a logged one can be pasted back
-pub fn gain_spec(gain: &ChannelExposures, ir: bool) -> String {
-    let mut spec = format!("{},{},{}", gain.red, gain.green, gain.blue);
-    if ir {
-        spec.push_str(&format!(",{}", gain.ir));
-    }
-    spec
 }
 
 /// The next unused frame number for `basename`
@@ -289,101 +274,40 @@ fn write_frame(frame: &Image, basename: &Path, index: usize) -> Result<()> {
 
 // ---- finding a scanner
 
-/// Wraps an opened transport in the driver for one model
-type Opener = fn(Box<dyn Transport>) -> Result<Box<dyn Job>>;
-
-/// A scanner this CLI knows how to drive
+/// Report what is attached, as `--device` would have to name it
 ///
-/// Adding a model is an entry here plus a [`Job`] implementation. Everything else, discovery
-/// and the workflow both, is written against these rather than against any one scanner.
-struct Model {
-    /// Matched against the INQUIRY product string, or shown when a USB scanner is found
-    name: &'static str,
-    attach: Attach,
-    open: Opener,
-}
-
-/// How a model turns up
-enum Attach {
-    /// Enumerated by its USB ids
-    Usb { vendor: u16, product: u16 },
-    /// Found by sweeping device paths and asking each who it is
-    Scsi,
-}
-
-const MODELS: &[Model] = &[
-    Model {
-        name: "LS-9000 ED",
-        attach: Attach::Scsi,
-        open: Ls9000Job::open,
-    },
-    Model {
-        name: "LS-50 ED",
-        attach: Attach::Usb {
-            vendor: ls50_scanner::VENDOR_ID,
-            product: ls50_scanner::PRODUCT_ID,
-        },
-        open: Ls50Job::open,
-    },
-    Model {
-        name: "LS-5000 ED",
-        attach: Attach::Usb {
-            vendor: ls5000_scanner::VENDOR_ID,
-            product: ls5000_scanner::PRODUCT_ID,
-        },
-        open: Ls5000Job::open,
-    },
-];
-
-/// A scanner the search turned up, not yet opened
-struct Found {
-    model: &'static Model,
-    /// `None` for a USB scanner, which has no path to name
-    path: Option<PathBuf>,
-}
-
-impl Found {
-    fn open(self) -> Result<Box<dyn Job>> {
-        let transport: Box<dyn Transport> = match (&self.model.attach, &self.path) {
-            (Attach::Usb { vendor, product }, _) => {
-                Box::new(UsbTransport::open(*vendor, *product).context("opening the USB scanner")?)
-            }
-            (Attach::Scsi, Some(path)) => open_scsi(path)?,
-            (Attach::Scsi, None) => bail!("a SCSI scanner needs a device path"),
-        };
-        (self.model.open)(transport)
+/// Enumeration asks each device who it is and nothing more, so this is safe to run against a
+/// scanner somebody else is using.
+fn list_devices() -> Result<()> {
+    let found = devices::list();
+    if found.is_empty() {
+        println!("No scanners found.");
+        return Ok(());
     }
-
-    /// What `--device` would have to say to pick this one
-    fn selector(&self) -> String {
-        match &self.path {
-            Some(path) => path.display().to_string(),
-            None => "usb".to_owned(),
-        }
+    for device in found {
+        println!("{}  {}", device.id, device.model.name());
     }
+    Ok(())
 }
 
 /// Open the scanner the caller meant
 ///
 /// One attached scanner needs no argument. More than one is ambiguous and says so rather than
 /// picking, since which one it picked would be invisible until the wrong film came back.
-fn open(cli: &Cli) -> Result<Box<dyn Job>> {
-    let mut found = discover();
+fn open(cli: &Cli) -> Result<Session> {
+    let mut found = devices::list();
 
-    if let Some(device) = &cli.device {
-        let wants_usb = device.as_os_str().eq_ignore_ascii_case("usb");
-        found.retain(|f| match &f.path {
-            Some(path) => path == device,
-            None => wants_usb,
-        });
+    if let Some(wanted) = &cli.device {
+        let wanted = wanted.to_string_lossy().to_string();
+        found.retain(|device| names(device, &wanted));
         return match found.len() {
-            1 => found.remove(0).open(),
-            _ => bail!("no scanner at {}", device.display()),
+            1 => claim(found.remove(0)),
+            _ => bail!("no scanner at {wanted}"),
         };
     }
 
     match found.len() {
-        1 => found.remove(0).open(),
+        1 => claim(found.remove(0)),
         0 => bail!(
             "no scanner found. Point --device at one; on Windows run from an elevated prompt, \
              where a device path fails to open at all without one."
@@ -391,7 +315,7 @@ fn open(cli: &Cli) -> Result<Box<dyn Job>> {
         _ => {
             let list: Vec<String> = found
                 .iter()
-                .map(|f| format!("\n  {} ({})", f.model.name, f.selector()))
+                .map(|device| format!("\n  {} ({})", device.model.name(), device.id))
                 .collect();
             bail!(
                 "more than one scanner is attached, so pick one with --device:{}",
@@ -401,112 +325,19 @@ fn open(cli: &Cli) -> Result<Box<dyn Job>> {
     }
 }
 
-/// Every scanner attached that this CLI knows how to drive
-fn discover() -> Vec<Found> {
-    let mut found = Vec::new();
-
-    // Presence only, since claiming the interface is what opening would do
-    let usb: Vec<(u16, u16)> = nusb::list_devices()
-        .wait()
-        .map(|devices| devices.map(|d| (d.vendor_id(), d.product_id())).collect())
-        .unwrap_or_default();
-
-    for model in MODELS {
-        match model.attach {
-            Attach::Usb { vendor, product } => {
-                found.extend(
-                    usb.iter()
-                        .filter(|ids| **ids == (vendor, product))
-                        .map(|_| Found { model, path: None }),
-                );
-            }
-            // Swept once below, since one INQUIRY answers for every SCSI model at once
-            Attach::Scsi => {}
-        }
-    }
-
-    for path in scsi_paths() {
-        let Some(product) = probe_scsi(&path) else {
-            continue;
-        };
-        if let Some(model) = MODELS.iter().find(|m| {
-            matches!(m.attach, Attach::Scsi)
-                && product
-                    .to_ascii_lowercase()
-                    .contains(&m.name.to_ascii_lowercase())
-        }) {
-            found.push(Found {
-                model,
-                path: Some(path),
-            });
-        } else {
-            debug!(%product, path = %path.display(), "A Nikon we do not drive");
-        }
-    }
-    found
-}
-
-/// Device paths worth asking who they are
-#[cfg(target_os = "linux")]
-fn scsi_paths() -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir("/dev") else {
-        return Vec::new();
-    };
-    let mut paths: Vec<PathBuf> = entries
-        .filter_map(|entry| {
-            let path = entry.ok()?.path();
-            let name = path.file_name()?.to_str()?.to_owned();
-            let index = name.strip_prefix("sg")?;
-            (!index.is_empty() && index.chars().all(|c| c.is_ascii_digit())).then_some(path)
-        })
-        .collect();
-    paths.sort();
-    paths
-}
-
-#[cfg(target_os = "windows")]
-fn scsi_paths() -> Vec<PathBuf> {
-    (0..10)
-        .map(|n| PathBuf::from(format!(r"\\.\Scanner{n}")))
-        .collect()
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn scsi_paths() -> Vec<PathBuf> {
-    Vec::new()
-}
-
-/// How the device at `path` introduces itself, if it is a Nikon at all
+/// Whether `--device` picks this scanner
 ///
-/// An INQUIRY and nothing else. This sweeps devices that have nothing to do with us, so it must
-/// not change any of them: notably it does not build a driver, which would reserve the unit and
-/// write a mode page on its way up. Anything that fails to open or answers as something else is
-/// not a match rather than an error, since being refused by an unrelated device is normal.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-fn probe_scsi(path: &Path) -> Option<String> {
-    let mut device = ScsiDevice::open(path).ok()?;
-    let identity = device.send(&Inquiry::new()).ok()?;
-    identity
-        .vendor
-        .trim()
-        .eq_ignore_ascii_case("nikon")
-        .then(|| identity.product.trim().to_owned())
+/// Its full id is the precise way. A bare path or `usb` also works, since that is what there was
+/// to name a scanner by before ids existed.
+fn names(device: &DeviceInfo, wanted: &str) -> bool {
+    device.id.eq_ignore_ascii_case(wanted)
+        || device.attach.location().eq_ignore_ascii_case(wanted)
+        || (wanted.eq_ignore_ascii_case("usb") && matches!(device.attach, Attach::Usb { .. }))
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn probe_scsi(_path: &Path) -> Option<String> {
-    None
-}
-
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-fn open_scsi(path: &Path) -> Result<Box<dyn Transport>> {
-    let device = ScsiDevice::open(path).with_context(|| format!("opening {}", path.display()))?;
-    Ok(Box::new(device))
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn open_scsi(_path: &Path) -> Result<Box<dyn Transport>> {
-    bail!("SCSI is not implemented on this platform, so only a USB scanner will work here")
+/// Claim a scanner the search found
+fn claim(device: DeviceInfo) -> Result<Session> {
+    Session::open(&device.id).with_context(|| format!("opening {}", device.id))
 }
 
 // ---- the workflow
@@ -515,15 +346,19 @@ fn main() -> Result<()> {
     init_logging();
     let cli = Cli::parse();
 
-    let mut job = open(&cli)?;
-    let outcome = run(job.as_mut(), &cli);
+    if cli.list {
+        return list_devices();
+    }
+
+    let mut session = open(&cli)?;
+    let outcome = run(&mut session, &cli);
 
     // Worth getting the film back even when the pass failed, so this runs either way and
     // whatever went wrong first is still what gets reported
     if cli.eject {
-        match job.eject() {
+        match session.eject() {
             Ok(()) => info!("Ejected"),
-            Err(e) if outcome.is_ok() => return Err(e),
+            Err(e) if outcome.is_ok() => return Err(e.into()),
             Err(e) => warn!("Could not eject: {e}"),
         }
     }
@@ -550,8 +385,12 @@ fn init_logging() {
 
 /// The workflow, whichever scanner is on the other end, once around for `--batch`'s every
 /// strip and just the once otherwise
-fn run(job: &mut dyn Job, cli: &Cli) -> Result<()> {
-    job.reject_unsupported(cli)?;
+fn run(session: &mut Session, cli: &Cli) -> Result<()> {
+    let prepare = cli.prepare(&session.capabilities())?;
+    let settings = cli.frame_settings();
+    // Before anything mechanical happens, since a scan discovers these only once it is building
+    // the pass, which is after a focus and a metering run have already taken a minute
+    session.check(&prepare, &settings)?;
 
     let mut next = next_index(&cli.basename);
     let mut strip = 1usize;
@@ -561,29 +400,44 @@ fn run(job: &mut dyn Job, cli: &Cli) -> Result<()> {
             info!("Strip {strip}");
         }
 
-        let placed = job.prepare(cli)?;
+        let bar = reading("Preparing");
+        let placed = session.prepare(&prepare, &mut bar_progress(&bar))?;
+        bar.finish_and_clear();
+
         let selected = cli.selected(placed)?;
         info!("{placed} frames placed, scanning {}", selected.len());
 
         for index in selected {
-            let frame = job.scan_frame(cli, index)?;
+            let bar = reading("Scanning");
+            let frame = session.scan_frame(index, &settings, &mut bar_progress(&bar))?;
+            bar.finish_and_clear();
+
             write_frame(&frame, &cli.basename, next)?;
             next += 1;
             // The first frame scanned sets the roll's exposure; everything after reuses it.
             // A no-op once it is already locked, so calling this per frame is harmless.
             if cli.batch {
-                job.lock_gain();
+                session.lock_gain();
             }
         }
 
         if !cli.batch {
             return Ok(());
         }
-        // Film comes out under motor control on both scanners, not by hand, so it has to be
-        // ejected before the next strip can go in
-        job.eject()?;
+        // Film comes out under motor control, not by hand, so it has to be ejected before the
+        // next strip can go in
+        session.eject()?;
         pause_for_reload()?;
         strip += 1;
+    }
+}
+
+/// Drive `bar` from a pass, without ever asking it to stop
+fn bar_progress(bar: &ProgressBar) -> impl FnMut(u64, u64) -> Flow + '_ {
+    move |read, total| {
+        bar.set_length(total);
+        bar.set_position(read);
+        Flow::Continue
     }
 }
 
@@ -596,73 +450,4 @@ fn pause_for_reload() -> Result<()> {
     std::io::stderr().flush()?;
     std::io::stdin().read_line(&mut String::new())?;
     Ok(())
-}
-
-/// A scanner part way through a session
-///
-/// The frame table, gain type and scan settings differ per model and none of them appear here:
-/// each implementation keeps its own, and this only names the steps.
-pub trait Job {
-    /// Wake the mechanism and work out where the frames are, returning how many were placed
-    fn prepare(&mut self, cli: &Cli) -> Result<usize>;
-
-    /// Focus, expose and scan one frame
-    fn scan_frame(&mut self, cli: &Cli, index: usize) -> Result<Image>;
-
-    /// Stop metering and hold whatever gain the last scanned frame settled on, for `--batch`
-    ///
-    /// A no-op by default, for a job that already reuses its first metered gain on its own.
-    fn lock_gain(&mut self) {}
-
-    fn eject(&mut self) -> Result<()>;
-
-    /// Refuse a knob this scanner does not have, rather than quietly doing something else
-    fn reject_unsupported(&self, _cli: &Cli) -> Result<()> {
-        Ok(())
-    }
-}
-
-mod ls50;
-mod ls5000;
-mod ls9000;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A model ladder with one rung under the floor an LS-9000 reports
-    const LADDER: [u16; 4] = [4000, 2000, 1333, 333];
-
-    fn offered(min: u16) -> ResolutionRange {
-        ResolutionRange {
-            optical: 4000,
-            min,
-            max: 4000,
-        }
-    }
-
-    #[test]
-    fn a_resolution_the_device_reaches_resolves() {
-        assert_eq!(
-            resolve_dpi(1333, &LADDER, offered(666), |dpi| dpi).unwrap(),
-            1333
-        );
-        // the same rung on a unit that divides further
-        assert_eq!(
-            resolve_dpi(333, &LADDER, offered(90), |dpi| dpi).unwrap(),
-            333
-        );
-    }
-
-    /// Under the floor and off the ladder are the same complaint, and neither names a rung the
-    /// device will not take
-    #[test]
-    fn a_resolution_the_device_does_not_reach_is_refused() {
-        for asked in [333, 800] {
-            let err = resolve_dpi(asked, &LADDER, offered(666), |dpi| dpi)
-                .unwrap_err()
-                .to_string();
-            assert_eq!(err, "--dpi expected one of 4000, 2000, 1333");
-        }
-    }
 }

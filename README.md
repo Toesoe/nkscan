@@ -24,9 +24,10 @@ MacOS support is planned, but just stubbed out for the moment.
 Usage: nkscan [OPTIONS]
 
 Options:
-      --device <DEVICE>            Device path, skipping the search. `/dev/sg*` on Linux, `\\.\Scanner0` on Windows
+      --device <DEVICE>            Which scanner to use, as `--list` reports it. Only needed when more than one is attached
+      --list                       List the scanners attached and exit, without touching any of them
       --frames <FRAMES>            Frames on the loaded strip
-      --frame <FRAME>              Which of those to actually scan, zero-indexed, comma separated. All by default
+      --frame <FRAME>              Which frames to actually scan, zero-indexed and comma separated. All of them by default
       --dpi <DPI>                  Resolution in DPI. One of the firmware's divisions of the sensor's native pitch
       --gain <R,G,B[,IR]>          Fixed per-channel analog gain as `red,green,blue[,ir]`, which turns autoexposure off
       --focus <FOCUS>              Focus: `auto` to let the scanner find it on each frame, or a fixed setpoint [default: auto]
@@ -58,6 +59,46 @@ nkscan --frames 3 --ir --lock-wb --multisample 2 --batch
 ```
 
 Personally, I find this much faster than anything I could do in NikonScan or Vuescan.
+
+## Python
+
+The same driver ships as a Python extension, so a scan comes back as a numpy array rather than
+a file. Frames arrive as linear 16-bit ADC counts, exactly what the scanner produced, which is
+what you want if something downstream is doing the inversion.
+
+```
+pip install nkscan
+```
+
+```python
+import nkscan
+
+device = nkscan.list_devices()[0]
+print(device.id, device.model, device.capabilities.dpi)
+
+with nkscan.Session(device.id) as session:
+    # Three 6x6 frames at a 56 mm pitch, holding one exposure across all of them
+    session.prepare(frames=3, pitch_mm=56.0, gain=(283048, 202864, 166589))
+
+    for frame in range(3):
+        result = session.scan(frame, dpi=2000, ir=True,
+                              progress=lambda read, total: print(f"\r{read}/{total}", end=""))
+        result.rgb          # (height, width, 3) uint16
+        result.ir           # (height, width) uint16, or None
+    session.eject()
+```
+
+The scanner is released for the minutes a pass takes, so a progress callback can drive a UI and
+returning `False` from it stops the scan. Failures worth retrying share a `nkscan.TransientError`
+base, so one `except` covers a link glitch or a short read without swallowing a real problem like
+`nkscan.MediaError`.
+
+Building it from source needs [maturin](https://www.maturin.rs/); the dev shell in `flake.nix`
+has it, along with a Python carrying numpy.
+
+```
+maturin develop
+```
 
 ## License
 

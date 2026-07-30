@@ -37,7 +37,24 @@ pub enum ReadError<E> {
     Scsi(#[from] scsi::Error),
     #[error(transparent)]
     Decode(E),
+    /// A progress report asked for the pass to stop
+    #[error("the pass was cancelled")]
+    Cancelled,
 }
+
+/// What a progress report asks the pass to do next
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    Continue,
+    /// Stop reading. Whoever knows how to throw the rest of the pass away is the one that does
+    /// it, since the command to do so is per model.
+    Cancel,
+}
+
+/// Reports (bytes read, bytes expected) of a pass and says whether to keep going
+///
+/// Boxed rather than generic so a caller reached through a trait object can still be given one.
+pub type ProgressFn<'a> = dyn FnMut(u64, u64) -> Flow + 'a;
 
 /// Unit attentions queue up, but not without bound. Past this something is wrong.
 const MAX_QUEUED_UNIT_ATTENTIONS: usize = 8;
@@ -193,10 +210,13 @@ pub trait Scanner {
         D: StreamDecoder,
         Self: Sized,
     {
-        self.read_into_with(decoder, chunk, |_, _| {})
+        self.read_into_with(decoder, chunk, |_, _| Flow::Continue)
     }
 
     /// [`read_into`](Self::read_into), calling `progress` with (received, expected) per chunk
+    ///
+    /// A [`Flow::Cancel`] stops the read and returns [`ReadError::Cancelled`] with the rest of
+    /// the pass still pending on the device, which the caller has to clear.
     fn read_into_with<D, F>(
         &mut self,
         decoder: &mut D,
@@ -205,7 +225,7 @@ pub trait Scanner {
     ) -> Result<(), ReadError<D::Error>>
     where
         D: StreamDecoder,
-        F: FnMut(u64, u64),
+        F: FnMut(u64, u64) -> Flow,
         Self: Sized,
     {
         let expected = decoder.expected_bytes();
@@ -222,7 +242,9 @@ pub trait Scanner {
             }
             received += bytes.len() as u64;
             decoder.push(&bytes).map_err(ReadError::Decode)?;
-            progress(received, expected);
+            if progress(received, expected) == Flow::Cancel {
+                return Err(ReadError::Cancelled);
+            }
         }
         Ok(())
     }

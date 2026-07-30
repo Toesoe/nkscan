@@ -6,6 +6,7 @@
 
 use super::{DataDirection, Error, Transport};
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
 /// One command as the mock saw it
 pub struct Sent {
@@ -14,13 +15,23 @@ pub struct Sent {
     pub data: Vec<u8>,
 }
 
+/// State shared by every clone, so a test can still see what a driver it was given away to did
 #[derive(Default)]
-pub struct MockTransport {
+struct Shared {
     log: Vec<Sent>,
     /// Full VPD responses, header included, by page code
     pages: BTreeMap<u8, Vec<u8>>,
     /// Errors to hand back, consumed in order, by opcode
     failures: BTreeMap<u8, VecDeque<Error>>,
+    /// A plain INQUIRY response, for a driver that checks what it is talking to
+    identity: Option<Vec<u8>>,
+}
+
+/// Cloning shares the log rather than copying it, so a test can hand one clone to a driver and
+/// keep the other to ask what happened
+#[derive(Default, Clone)]
+pub struct MockTransport {
+    shared: Arc<Mutex<Shared>>,
 }
 
 impl MockTransport {
@@ -28,29 +39,76 @@ impl MockTransport {
         Self::default()
     }
 
-    /// Answer an EVPD inquiry for `page_code` with `raw`, header included
-    pub fn with_page(mut self, page_code: u8, raw: Vec<u8>) -> Self {
-        self.pages.insert(page_code, raw);
+    /// Answer a plain INQUIRY as this vendor and product, the way a real unit introduces itself
+    pub fn with_identity(self, vendor: &str, product: &str) -> Self {
+        // Fixed-width ASCII fields: vendor at 8, product at 16, revision at 32
+        let mut data = vec![b' '; 36];
+        data[..8].copy_from_slice(&[0x06, 0x80, 0x02, 0x02, 0x1F, 0x00, 0x00, 0x00]);
+        for (at, text) in [(8, vendor), (16, product), (32, "1.02")] {
+            let bytes = text.as_bytes();
+            let end = (at + bytes.len()).min(data.len());
+            data[at..end].copy_from_slice(&bytes[..end - at]);
+        }
+        self.lock().identity = Some(data);
         self
+    }
+
+    /// Answer an EVPD inquiry for `page_code` with `raw`, header included
+    pub fn with_page(self, page_code: u8, raw: Vec<u8>) -> Self {
+        self.lock().pages.insert(page_code, raw);
+        self
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Shared> {
+        self.shared
+            .lock()
+            .expect("no test panics while holding this")
     }
 
     /// Fail the next command with this opcode. Queue several to fail several.
     pub fn failing(mut self, opcode: u8, error: Error) -> Self {
-        self.failures.entry(opcode).or_default().push_back(error);
+        self.fail_next(opcode, error);
         self
     }
 
-    /// Every command executed, in order
-    pub fn log(&self) -> &[Sent] {
-        &self.log
+    /// [`failing`](Self::failing) once the transport is already in a driver
+    ///
+    /// Opening a handle spends commands of its own, so a test aiming a failure at something
+    /// later has to queue it after that rather than at construction.
+    pub fn fail_next(&mut self, opcode: u8, error: Error) {
+        self.lock()
+            .failures
+            .entry(opcode)
+            .or_default()
+            .push_back(error);
+    }
+
+    /// How many commands were executed
+    pub fn len(&self) -> usize {
+        self.lock().log.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// What every command with this opcode wrote, in order
+    pub fn data_outs(&self, opcode: u8) -> Vec<Vec<u8>> {
+        self.lock()
+            .log
+            .iter()
+            .filter(|sent| sent.cdb[0] == opcode)
+            .map(|sent| sent.data.clone())
+            .collect()
     }
 
     /// What the first command with this opcode wrote
-    pub fn data_out(&self, opcode: u8) -> Option<&[u8]> {
-        self.log
+    pub fn data_out(&self, opcode: u8) -> Option<Vec<u8>> {
+        self.lock()
+            .log
             .iter()
             .find(|sent| sent.cdb[0] == opcode)
-            .map(|sent| sent.data.as_slice())
+            .map(|sent| sent.data.clone())
     }
 
     /// The opcodes seen, with consecutive repeats collapsed
@@ -60,7 +118,7 @@ impl MockTransport {
     /// pinning a test to.
     pub fn opcode_sequence(&self) -> Vec<u8> {
         let mut sequence: Vec<u8> = Vec::new();
-        for sent in &self.log {
+        for sent in &self.lock().log {
             let opcode = sent.cdb[0];
             if sequence.last() != Some(&opcode) {
                 sequence.push(opcode);
@@ -70,16 +128,21 @@ impl MockTransport {
     }
 
     /// Every CDB sent with this opcode, in order
-    pub fn cdbs(&self, opcode: u8) -> Vec<&[u8]> {
-        self.log
+    pub fn cdbs(&self, opcode: u8) -> Vec<Vec<u8>> {
+        self.lock()
+            .log
             .iter()
             .filter(|sent| sent.cdb[0] == opcode)
-            .map(|sent| sent.cdb.as_slice())
+            .map(|sent| sent.cdb.clone())
             .collect()
     }
 
     pub fn count(&self, opcode: u8) -> usize {
-        self.log.iter().filter(|sent| sent.cdb[0] == opcode).count()
+        self.lock()
+            .log
+            .iter()
+            .filter(|sent| sent.cdb[0] == opcode)
+            .count()
     }
 }
 
@@ -91,7 +154,8 @@ impl Transport for MockTransport {
         data: &mut [u8],
         _sense: &mut [u8],
     ) -> Result<(), Error> {
-        self.log.push(Sent {
+        let mut shared = self.lock();
+        shared.log.push(Sent {
             cdb: cdb.to_vec(),
             data: match direction {
                 DataDirection::Write => data.to_vec(),
@@ -99,18 +163,20 @@ impl Transport for MockTransport {
             },
         });
 
-        if let Some(queued) = self.failures.get_mut(&cdb[0])
+        if let Some(queued) = shared.failures.get_mut(&cdb[0])
             && let Some(error) = queued.pop_front()
         {
             return Err(error);
         }
 
         data.fill(0);
-        // EVPD inquiry, where the page code is in byte 2
-        if cdb[0] == 0x12
-            && cdb[1] & 1 == 1
-            && let Some(raw) = self.pages.get(&cdb[2])
-        {
+        // Byte 1 bit 0 is EVPD, which chooses between a vital product page and the identity
+        let answer = match (cdb[0], cdb[1] & 1) {
+            (0x12, 1) => shared.pages.get(&cdb[2]),
+            (0x12, _) => shared.identity.as_ref(),
+            _ => None,
+        };
+        if let Some(raw) = answer {
             let n = raw.len().min(data.len());
             data[..n].copy_from_slice(&raw[..n]);
         }

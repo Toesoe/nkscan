@@ -58,3 +58,121 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   files: nkscan-x86_64-pc-windows-msvc.exe
+
+    # ---- Python wheels
+    #
+    # maturin rather than nix: a nix-built extension links against nix-store glibc with
+    # nix-store rpaths and its wheel is tagged linux_x86_64, which no index accepts and which
+    # would not load off this machine anyway. maturin builds Linux wheels inside manylinux
+    # containers and runs auditwheel over the result.
+    #
+    # One wheel per platform, not per interpreter: the abi3-py313 feature makes a single build
+    # work on 3.13 and everything after it, which is the floor NegPy asks for.
+    wheels:
+        name: Wheel ${{ matrix.platform }} ${{ matrix.target }}
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - { platform: linux, runner: ubuntu-latest, target: x86_64 }
+                    - { platform: linux, runner: ubuntu-latest, target: aarch64 }
+                    - { platform: macos, runner: macos-latest, target: x86_64 }
+                    - { platform: macos, runner: macos-latest, target: aarch64 }
+                    - { platform: windows, runner: windows-latest, target: x64 }
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Build wheel
+              uses: PyO3/maturin-action@v1
+              with:
+                  target: ${{ matrix.target }}
+                  args: --release --out dist
+                  # Cross-compiles the aarch64 Linux wheel in a manylinux container
+                  manylinux: auto
+                  sccache: "true"
+
+            - name: Upload wheel
+              uses: actions/upload-artifact@v4
+              with:
+                  name: wheel-${{ matrix.platform }}-${{ matrix.target }}
+                  path: dist
+
+    # A version on PyPI can never be reused, and maturin takes the version from Cargo.toml
+    # rather than from the tag, so a mistyped tag would otherwise publish the wrong one.
+    version:
+        name: Tag matches Cargo.toml
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Compare
+              run: |
+                  crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+                  tag=${GITHUB_REF_NAME#v}
+                  echo "Cargo.toml says $crate, tag says $tag"
+                  if [ "$crate" != "$tag" ]; then
+                    echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $crate"
+                    exit 1
+                  fi
+
+    sdist:
+        name: Source distribution
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Build sdist
+              uses: PyO3/maturin-action@v1
+              with:
+                  command: sdist
+                  args: --out dist
+
+            - name: Upload sdist
+              uses: actions/upload-artifact@v4
+              with:
+                  name: wheel-sdist
+                  path: dist
+
+    publish:
+        name: Publish to PyPI
+        needs: [version, wheels, sdist]
+        runs-on: ubuntu-latest
+        environment: pypi
+        permissions:
+            # Trusted publishing: PyPI verifies this workflow by OIDC, so there is no long-lived
+            # token in the repository. Register the publisher once at
+            # pypi.org/manage/account/publishing with owner, repo and this workflow's filename.
+            id-token: write
+        steps:
+            - name: Collect every wheel and the sdist
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: wheel-*
+                  path: dist
+                  merge-multiple: true
+
+            - name: Publish
+              uses: pypa/gh-action-pypi-publish@release/v1
+              with:
+                  packages-dir: dist
+
+    attach-wheels:
+        name: Attach wheels to the release
+        needs: [version, wheels, sdist]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Collect every wheel and the sdist
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: wheel-*
+                  path: dist
+                  merge-multiple: true
+
+            - name: Upload to release
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: dist/*

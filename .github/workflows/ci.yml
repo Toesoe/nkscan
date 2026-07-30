@@ -39,3 +39,46 @@ jobs:
 
             - name: Run flake checks
               run: nix flake check --print-build-logs --keep-going
+
+    # The flake checks that the bindings compile, but only a manylinux build proves the wheel a
+    # consumer would actually install. Nix cannot produce one: it links against nix-store glibc
+    # with nix-store rpaths, and the result is tagged linux_x86_64, which no index accepts.
+    #
+    # Run on every change rather than at tag time, when a release is already half published.
+    wheel:
+        name: Build wheel
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Build wheel
+              uses: PyO3/maturin-action@v1
+              with:
+                  args: --release --out dist
+                  manylinux: auto
+
+            - name: Check it installs, imports and is tagged for redistribution
+              run: |
+                  ls -l dist/
+                  # abi3 names one interpreter floor and works on every later one, so a wheel
+                  # tagged for a single version means the abi3 feature stopped taking effect
+                  for wheel in dist/*.whl; do
+                    case "$wheel" in
+                      *abi3-manylinux*) echo "ok: $wheel" ;;
+                      *) echo "::error::$wheel will not install off this machine" && exit 1 ;;
+                    esac
+                  done
+                  python3 -m pip install --upgrade pip
+                  python3 -m pip install dist/*.whl
+                  python3 - <<'PY'
+                  import nkscan
+                  # No scanner is attached to a runner, so this exercises enumeration finding none
+                  assert nkscan.list_devices() == []
+                  assert issubclass(nkscan.TransportError, nkscan.TransientError)
+                  try:
+                      nkscan.Session("nonsense")
+                  except nkscan.DeviceNotFound:
+                      pass
+                  print("import, enumeration and error hierarchy all fine")
+                  PY
