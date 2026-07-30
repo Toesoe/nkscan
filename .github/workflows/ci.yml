@@ -40,6 +40,40 @@ jobs:
             - name: Run flake checks
               run: nix flake check --print-build-logs --keep-going
 
+    # The stub is what a consumer sees of an abi3 extension, since one carries no introspectable
+    # signatures. It is generated, so this only has to catch a commit that forgot to regenerate.
+    stubs:
+        name: Stub is up to date
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: "1.96"
+
+            - name: Cache Rust artifacts
+              uses: Swatinem/rust-cache@v2
+
+            # pyo3 needs an interpreter to build against. numpy is not needed: the generator
+            # reads type information rather than calling into it.
+            - name: Install Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.13"
+
+            - name: Regenerate
+              run: cargo run --features python --bin stub_gen
+
+            - name: Fail if it differs from what is committed
+              run: |
+                  if ! git diff --exit-code nkscan.pyi; then
+                    echo "::error::nkscan.pyi is stale, run: cargo run --features python --bin stub_gen"
+                    exit 1
+                  fi
+
     # The flake checks that the bindings compile, but only a manylinux build proves the wheel a
     # consumer would actually install. Nix cannot produce one: it links against nix-store glibc
     # with nix-store rpaths, and the result is tagged linux_x86_64, which no index accepts.

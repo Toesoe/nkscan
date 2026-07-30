@@ -11,9 +11,9 @@ use crate::devices::{self, DeviceCapabilities, DeviceInfo};
 use crate::scanners::Flow;
 use crate::session::{Error, Exposure, FocusMode, FrameSettings, Placement, Prepare, Session};
 use numpy::{IntoPyArray, PyArray2, PyArray3, PyArrayMethods};
-use pyo3::create_exception;
 use pyo3::exceptions::{PyPermissionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3_stub_gen::{create_exception, define_stub_info_gatherer, derive::*};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -87,7 +87,8 @@ fn to_py(error: Error) -> PyErr {
     }
 }
 
-/// What a model can do, as [`Device`] reports it
+/// What a model can do
+#[gen_stub_pyclass]
 #[pyclass(name = "Capabilities", frozen, get_all, module = "nkscan")]
 struct PyCapabilities {
     dpi: Vec<u32>,
@@ -122,6 +123,7 @@ impl From<DeviceCapabilities> for PyCapabilities {
 }
 
 /// A scanner the search found, not yet opened
+#[gen_stub_pyclass]
 #[pyclass(name = "Device", frozen, get_all, module = "nkscan")]
 struct PyDevice {
     id: String,
@@ -133,6 +135,7 @@ struct PyDevice {
 /// One frame, as it came off the scanner
 ///
 /// Linear 16-bit ADC counts, not display-referred: applying a transfer curve is the caller's.
+#[gen_stub_pyclass]
 #[pyclass(name = "ScanResult", frozen, get_all, module = "nkscan")]
 struct PyScanResult {
     /// (height, width, 3) uint16
@@ -176,6 +179,7 @@ fn into_arrays(py: Python<'_>, image: Image) -> PyResult<Planes> {
 }
 
 /// An exclusive hold on one scanner
+#[gen_stub_pyclass]
 #[pyclass(name = "Session", module = "nkscan")]
 struct PySession {
     /// `None` once closed, so using a closed session raises rather than panicking
@@ -241,6 +245,7 @@ impl PySession {
     }
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl PySession {
     /// Claim the scanner `device_id` names, as `list_devices` reported it
@@ -300,6 +305,10 @@ impl PySession {
         gain: Option<Vec<u32>>,
         lock_white_balance: bool,
         wait_for_media_s: f64,
+        #[gen_stub(override_type(
+            type_repr = "collections.abc.Callable[[int, int], bool | None] | None",
+            imports = ("collections.abc")
+        ))]
         progress: Option<Py<PyAny>>,
     ) -> PyResult<usize> {
         let placement = if detect {
@@ -358,6 +367,10 @@ impl PySession {
         multisample: u8,
         single_line: bool,
         window: Option<(f32, f32, f32, f32)>,
+        #[gen_stub(override_type(
+            type_repr = "collections.abc.Callable[[int, int], bool | None] | None",
+            imports = ("collections.abc")
+        ))]
         progress: Option<Py<PyAny>>,
     ) -> PyResult<PyScanResult> {
         let focus = focus.parse::<FocusMode>().map_err(PyValueError::new_err)?;
@@ -437,6 +450,7 @@ impl PySession {
 ///
 /// Asks each device who it is and nothing more, so it is safe to call while another process holds
 /// one.
+#[gen_stub_pyfunction]
 #[pyfunction]
 fn list_devices(py: Python<'_>) -> PyResult<Vec<PyDevice>> {
     devices::list()
@@ -472,3 +486,7 @@ fn nkscan_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ScanCancelled", py.get_type::<ScanCancelled>())?;
     Ok(())
 }
+
+// Reads pyproject.toml for the module name, so `cargo run --bin stub_gen` writes the stub the
+// wheel ships
+define_stub_info_gatherer!(stub_info);
