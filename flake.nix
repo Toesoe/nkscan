@@ -93,7 +93,11 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoExtraArgs = "--all-features";
+              # Deliberately not --all-features. PYO3_BUILD_EXTENSION_MODULE tells pyo3 to leave
+              # the Python symbols for the host interpreter to resolve, which is right for the
+              # cdylib the wheel ships and impossible for a test executable, which has no
+              # interpreter to link against. Nothing is lost: the bindings have no Rust tests, and
+              # clippy checks them with every feature because checking never links.
               partitions = 1;
               partitionType = "count";
               cargoNextestPartitionsExtraArgs = "--no-tests=pass";
