@@ -8,3 +8,7 @@ pub mod session;
 /// The Python extension module, built only for the wheel
 #[cfg(feature = "python")]
 mod python;
+
+/// Where the `stub_gen` binary reads the bindings from, so the module itself stays private
+#[cfg(feature = "python")]
+pub use python::stub_info as python_stub_info;

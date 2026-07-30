@@ -22,6 +22,13 @@ moxcms = "0.9"
 pyo3 = { version = "0.29", optional = true, features = ["abi3-py313"] }
 # Tracks pyo3's version; the pairing is what makes the zero-copy handoff sound
 numpy = { version = "0.29", optional = true }
+# Generates python/nkscan.pyi from the bindings, so the two cannot drift
+# infer_signature is what turns a default into its actual repr rather than `...`; the rest of the
+# crate's defaults are type support for crates this does not use
+pyo3-stub-gen = { version = "0.23", optional = true, default-features = false, features = [
+  "numpy",
+  "infer_signature",
+] }
 
 # The CLI stack, which a library consumer has no use for
 tracing-subscriber = { version = "0.3", features = [
@@ -33,12 +40,17 @@ indicatif = { version = "0.18", optional = true }
 
 [features]
 cli = ["dep:tracing-subscriber", "dep:clap", "dep:anyhow", "dep:indicatif"]
-python = ["dep:pyo3", "dep:numpy"]
+python = ["dep:pyo3", "dep:numpy", "dep:pyo3-stub-gen"]
 
 [[bin]]
 name = "nkscan"
 path = "src/bin/nkscan/main.rs"
 required-features = ["cli"]
+
+[[bin]]
+name = "stub_gen"
+path = "src/bin/stub_gen.rs"
+required-features = ["python"]
 
 [lib]
 name = "nkscan"

@@ -96,6 +96,12 @@ Building it from source needs [maturin](https://www.maturin.rs/); the dev shell 
 maturin develop
 ```
 
+The type stub is generated rather than written, so it cannot fall out of step with the bindings:
+
+```
+cargo run --features python --bin stub_gen
+```
+
 ## License
 
 Dual licensed under either of
