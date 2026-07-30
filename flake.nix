@@ -29,6 +29,9 @@
         # We're going to build python wheels as well, so we need a python
         python = pkgs.python3;
 
+        # What the extension needs to be built and then imported in a devshell
+        pythonEnv = python.withPackages (ps: with ps; [numpy]);
+
         craneLib = (crane.mkLib pkgs).overrideToolchain (
           p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
         );
@@ -47,7 +50,14 @@
           buildInputs = [];
         };
 
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        # Every feature, so the checks below can lint and test the Python bindings without
+        # rebuilding pyo3 and numpy from scratch each time
+        cargoArtifacts = craneLib.buildDepsOnly (
+          commonArgs
+          // {
+            cargoExtraArgs = "--all-features";
+          }
+        );
 
         nkscan-cli = craneLib.buildPackage (
           commonArgs
@@ -66,7 +76,8 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+              # --all-features so `src/python.rs` is linted too; it is not in any other check
+              cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
             }
           );
 
@@ -82,6 +93,7 @@
             commonArgs
             // {
               inherit cargoArtifacts;
+              cargoExtraArgs = "--all-features";
               partitions = 1;
               partitionType = "count";
               cargoNextestPartitionsExtraArgs = "--no-tests=pass";
@@ -93,6 +105,8 @@
           checks = self.checks.${system};
           packages = with pkgs; [
             cargo-outdated
+            maturin
+            pythonEnv
           ];
         };
 

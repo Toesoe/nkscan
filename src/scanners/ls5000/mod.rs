@@ -8,7 +8,7 @@
 use crate::{
     decode::{Image, StreamDecoder},
     scanners::{
-        FilmHolder, Focus, Scanner,
+        FilmHolder, Flow, Focus, Scanner,
         nikon::{
             Channel, ChannelExposures,
             capabilities::Capabilities,
@@ -372,11 +372,11 @@ where
         settings: &ScanSettings,
         gain: ChannelExposures,
     ) -> Result<Image, ScanError> {
-        self.scan_image_with(settings, gain, |_, _| {})
+        self.scan_image_with(settings, gain, |_, _| Flow::Continue)
     }
 
     /// [`scan_image`](Self::scan_image), reporting (received, expected) bytes as it reads
-    pub fn scan_image_with<F: FnMut(u64, u64)>(
+    pub fn scan_image_with<F: FnMut(u64, u64) -> Flow>(
         &mut self,
         settings: &ScanSettings,
         gain: ChannelExposures,

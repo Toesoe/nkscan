@@ -4,9 +4,30 @@ build-backend = "maturin"
 
 [project]
 name = "nkscan"
-requires-python = ">=3.8"
+description = "Drive a Nikon Coolscan film scanner and get frames back as numpy arrays"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+authors = [{ name = "Kiran Shila" }]
+# Taken from Cargo.toml, so the crate and the wheel cannot disagree about it
+dynamic = ["version"]
+requires-python = ">=3.13"
 classifiers = [
   "Programming Language :: Rust",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
+  "Topic :: Multimedia :: Graphics :: Capture :: Scanners",
+  "Topic :: Scientific/Engineering :: Image Processing",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
 ]
+
+[project.urls]
+Repository = "https://github.com/activexray/nkscan"
+
+# Without this the extension builds with no #[pymodule] in it and imports as an empty module
+[tool.maturin]
+features = ["python"]
+module-name = "nkscan"
+# An abi3 extension has no introspectable signatures, so the stub is what makes the API
+# discoverable in an editor
+include = [{ path = "python/nkscan.pyi", format = "wheel" }]

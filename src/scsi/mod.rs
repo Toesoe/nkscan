@@ -365,4 +365,16 @@ mod tests {
             Ls9000::new(transport)
         }
     }
+
+    /// Every transport has to be `Send`, or a scanner handle cannot cross a thread and a caller
+    /// running a scan on a worker has nowhere to put it
+    #[test]
+    fn transports_are_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<super::usb::UsbTransport>();
+        #[cfg(target_os = "linux")]
+        assert_send::<super::linux::SgDevice>();
+        #[cfg(target_os = "windows")]
+        assert_send::<super::windows::ScsiScanDevice>();
+    }
 }

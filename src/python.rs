@@ -1,0 +1,474 @@
+//! The Python extension module
+//!
+//! A thin skin over [`session`](crate::session): it converts arguments, hands the decoded planes
+//! to numpy without copying them, and releases the interpreter for the minutes a pass takes.
+//!
+//! Nothing here knows about any particular Python consumer. The types are shaped so an adapter
+//! for one is a translation rather than a rewrite.
+
+use crate::decode::Image;
+use crate::devices::{self, DeviceCapabilities, DeviceInfo};
+use crate::scanners::Flow;
+use crate::session::{Error, Exposure, FocusMode, FrameSettings, Placement, Prepare, Session};
+use numpy::{IntoPyArray, PyArray2, PyArray3, PyArrayMethods};
+use pyo3::create_exception;
+use pyo3::exceptions::{PyPermissionError, PyRuntimeError, PyValueError};
+use pyo3::prelude::*;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// How often a pass calls back into Python
+///
+/// A full-resolution pass is tens of thousands of chunks and re-acquiring the interpreter for
+/// every one buys nothing a caller can use. This is also how long a cancellation takes to notice.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+create_exception!(nkscan, ScannerError, PyRuntimeError, "Any scanner failure.");
+create_exception!(
+    nkscan,
+    TransientError,
+    ScannerError,
+    "A failure worth retrying: a link glitch, a busy device, a short read."
+);
+create_exception!(nkscan, TransportError, TransientError, "The link faltered.");
+create_exception!(
+    nkscan,
+    DeviceBusy,
+    TransientError,
+    "Something else holds it."
+);
+create_exception!(nkscan, DeviceNotFound, ScannerError, "No such scanner.");
+create_exception!(
+    nkscan,
+    MediaError,
+    ScannerError,
+    "No film, or nothing recognizable on it. Retrying will not help."
+);
+create_exception!(
+    nkscan,
+    UnsupportedError,
+    ScannerError,
+    "This scanner does not have that setting."
+);
+create_exception!(nkscan, ScanCancelled, ScannerError, "The pass was stopped.");
+
+/// Turn a session failure into the exception a caller can act on
+///
+/// The retryable ones share [`TransientError`] as a base so a consumer writes one `except` and
+/// which failures are worth retrying stays a decision made here.
+fn to_py(error: Error) -> PyErr {
+    use crate::scsi::Error as Scsi;
+    match error {
+        Error::NotFound(m) | Error::BadDeviceId(m) => DeviceNotFound::new_err(m),
+        Error::Media(m) => MediaError::new_err(m),
+        Error::Unsupported(m) => UnsupportedError::new_err(m),
+        Error::Cancelled => ScanCancelled::new_err("the pass was cancelled"),
+        // A short or scrambled stream is exactly what a retry fixes
+        Error::Decode(m) => TransientError::new_err(m),
+        Error::Transport(io) => match io.kind() {
+            std::io::ErrorKind::PermissionDenied => PyPermissionError::new_err(format!(
+                "{io}. A scanner device needs read and write access: a udev rule on Linux, or an \
+                 elevated prompt on Windows."
+            )),
+            std::io::ErrorKind::NotFound => DeviceNotFound::new_err(io.to_string()),
+            _ => TransportError::new_err(io.to_string()),
+        },
+        Error::Scsi(scsi) => match &scsi {
+            Scsi::Transport(_) | Scsi::HostAdapter { .. } | Scsi::InvalidResponse(_) => {
+                TransportError::new_err(scsi.to_string())
+            }
+            // Reissuing is what clears these
+            Scsi::Status { sense: Some(s), .. } if s.key == 0x02 || s.key == 0x06 => {
+                TransportError::new_err(scsi.to_string())
+            }
+            Scsi::Unsupported(_) => UnsupportedError::new_err(scsi.to_string()),
+            Scsi::Status { .. } => ScannerError::new_err(scsi.to_string()),
+        },
+    }
+}
+
+/// What a model can do, as [`Device`] reports it
+#[pyclass(name = "Capabilities", frozen, get_all, module = "nkscan")]
+struct PyCapabilities {
+    dpi: Vec<u32>,
+    depths: Vec<u32>,
+    multisample: Vec<u32>,
+    ir_channel: bool,
+    max_area_mm: (f32, f32),
+    auto_exposure: bool,
+    frame_control: bool,
+    detects_frames: bool,
+    senses_frames: bool,
+    single_line: bool,
+    can_eject: bool,
+}
+
+impl From<DeviceCapabilities> for PyCapabilities {
+    fn from(c: DeviceCapabilities) -> Self {
+        Self {
+            dpi: c.dpi,
+            depths: c.depths,
+            multisample: c.multisample,
+            ir_channel: c.ir_channel,
+            max_area_mm: c.max_area_mm,
+            auto_exposure: c.auto_exposure,
+            frame_control: c.frame_control,
+            detects_frames: c.detects_frames,
+            senses_frames: c.senses_frames,
+            single_line: c.single_line,
+            can_eject: c.can_eject,
+        }
+    }
+}
+
+/// A scanner the search found, not yet opened
+#[pyclass(name = "Device", frozen, get_all, module = "nkscan")]
+struct PyDevice {
+    id: String,
+    vendor: String,
+    model: String,
+    capabilities: Py<PyCapabilities>,
+}
+
+/// One frame, as it came off the scanner
+///
+/// Linear 16-bit ADC counts, not display-referred: applying a transfer curve is the caller's.
+#[pyclass(name = "ScanResult", frozen, get_all, module = "nkscan")]
+struct PyScanResult {
+    /// (height, width, 3) uint16
+    rgb: Py<PyArray3<u16>>,
+    /// (height, width) uint16, or None when infrared was not captured
+    ir: Option<Py<PyArray2<u16>>>,
+    dpi: u32,
+    device_model: String,
+    frame: usize,
+}
+
+/// The two planes a pass produces, as numpy sees them
+type Planes = (Py<PyArray3<u16>>, Option<Py<PyArray2<u16>>>);
+
+/// Hand the decoded planes to numpy without copying them
+///
+/// `into_raw` gives up the buffer that came off the scanner and numpy takes ownership of it. The
+/// layout is interleaved and row-major already, which is the shape numpy wants.
+fn into_arrays(py: Python<'_>, image: Image) -> PyResult<Planes> {
+    let (width, height) = image.rgb.dimensions();
+    let rgb = image
+        .rgb
+        .into_raw()
+        .into_pyarray(py)
+        .reshape([height as usize, width as usize, 3])?
+        .unbind();
+
+    let ir = match image.ir {
+        Some(ir) => {
+            let (width, height) = ir.dimensions();
+            Some(
+                ir.into_raw()
+                    .into_pyarray(py)
+                    .reshape([height as usize, width as usize])?
+                    .unbind(),
+            )
+        }
+        None => None,
+    };
+    Ok((rgb, ir))
+}
+
+/// An exclusive hold on one scanner
+#[pyclass(name = "Session", module = "nkscan")]
+struct PySession {
+    /// `None` once closed, so using a closed session raises rather than panicking
+    inner: Mutex<Option<Session>>,
+    #[pyo3(get)]
+    device_id: String,
+    #[pyo3(get)]
+    model: String,
+}
+
+impl PySession {
+    /// Run `body` with the interpreter released, reporting to `progress` as it goes
+    ///
+    /// The callback re-acquires the interpreter for the moment it runs. Returning `False` from it
+    /// stops the pass; anything else, including `None`, keeps going, so a callback that only
+    /// prints works. A callback that raises stops the pass and its own exception is what surfaces,
+    /// since that is the more interesting failure.
+    fn run<T: Send>(
+        &self,
+        py: Python<'_>,
+        progress: Option<Py<PyAny>>,
+        body: impl FnOnce(&mut Session, &mut crate::scanners::ProgressFn<'_>) -> Result<T, Error> + Send,
+    ) -> PyResult<T> {
+        let mut guard = self
+            .inner
+            .try_lock()
+            .map_err(|_| DeviceBusy::new_err("this session is already scanning"))?;
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| ScannerError::new_err("this session is closed"))?;
+
+        let mut last = Instant::now() - PROGRESS_INTERVAL;
+        let mut raised: Option<PyErr> = None;
+
+        let outcome = py.detach(|| {
+            let mut report = |read: u64, total: u64| {
+                // Always report the last chunk, so a bar finishes where it should
+                if read < total && last.elapsed() < PROGRESS_INTERVAL {
+                    return Flow::Continue;
+                }
+                last = Instant::now();
+                let Some(callback) = progress.as_ref() else {
+                    return Flow::Continue;
+                };
+                Python::attach(|py| match callback.call1(py, (read, total)) {
+                    Ok(verdict) => match verdict.extract::<bool>(py) {
+                        Ok(false) => Flow::Cancel,
+                        _ => Flow::Continue,
+                    },
+                    Err(err) => {
+                        raised = Some(err);
+                        Flow::Cancel
+                    }
+                })
+            };
+            body(session, &mut report)
+        });
+
+        if let Some(err) = raised {
+            return Err(err);
+        }
+        outcome.map_err(to_py)
+    }
+}
+
+#[pymethods]
+impl PySession {
+    /// Claim the scanner `device_id` names, as `list_devices` reported it
+    #[new]
+    fn new(device_id: &str) -> PyResult<Self> {
+        let session = Session::open(device_id).map_err(to_py)?;
+        Ok(Self {
+            device_id: session.device().id.clone(),
+            model: session.device().model.name().to_owned(),
+            inner: Mutex::new(Some(session)),
+        })
+    }
+
+    /// What this unit reports, which is more accurate than what `list_devices` could say
+    #[getter]
+    fn capabilities(&self, py: Python<'_>) -> PyResult<Py<PyCapabilities>> {
+        let guard = self.inner.lock().expect("no panic holds this");
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| ScannerError::new_err("this session is closed"))?;
+        Py::new(py, PyCapabilities::from(session.capabilities()))
+    }
+
+    /// The gain the next pass will use, as `(red, green, blue, ir)`
+    #[getter]
+    fn gain(&self) -> PyResult<(u32, u32, u32, u32)> {
+        let guard = self.inner.lock().expect("no panic holds this");
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| ScannerError::new_err("this session is closed"))?;
+        let gain = session.gain();
+        Ok((gain.red, gain.green, gain.blue, gain.ir))
+    }
+
+    /// Whether there is film in the scanner now
+    fn media_loaded(&self, py: Python<'_>) -> PyResult<bool> {
+        self.run(py, None, |session, _| session.media_loaded())
+    }
+
+    /// Wake the mechanism, settle the exposure and place the frames, returning how many
+    ///
+    /// `detect` asks the scanner to find them with an overview pass, where it can. Otherwise they
+    /// are placed at `pitch_mm`, or at whatever the loaded holder reports. `gain` as a 3- or
+    /// 4-tuple holds the exposure and skips metering.
+    #[pyo3(signature = (
+        *, frames = None, detect = false, pitch_mm = None, offset_mm = 0.0,
+        gain = None, lock_white_balance = false, wait_for_media_s = 300.0, progress = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn prepare(
+        &self,
+        py: Python<'_>,
+        frames: Option<u32>,
+        detect: bool,
+        pitch_mm: Option<f32>,
+        offset_mm: f32,
+        gain: Option<Vec<u32>>,
+        lock_white_balance: bool,
+        wait_for_media_s: f64,
+        progress: Option<Py<PyAny>>,
+    ) -> PyResult<usize> {
+        let placement = if detect {
+            Placement::Detect {
+                frames: frames.ok_or_else(|| {
+                    PyValueError::new_err("detect needs frames, to say how many to look for")
+                })? as usize,
+            }
+        } else if pitch_mm.is_some() || offset_mm != 0.0 {
+            Placement::Pitch {
+                frames,
+                pitch_mm,
+                offsets_mm: vec![offset_mm],
+            }
+        } else {
+            Placement::Sensed { frames }
+        };
+
+        let exposure = match gain {
+            Some(values) if matches!(values.len(), 3 | 4) => Exposure::Fixed {
+                visible: [values[0], values[1], values[2]],
+                ir: values.get(3).copied(),
+            },
+            Some(values) => {
+                return Err(PyValueError::new_err(format!(
+                    "gain takes three or four values, got {}",
+                    values.len()
+                )));
+            }
+            None => Exposure::Auto { lock_white_balance },
+        };
+
+        let prepare = Prepare {
+            placement,
+            exposure,
+            wait_for_media: Duration::from_secs_f64(wait_for_media_s.max(0.0)),
+        };
+        self.run(py, progress, |session, report| {
+            session.prepare(&prepare, report)
+        })
+    }
+
+    /// Focus, expose and scan one of the placed frames
+    #[pyo3(signature = (
+        index = 0, *, dpi = 4000, ir = false, focus = "auto", multisample = 1,
+        single_line = false, window = None, progress = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn scan(
+        &self,
+        py: Python<'_>,
+        index: usize,
+        dpi: u16,
+        ir: bool,
+        focus: &str,
+        multisample: u8,
+        single_line: bool,
+        window: Option<(f32, f32, f32, f32)>,
+        progress: Option<Py<PyAny>>,
+    ) -> PyResult<PyScanResult> {
+        let focus = focus.parse::<FocusMode>().map_err(PyValueError::new_err)?;
+        let settings = FrameSettings {
+            dpi,
+            ir,
+            focus,
+            multisample,
+            single_line,
+            window,
+        };
+
+        let (image, model) = {
+            let model = self.model.clone();
+            let image = self.run(py, progress, |session, report| {
+                session.scan_frame(index, &settings, report)
+            })?;
+            (image, model)
+        };
+
+        let (rgb, ir) = into_arrays(py, image)?;
+        Ok(PyScanResult {
+            rgb,
+            ir,
+            dpi: u32::from(dpi),
+            device_model: model,
+            frame: index,
+        })
+    }
+
+    /// Hold whatever gain the last scan settled on, so the rest of the roll matches it
+    fn lock_gain(&self) -> PyResult<()> {
+        let mut guard = self.inner.lock().expect("no panic holds this");
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| ScannerError::new_err("this session is closed"))?;
+        session.lock_gain();
+        Ok(())
+    }
+
+    /// Send the film back out
+    fn eject(&self, py: Python<'_>) -> PyResult<bool> {
+        self.run(py, None, |session, _| session.eject())?;
+        Ok(true)
+    }
+
+    /// Throw away a pass nobody is going to read, so the session stays usable
+    fn abort(&self, py: Python<'_>) -> PyResult<()> {
+        self.run(py, None, |session, _| session.abort())
+    }
+
+    /// Release the scanner. Idempotent, and using the session afterwards raises.
+    fn close(&self) {
+        let _ = self.inner.lock().map(|mut guard| guard.take());
+    }
+
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __exit__(
+        &self,
+        _type: Option<Py<PyAny>>,
+        _value: Option<Py<PyAny>>,
+        _traceback: Option<Py<PyAny>>,
+    ) -> bool {
+        self.close();
+        false
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<nkscan.Session {} {}>", self.device_id, self.model)
+    }
+}
+
+/// Every scanner attached that this library can drive
+///
+/// Asks each device who it is and nothing more, so it is safe to call while another process holds
+/// one.
+#[pyfunction]
+fn list_devices(py: Python<'_>) -> PyResult<Vec<PyDevice>> {
+    devices::list()
+        .into_iter()
+        .map(|device: DeviceInfo| {
+            Ok(PyDevice {
+                id: device.id,
+                vendor: devices::VENDOR.to_owned(),
+                model: device.model.name().to_owned(),
+                capabilities: Py::new(py, PyCapabilities::from(device.model.capabilities()))?,
+            })
+        })
+        .collect()
+}
+
+#[pymodule]
+#[pyo3(name = "nkscan")]
+fn nkscan_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(list_devices, module)?)?;
+    module.add_class::<PySession>()?;
+    module.add_class::<PyDevice>()?;
+    module.add_class::<PyCapabilities>()?;
+    module.add_class::<PyScanResult>()?;
+
+    let py = module.py();
+    module.add("ScannerError", py.get_type::<ScannerError>())?;
+    module.add("TransientError", py.get_type::<TransientError>())?;
+    module.add("TransportError", py.get_type::<TransportError>())?;
+    module.add("DeviceBusy", py.get_type::<DeviceBusy>())?;
+    module.add("DeviceNotFound", py.get_type::<DeviceNotFound>())?;
+    module.add("MediaError", py.get_type::<MediaError>())?;
+    module.add("UnsupportedError", py.get_type::<UnsupportedError>())?;
+    module.add("ScanCancelled", py.get_type::<ScanCancelled>())?;
+    Ok(())
+}

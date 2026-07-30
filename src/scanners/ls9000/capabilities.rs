@@ -16,7 +16,7 @@ pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Capabilit
 }
 
 #[cfg(test)]
-pub(super) mod fixture {
+pub(crate) mod fixture {
     /// The whole response, header included, as a mock transport has to answer it
     pub fn raw_page() -> Vec<u8> {
         let body = super::tests::captured();

@@ -69,6 +69,19 @@ pub struct ChannelExposures {
     pub ir: u32,
 }
 
+/// Comma separated, which is the form a caller passes gains back in
+impl std::fmt::Display for ChannelExposures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            red,
+            green,
+            blue,
+            ir,
+        } = self;
+        write!(f, "{red},{green},{blue},{ir}")
+    }
+}
+
 impl ChannelExposures {
     /// The same gain on every channel, asserting no white balance at all
     pub fn flat(exposure: u32) -> Self {

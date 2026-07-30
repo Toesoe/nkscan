@@ -2,7 +2,7 @@ use crate::decode::{Image, Rgb16};
 use crate::{
     decode::StreamDecoder,
     scanners::{
-        FilmHolder, Focus, ScanArea, Scanner,
+        FilmHolder, Flow, Focus, ReadError, ScanArea, Scanner,
         nikon::{
             Channel, ChannelExposures,
             capabilities::Capabilities,
@@ -162,14 +162,30 @@ where
     /// one out: an autofocus, a scan, a calibration. Losing the holder mid-pass is an error
     /// rather than something to keep waiting on.
     pub fn wait_until_ready(&mut self) -> Result<(), scsi::Error> {
+        self.wait_until_ready_with(|_, _| Flow::Continue)
+            .map(|_| ())
+    }
+
+    /// [`wait_until_ready`](Self::wait_until_ready), giving `progress` a turn per poll
+    ///
+    /// Reported as (0, 0), since the pass has produced nothing yet. This is where a full
+    /// resolution scan spends its first minutes, so without it a cancel goes unnoticed for that
+    /// long. A [`Flow::Cancel`] returns with the pass still pending, for the caller to clear.
+    pub fn wait_until_ready_with<F: FnMut(u64, u64) -> Flow>(
+        &mut self,
+        mut progress: F,
+    ) -> Result<Flow, scsi::Error> {
         let deadline = Instant::now() + READY_TIMEOUT;
         loop {
             match self.status()? {
-                Status::Ready => return Ok(()),
+                Status::Ready => return Ok(Flow::Continue),
                 Status::NoFilmHolder => {
                     return Err(scsi::Error::InvalidResponse("the film holder was removed"));
                 }
                 state => trace!(?state, "Waiting"),
+            }
+            if progress(0, 0) == Flow::Cancel {
+                return Ok(Flow::Cancel);
             }
             if Instant::now() >= deadline {
                 return Err(scsi::Error::InvalidResponse("scanner never became ready"));
@@ -403,11 +419,51 @@ where
         settings: &ScanSettings,
         gain: ChannelExposures,
     ) -> Result<Image, ScanError> {
-        self.scan_image_with(settings, gain, |_, _| {})
+        self.scan_image_with(settings, gain, |_, _| Flow::Continue)
+    }
+
+    /// Wait out the mechanism, read the pending pass, and throw it away if the caller cancels
+    ///
+    /// A pass left half-read wedges the scanner: every later command comes back
+    /// `CommandSequenceError` until it is told to give up on this one. `abort_scan` swallows a
+    /// refusal, so aborting one that already ended is harmless.
+    fn read_pass<D, F>(
+        &mut self,
+        decoder: &mut D,
+        mut progress: F,
+    ) -> Result<(), ReadError<D::Error>>
+    where
+        D: StreamDecoder,
+        F: FnMut(u64, u64) -> Flow,
+    {
+        if self.wait_until_ready_with(&mut progress)? == Flow::Cancel {
+            // Cancelled while the stage was still moving. Let it finish before saying anything:
+            // aborting a motor command mid-move leaves the firmware's believed position stale,
+            // the next move drives from a wrong origin and grinds, and only a power cycle clears
+            // that. It is also the state in which the vendor abort is refused, which leaves the
+            // pass pending and every later command answering CommandSequenceError.
+            //
+            // So a cancel here costs the rest of the move, which for a full-resolution pass is
+            // most of the wait. Whether Nikon Scan can stop a move earlier is unknown: no capture
+            // of it cancelling a pass in flight exists, so there may be a cleaner way to do this.
+            debug!("Cancelled mid-move, waiting for the mechanism before aborting");
+            self.wait_until_ready()?;
+            self.abort_scan()?;
+            return Err(ReadError::Cancelled);
+        }
+
+        let chunk = self.transport.max_transfer();
+        match self.read_into_with(decoder, chunk, progress) {
+            Err(ReadError::Cancelled) => {
+                self.abort_scan()?;
+                Err(ReadError::Cancelled)
+            }
+            other => other,
+        }
     }
 
     /// [`scan_image`](Self::scan_image), reporting (received, expected) bytes as it reads
-    pub fn scan_image_with<F: FnMut(u64, u64)>(
+    pub fn scan_image_with<F: FnMut(u64, u64) -> Flow>(
         &mut self,
         settings: &ScanSettings,
         gain: ChannelExposures,
@@ -433,11 +489,9 @@ where
         }
 
         self.scan(channels)?;
-        self.wait_until_ready()?;
 
-        let chunk = self.transport.max_transfer();
         let mut decoder = decode::FrameDecoder::new(settings).map_err(ScanError::Decode)?;
-        self.read_into_with(&mut decoder, chunk, progress)?;
+        self.read_pass(&mut decoder, progress)?;
 
         Ok(decoder.finish().map_err(ScanError::Decode)?.to_owned())
     }
@@ -455,11 +509,11 @@ where
         from: ChannelExposures,
         metering: &Metering,
     ) -> Result<(ChannelExposures, Image), ScanError> {
-        self.autoexpose_with(settings, from, metering, |_, _| {})
+        self.autoexpose_with(settings, from, metering, |_, _| Flow::Continue)
     }
 
     /// [`autoexpose`](Self::autoexpose), reporting (received, expected) bytes of each pass
-    pub fn autoexpose_with<F: FnMut(u64, u64)>(
+    pub fn autoexpose_with<F: FnMut(u64, u64) -> Flow>(
         &mut self,
         settings: &ScanSettings,
         from: ChannelExposures,
@@ -511,11 +565,11 @@ where
     /// starts unclipped. Driving all three channels to one level also cancels whatever the
     /// response curve does near full scale out of the ratios.
     pub fn white_balance(&mut self, metering: &Metering) -> Result<ChannelExposures, ScanError> {
-        self.white_balance_with(metering, |_, _| {})
+        self.white_balance_with(metering, |_, _| Flow::Continue)
     }
 
     /// [`white_balance`](Self::white_balance), reporting (received, expected) bytes of each pass
-    pub fn white_balance_with<F: FnMut(u64, u64)>(
+    pub fn white_balance_with<F: FnMut(u64, u64) -> Flow>(
         &mut self,
         metering: &Metering,
         progress: F,
@@ -540,7 +594,7 @@ where
     }
 
     /// [`overview`](Self::overview), reporting (received, expected) bytes as it reads
-    pub fn overview_with<F: FnMut(u64, u64)>(
+    pub fn overview_with<F: FnMut(u64, u64) -> Flow>(
         &mut self,
         gain: ChannelExposures,
         progress: F,
@@ -558,11 +612,9 @@ where
         }
 
         self.scan(&channels)?;
-        self.wait_until_ready()?;
 
-        let chunk = self.transport.max_transfer();
         let mut decoder = decode::OverviewDecoder::new();
-        self.read_into_with(&mut decoder, chunk, progress)?;
+        self.read_pass(&mut decoder, progress)?;
         let view = decoder.finish().map_err(ScanError::Decode)?;
         Ok(Rgb16::from_raw(view.width(), view.height(), view.to_vec())
             .expect("view is well formed"))
@@ -577,6 +629,110 @@ mod tests {
     /// A transport that can answer the capability read `new` starts with
     fn mock() -> MockTransport {
         MockTransport::new().with_page(0xC1, capabilities::fixture::raw_page())
+    }
+
+    /// [`mock`], also reporting a loaded strip holder
+    fn mock_with_holder() -> MockTransport {
+        // Page 0xC8 as a real capture answers it with strip film in
+        let body = [
+            0x01, 0x00, 0x00, 0x02, 0x06, 0x00, 0x00, 0x08, 0xbc, 0x00, 0x00, 0x23, 0x04, 0x00,
+            0x00, 0x00, 0x00,
+        ];
+        let mut raw = vec![0x06, 0xC8];
+        raw.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        raw.extend_from_slice(&body);
+        mock().with_page(0xC8, raw)
+    }
+
+    /// One 36-dot frame, the shortest window a three-line pass divides into
+    fn one_frame() -> (boundaries::FrameBoundaries, ScanSettings) {
+        let rect = boundaries::FrameRect::aligned(0, 36);
+        let settings = ScanSettings {
+            ccd_mode: CcdMode::ThreeLine,
+            ir: false,
+            dpi: geometry::Dpi::_666,
+            quality: BaseQuality::Scan,
+            multisample: Multisample::X1,
+            window: rect.scan_area(),
+        };
+        (boundaries::FrameBoundaries(vec![rect]), settings)
+    }
+
+    /// The order a scan issues commands in, from opening the handle to reading the pass
+    ///
+    /// Each step is one the scanner requires where it is: `calibrate` gates the first scan, the
+    /// frame table has to be written before a pass will aim at a frame, and the holder has to
+    /// report in before anything moves. Pinned so that moving the workflow somewhere else
+    /// cannot quietly reorder it.
+    #[test]
+    fn the_workflow_issues_commands_in_the_order_the_scanner_needs() {
+        let mut scanner = Ls9000::new(mock_with_holder()).expect("opens");
+        let (frames, settings) = one_frame();
+
+        assert_eq!(scanner.holder().expect("reads the holder"), Holder::Strip);
+        let _: Status = scanner.drain_unit_attentions().expect("drains");
+        scanner.wait_until_ready().expect("settles");
+        scanner
+            .calibrate(calibration::DEFAULT_GAIN)
+            .expect("calibrates");
+        scanner
+            .set_frame_boundaries(&frames)
+            .expect("declares the frames");
+        scanner
+            .autofocus(frames.0[0].center())
+            .expect("focuses on the frame");
+
+        // One pass, so the sequence shows metering once rather than a repeat
+        let metering = Metering {
+            passes: 1,
+            ..Metering::default()
+        };
+        let prescan = ScanSettings::autoexposure(settings.window, false);
+        let (gain, _) = scanner
+            .autoexpose(&prescan, calibration::DEFAULT_GAIN, &metering)
+            .expect("meters");
+        scanner.scan_image(&settings, gain).expect("scans");
+
+        assert_eq!(
+            scanner.transport.opcode_sequence(),
+            [
+                // --- opening the handle
+                0x00, // TEST UNIT READY, waiting out power-on and draining unit attentions
+                0x12, // INQUIRY, the capability page
+                0x16, // RESERVE
+                0xC0, // vendor ABORT, clearing a pass left by a killed process
+                0x15, // MODE SELECT, the measurement units
+                // --- the holder, then letting the mechanism settle
+                0x12, // INQUIRY, the holder page
+                0x00, // TEST UNIT READY
+                // --- calibrate, the session preamble
+                0x28, // READ, the frame setup per channel
+                0x24, // SET WINDOW per channel
+                0xE1, // vendor read, the staged focus
+                0xE0, // vendor write, committing it
+                0xC1, // vendor TRIGGER
+                0x28, // READ, the current frame table
+                0x2A, // SEND, the nominal one
+                0x28, // READ, the per-channel calibration
+                // --- the frame table this strip actually has
+                0x2A, // SEND, the boundaries
+                // --- autofocus, which needs the table written first
+                0xE0, // vendor write, the focus point
+                0xC1, // vendor TRIGGER
+                0x00, // TEST UNIT READY, waiting out the pass
+                0xE1, // vendor read, where it landed
+                // --- metering, an ordinary pass the host measures
+                0x24, // SET WINDOW per channel
+                0x1B, // SCAN
+                0x00, // TEST UNIT READY, waiting out the pass
+                0x28, // READ, the image
+                // --- the scan
+                0x24, // SET WINDOW per channel
+                0x1B, // SCAN
+                0x00, // TEST UNIT READY
+                0x28, // READ, the image
+            ]
+        );
     }
 
     /// The order matters and is documented as mattering: readiness is settled before the
@@ -675,6 +831,70 @@ mod tests {
 
         scanner.scan(&Channel::RGB).expect("succeeds on the third");
         assert_eq!(scanner.transport.count(0x1B), 3);
+    }
+
+    /// Cancelling a pass has to throw the rest of it away, or the handle is dead
+    ///
+    /// Everything after a half-read pass comes back `CommandSequenceError`, so the vendor ABORT
+    /// is what makes the next scan on the same handle work.
+    #[test]
+    fn cancelling_a_pass_aborts_it() {
+        let mut scanner = Ls9000::new(mock_with_holder()).expect("opens");
+        let (_, settings) = one_frame();
+
+        let mut chunks = 0;
+        let scanned = scanner.scan_image_with(&settings, calibration::DEFAULT_GAIN, |_, _| {
+            chunks += 1;
+            Flow::Cancel
+        });
+
+        let error = scanned.err().expect("cancelled");
+        assert!(matches!(error, ReadError::Cancelled), "{error:?}");
+        assert_eq!(
+            chunks, 1,
+            "cancelled at the first chunk, so nothing after it"
+        );
+        let sequence = scanner.transport.opcode_sequence();
+        assert_eq!(
+            &sequence[sequence.len() - 2..],
+            [
+                0x28, // READ, the one chunk that was taken
+                0xC0, // vendor ABORT, giving up on the rest
+            ]
+        );
+    }
+
+    /// Cancelling while the mechanism is still moving has nothing read to abort out of, but the
+    /// pass is pending on the device all the same
+    ///
+    /// This is where a full-resolution scan spends its first minutes, so it is the cancel that
+    /// matters most and the one with no bytes to notice it by.
+    #[test]
+    fn cancelling_before_the_first_chunk_aborts_too() {
+        let mut scanner = Ls9000::new(mock_with_holder()).expect("opens");
+        let (_, settings) = one_frame();
+        // One poll reporting a mechanism still moving, so the wait asks the caller what to do
+        scanner.transport.fail_next(
+            0x00,
+            scsi::Error::Status {
+                status: 0x02,
+                sense: Some(scsi::SenseData {
+                    key: 0x02,
+                    asc: 0x04,
+                    ascq: 0x00,
+                    ili: false,
+                    deferred: false,
+                }),
+            },
+        );
+
+        let scanned =
+            scanner.scan_image_with(&settings, calibration::DEFAULT_GAIN, |_, _| Flow::Cancel);
+
+        let error = scanned.err().expect("cancelled");
+        assert!(matches!(error, ReadError::Cancelled), "{error:?}");
+        assert_eq!(scanner.transport.count(0x28), 0, "no chunk was taken");
+        assert_eq!(scanner.transport.opcode_sequence().last(), Some(&0xC0));
     }
 
     /// The reported limits bind frame windows only, so the coarse overview gets through
