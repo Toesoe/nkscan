@@ -16,17 +16,17 @@ Our goal is to support all the scanners supported by Nikon Scan, which are enume
 
 |                  | Status        |
 |------------------|---------------|
-| Coolscan 9000    | Supported     |
-| Coolscan 8000    | Not started   |
+| Coolscan 9000    | ✅ Supported     |
+| Coolscan 8000    | ❌ Not started   |
 
 ### 35mm Scanners
 
 |               | Status      |
 |---------------|-------------|
-| Coolscan 5000 | Untested    |
-| Coolscan 4000 | Not started |
-| Coolscan V    | Supported   |
-| Coolscan IV   | Not started |
+| Coolscan 5000 | ⚠️ Untested    |
+| Coolscan 4000 | ❌ Not started |
+| Coolscan V    | ✅ Supported   |
+| Coolscan IV   | ❌ Not started |
 
 MacOS Firewire support is planned, but just stubbed out for the moment. It should work for USB scanners, like the Coolscan V.
 
