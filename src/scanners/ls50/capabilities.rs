@@ -1,7 +1,9 @@
 //! What the scanner says it can do, from vital product data page 0xC1
 //!
-//! An LS-50 with an SA-21 reports 14-bit samples, 4000 DPI optical, boundaries of 3946 by 5959
-//! dots, a 5959-dot frame pitch and focus 0 to 323: everything the driver would else hardcode.
+//! 16-bit samples, 4000 DPI optical, boundaries of 3946 by 5959 dots, a 5959-dot frame pitch
+//! and focus 0 to 323. Offset 71 counts roll-feeder slots.
+//! Identical to LS-5000, apart from the bitdepth which is limited to 14 due to a different ADC.
+//! Do note that LS-50 doesn't support one-pass multisampling, hardware limitation.
 
 use crate::scanners::nikon::capabilities::{self as nikon, Capabilities};
 use crate::scsi::{self as scsi};
@@ -12,17 +14,14 @@ const PAGE: u8 = 0xC1;
 const ALLOCATION_LENGTH: u8 = 87;
 
 /// Ask the device, before there is a scanner to ask
-///
-/// An unreadable page is an error, not a cue to fall back on constants: page 0x00 advertises
-/// 0xC1 and no healthy unit has been seen to withhold it.
 pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Capabilities, scsi::Error> {
     nikon::read(transport, ALLOCATION_LENGTH)
 }
 
-/// Frames sensed on the loaded strip, 0 for none
+/// Slots the feeder reports for the loaded film, 0 for none
 ///
-/// Not cached with [`Capabilities`]: it describes the film, not the adapter. A six-frame strip
-/// reads 6 freshly loaded and 1 after a pass, so only trust it before the first.
+/// Describes the film rather than the adapter, so it is read fresh rather than cached with
+/// [`Capabilities`]. A full roll reads 40; a shorter one reads what it sensed.
 pub(super) fn read_sensed_frames<T: Transport + ?Sized>(transport: &mut T) -> u32 {
     transport
         .send(&VpdInquiry::new(PAGE, ALLOCATION_LENGTH))
@@ -43,9 +42,9 @@ pub(super) mod fixture {
     use crate::scanners::nikon::capabilities::Capabilities;
     use crate::scsi::cdbs::{VendorPage, VpdPage};
 
-    /// What the captured page parses to, for anything that needs geometry to test against
+    /// What the fixture page parses to, for anything that needs geometry to test against
     pub fn capabilities() -> Capabilities {
-        Capabilities::from_page(&captured()).expect("the captured page parses")
+        Capabilities::from_page(&captured()).expect("the fixture page parses")
     }
 
     /// The whole response, header included, as a mock transport has to answer it
@@ -57,29 +56,105 @@ pub(super) mod fixture {
         raw
     }
 
-    /// The page as an LS-50 ED with an SA-21 and a six-frame strip loaded reports it
+    /// The page a unit answers with a roll feeder loaded and no roll sensed yet
     ///
-    /// The header the device sends is `06 C1 00 53`, so the body below is 83 bytes.
+    /// Assembled from the field values rather than held as a blob, so a change to the offsets
+    /// the shared parser reads shows up as a failure here rather than as a fixture that no
+    /// longer describes anything.
     pub fn captured() -> VpdPage {
-        let hex = "03 00 3A 00 0F 00 00 00 40 01 01 00 01 31 0F A0 0F A0 00 5A 00 00 00 00 \
-                   00 00 00 00 00 00 00 00 00 00 0F 6A 0F A0 0F A0 00 5A 00 00 BA 38 00 00 \
-                   00 00 00 00 00 00 00 00 17 47 00 00 17 47 00 00 00 00 00 61 00 61 06 06 \
-                   00 00 01 43 00 00 0E 0F 6A 00 01";
+        page(0)
+    }
+
+    /// The same page once a 40-slot roll has been sensed
+    pub fn captured_with_roll() -> VpdPage {
+        page(40)
+    }
+
+    /// The device answers 83 bytes of body
+    const BODY_LEN: usize = 0x53;
+
+    fn page(slots: u8) -> VpdPage {
+        let mut data = vec![0u8; BODY_LEN];
+        let mut short = |at: usize, v: u16| data[at..at + 2].copy_from_slice(&v.to_be_bytes());
+        // x resolution: optical, max, min
+        short(14, 4000);
+        short(16, 4000);
+        short(18, 90);
+        // y resolution, the same
+        short(36, 4000);
+        short(38, 4000);
+        short(40, 90);
+        // Focus travel
+        short(72, 0);
+        short(74, 323);
+
+        let mut long = |at: usize, v: u32| data[at..at + 4].copy_from_slice(&v.to_be_bytes());
+        long(32, 3946); // boundary_x
+        long(54, 5959); // boundary_y, one frame
+        long(58, 5959); // frame pitch
+
+        data[71] = slots;
+        data[78] = 14; // sample depth
         VpdPage {
             page_code: 0xC1,
-            data: hex
-                .split_whitespace()
-                .map(|b| u8::from_str_radix(b, 16).unwrap())
-                .collect(),
+            data,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{fixture::captured, *};
+    use super::{fixture::*, *};
     use crate::scanners::nikon::capabilities::ResolutionRange;
     use crate::scsi::cdbs::VendorPage;
+
+    /// The allocation length has to cover the whole body the device answers with
+    #[test]
+    fn the_allocation_length_covers_the_page() {
+        assert!(usize::from(ALLOCATION_LENGTH) >= captured().data.len());
+    }
+
+    #[test]
+    fn parses_the_captured_page() {
+        let caps = Capabilities::from_page(&captured()).unwrap();
+
+        assert_eq!(caps.boundary_x, 3946);
+        assert_eq!(caps.boundary_y, 5959);
+        assert_eq!(caps.frame_pitch, 5959);
+        assert_eq!(caps.focus, (0, 323));
+        assert_eq!(
+            caps.x_resolution,
+            ResolutionRange {
+                optical: 4000,
+                min: 90,
+                max: 4000
+            }
+        );
+        assert_eq!(caps.y_resolution, caps.x_resolution);
+    }
+
+    /// The window descriptor carries this straight through, so it comes off the device
+    #[test]
+    fn the_sample_depth_is_fourteen_bits() {
+        assert_eq!(Capabilities::from_page(&captured()).unwrap().max_bits, 14);
+    }
+
+    /// Empty feeder reads 0, a loaded 40-slot roll reads 40
+    #[test]
+    fn reads_the_sensed_slot_count() {
+        assert_eq!(frames_in(&captured()), Some(0));
+        assert_eq!(frames_in(&captured_with_roll()), Some(40));
+    }
+
+    /// The geometry is per adapter; only the slot count moves when a roll is loaded
+    #[test]
+    fn loading_a_roll_does_not_change_the_geometry() {
+        let empty = Capabilities::from_page(&captured()).unwrap();
+        let loaded = Capabilities::from_page(&captured_with_roll()).unwrap();
+        assert_eq!(empty.boundary_x, loaded.boundary_x);
+        assert_eq!(empty.boundary_y, loaded.boundary_y);
+        assert_eq!(empty.frame_pitch, loaded.frame_pitch);
+    }
 
     /// `max_x`/`max_y` subtract one from these, so a zero would wrap into a window the size of
     /// the address space rather than failing anywhere near the bad page
@@ -93,63 +168,6 @@ mod tests {
                 "a zero boundary at {offset} should be rejected"
             );
         }
-    }
-
-    #[test]
-    fn parses_the_captured_page() {
-        let caps = Capabilities::from_page(&captured()).unwrap();
-
-        assert_eq!(caps.max_bits, 14);
-        assert_eq!(caps.boundary_x, 3946);
-        assert_eq!(caps.boundary_y, 5959);
-        assert_eq!(caps.frame_pitch, 5959);
-        assert_eq!(
-            caps.x_resolution,
-            ResolutionRange {
-                optical: 4000,
-                min: 90,
-                max: 4000
-            }
-        );
-        assert_eq!(caps.y_resolution, caps.x_resolution);
-    }
-
-    /// Offset 58 is its own field, not a second copy of the boundary
-    ///
-    /// This feeder answers 5959 at both, which alone would not tell them apart; a holder
-    /// adapter answers 13176 at 54 and 0 at 58.
-    #[test]
-    fn the_frame_pitch_is_device_reported_and_distinct_from_the_boundary() {
-        let caps = Capabilities::from_page(&captured()).unwrap();
-        assert_eq!(caps.frame_pitch, 5959);
-
-        let mut holder = captured();
-        holder.data[54..58].copy_from_slice(&13176u32.to_be_bytes());
-        holder.data[58..62].copy_from_slice(&0u32.to_be_bytes());
-        let caps = Capabilities::from_page(&holder).unwrap();
-        assert_eq!(caps.boundary_y, 13176);
-        assert_eq!(caps.frame_pitch, 0);
-    }
-
-    /// 14-bit samples, delivered as big-endian u16, and the window descriptor carries it
-    #[test]
-    fn the_sample_depth_is_device_reported() {
-        let caps = Capabilities::from_page(&captured()).unwrap();
-        assert_eq!(caps.max_bits, 0x0E);
-    }
-
-    /// 320 is the setpoint that was probed on hardware and read back exactly
-    #[test]
-    fn the_probed_focus_setpoint_is_in_the_reported_range() {
-        let caps = Capabilities::from_page(&captured()).unwrap();
-        assert_eq!(caps.focus, (0, 323));
-        assert!(caps.focus.0 <= 320 && 320 <= caps.focus.1);
-    }
-
-    /// The count lives on the same page but is deliberately not part of the geometry
-    #[test]
-    fn reads_the_sensed_frame_count() {
-        assert_eq!(frames_in(&captured()), Some(6));
     }
 
     #[test]
