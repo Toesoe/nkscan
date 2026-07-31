@@ -265,39 +265,103 @@ static void decode_nikon_vendor(const unsigned char *cdb, int len, int write) {
 
   unsigned char reg = cdb[2];
 
-  switch (reg) {
+  switch (reg)
+    {
+        case 0x40:
+            log_write("    subcmd 0x40: Scan parameters (max 11 bytes)\r\n");
+            break;
 
-  case 0x80:
-    log_write("    register 0x80: LAMP\n");
-    break;
+        case 0x41:
+            log_write("    subcmd 0x41: Calibration data (max 11 bytes)\r\n");
+            break;
 
-  case 0x91:
-    log_write("    register 0x91: STATUS?\n");
-    break;
+        case 0x42:
+            log_write("    subcmd 0x42: Gain values (max 11 bytes)\r\n");
+            break;
 
-  case 0xA0:
-    log_write("    register 0xA0: AUTOFOCUS\n");
-    break;
+        case 0x43:
+            log_write("    subcmd 0x43: Offset values (max 11 bytes)\r\n");
+            break;
 
-  case 0xB4:
-    log_write("    register 0xB4: UNKNOWN CONTROL\n");
-    break;
+        case 0x44:
+            log_write("    subcmd 0x44: Motor position (max 5 bytes)\r\n");
+            break;
 
-  case 0xC1:
-    log_write("    register 0xC1: FOCUS POSITION\n");
-    break;
+        case 0x45:
+            log_write("    subcmd 0x45: Exposure time (max 11 bytes)\r\n");
+            break;
 
-  case 0xD0:
-    log_write("    register 0xD0: EJECT\n");
-    break;
+        case 0x46:
+            log_write("    subcmd 0x46: Focus position (max 11 bytes)\r\n");
+            break;
 
-  case 0xF0:
-    log_write("    register 0xF0: UNKNOWN\n");
-    break;
+        case 0x47:
+            log_write("    subcmd 0x47: Lamp settings (max 11 bytes)\r\n");
+            break;
 
-  default:
-    log_write("    register 0x%02X unknown\n", reg);
-    break;
+        case 0x80:
+            log_write("    subcmd 0x80: Lamp on/off trigger\r\n");
+            break;
+
+        case 0x81:
+            log_write("    subcmd 0x81: Motor init trigger\r\n");
+            break;
+
+        case 0x91:
+            log_write("    subcmd 0x91: Motor step (direction + count)\r\n");
+            break;
+
+        case 0xA0:
+            log_write("    subcmd 0xA0: CCD setup (max 9 bytes)\r\n");
+            break;
+
+        case 0xB0:
+            log_write("    subcmd 0xB0: State change trigger\r\n");
+            break;
+
+        case 0xB1:
+            log_write("    subcmd 0xB1: State change trigger\r\n");
+            break;
+
+        case 0xB3:
+            log_write("    subcmd 0xB3: Config write (max 13 bytes)\r\n");
+            break;
+
+        case 0xB4:
+            log_write("    subcmd 0xB4: Extended config (max 9 bytes)\r\n");
+            break;
+
+        case 0xC0:
+            log_write("    subcmd 0xC0: Gain calibration (max 5 bytes)\r\n");
+            break;
+
+        case 0xC1:
+            log_write("    subcmd 0xC1: Offset calibration (max 5 bytes)\r\n");
+            break;
+
+        case 0xD0:
+            log_write("    subcmd 0xD0: Diagnostic trigger\r\n");
+            break;
+
+        case 0xD1:
+            log_write("    subcmd 0xD1: Diagnostic trigger\r\n");
+            break;
+
+        case 0xD2:
+            log_write("    subcmd 0xD2: Diagnostic data (max 5 bytes)\r\n");
+            break;
+
+        case 0xD5:
+            log_write("    subcmd 0xD5: Extended diagnostic (max 5 bytes)\r\n");
+            break;
+
+        case 0xD6:
+            log_write("    subcmd 0xD6: Persistent settings (max 5 bytes)\r\n");
+            break;
+
+        default:
+            log_write("    subcmd 0x%02X: UNKNOWN\r\n", subcmd);
+            break;
   }
 
   if (len >= 10) {
@@ -762,28 +826,11 @@ __declspec(dllexport) int WINAPI NkDriverEntry(DWORD op, DWORD param2,
     if (p->direction == 1) {
       result = g_realNkDriverEntry(op, param2, param3);
 
-      log_write("  DATA IN (%lu bytes): ", p->transfer_length);
-
-      for (DWORD i = 0; i < p->transfer_length; i++) {
-        log_printf("%02X ", ((BYTE *)p->data_buffer)[i]);
-      }
-      log_printf("\r\n");
-
       bin_write_scsi(seq, &fake, result, (BYTE *)p->data_buffer,
                      p->transfer_length, 0, NULL, 0);
 
       return result;
     }
-
-    log_write("  DATA OUT (%lu bytes): ", p->transfer_length);
-
-    for (DWORD i = 0; i < p->transfer_length; i++) {
-      log_printf("%02X ", ((BYTE *)p->data_buffer)[i]);
-    }
-    log_printf("\r\n");
-
-    bin_write_scsi(seq, &fake, 0, (BYTE *)p->data_buffer, p->transfer_length, 0,
-                   NULL, 0);
 
     result = g_realNkDriverEntry(op, param2, param3);
 
