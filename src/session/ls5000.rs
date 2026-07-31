@@ -167,6 +167,10 @@ impl Driver for Ls5000Driver {
         self.frames.0.len()
     }
 
+    fn sensed_frames(&mut self) -> Option<u32> {
+        Some(self.scanner.sensed_frames())
+    }
+
     fn scan_frame(
         &mut self,
         index: usize,
