@@ -16,7 +16,7 @@ Our goal is to support all the scanners supported by Nikon Scan, which are enume
 
 |                  | Status        |
 |------------------|---------------|
-| Coolscan 9000    | Tested        |
+| Coolscan 9000    | Supported     |
 | Coolscan 8000    | Not started   |
 
 ### 35mm Scanners
