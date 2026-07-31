@@ -145,13 +145,24 @@ class Session:
         r"""
         Whether there is film in the scanner now
         """
-    def prepare(self, *, frames: typing.Optional[builtins.int] = None, detect: builtins.bool = False, pitch_mm: typing.Optional[builtins.float] = None, offset_mm: builtins.float = 0.0, gain: typing.Optional[typing.Sequence[builtins.int]] = None, lock_white_balance: builtins.bool = False, wait_for_media_s: builtins.float = 300.0, progress: collections.abc.Callable[[int, int], bool | None] | None = None) -> builtins.int:
+    def sensed_frames(self) -> typing.Optional[builtins.int]:
+        r"""
+        How many frames the loaded holder reports, `None` where the model cannot be asked
+        
+        A vendor page read rather than a pass, so it answers before the mechanism moves — and on
+        the models that clear it as the film advances, before the first pass is the only time it
+        means anything. `0` is an empty transport, which is not the same answer as `None`.
+        """
+    def prepare(self, *, frames: typing.Optional[builtins.int] = None, detect: builtins.bool = False, pitch_mm: typing.Optional[builtins.float] = None, offset_mm: builtins.float = 0.0, offsets_mm: typing.Optional[typing.Sequence[builtins.float]] = None, gain: typing.Optional[typing.Sequence[builtins.int]] = None, lock_white_balance: builtins.bool = False, wait_for_media_s: builtins.float = 300.0, progress: collections.abc.Callable[[int, int], bool | None] | None = None) -> builtins.int:
         r"""
         Wake the mechanism, settle the exposure and place the frames, returning how many
         
         `detect` asks the scanner to find them with an overview pass, where it can. Otherwise they
         are placed at `pitch_mm`, or at whatever the loaded holder reports. `gain` as a 3- or
         4-tuple holds the exposure and skips metering.
+        
+        `offsets_mm` shifts each frame along the feed, the last value repeating down the strip, and
+        takes the place of `offset_mm` when both are given.
         """
     def scan(self, index: builtins.int = 0, *, dpi: builtins.int = 4000, ir: builtins.bool = False, focus: builtins.str = 'auto', multisample: builtins.int = 1, single_line: builtins.bool = False, window: typing.Optional[tuple[builtins.float, builtins.float, builtins.float, builtins.float]] = None, progress: collections.abc.Callable[[int, int], bool | None] | None = None) -> ScanResult:
         r"""

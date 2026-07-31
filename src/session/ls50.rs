@@ -163,6 +163,10 @@ impl Driver for Ls50Driver {
         self.frames.0.len()
     }
 
+    fn sensed_frames(&mut self) -> Option<u32> {
+        Some(self.scanner.sensed_frames())
+    }
+
     fn scan_frame(
         &mut self,
         index: usize,
