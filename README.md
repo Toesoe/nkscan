@@ -24,6 +24,7 @@ Our goal is to support all the scanners supported by Nikon Scan, which are enume
 |               | Status      |
 |---------------|-------------|
 | Coolscan 5000 | Untested    |
+| Coolscan 4000 | Not started |
 | Coolscan V    | Supported   |
 | Coolscan IV   | Not started |
 
