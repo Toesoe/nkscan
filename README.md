@@ -10,11 +10,22 @@ A cross-platform and performant library and command line application for Nikon f
 I only own a Coolscan 9000, but through reverse-engineering of the Nikon binaries and the work of others, we are slowly adding support for more scanners.
 Please reach out if you have a scanner we can test! Even just dumps of USB/SCSI payloads of a normal scan would be incredibly useful.
 
-|                            | Linux    | Windows  |
-|----------------------------|----------|----------|
-| LS-9000 (Coolscan 9000)    | Tested   | Tested   |
-| LS-50 (Coolscan V)         | Tested   | Untested |
-| LS-5000 (Coolscan 5000)    | Untested | Untested |
+Our goal is to support all the scanners supported by Nikon Scan, which are enumerated here
+
+### Medium Format Scanners
+
+|                  | Status        |
+|------------------|---------------|
+| Coolscan 9000    | Tested        |
+| Coolscan 8000    | Not started   |
+
+### 35mm Scanners
+
+|               | Status      |
+|---------------|-------------|
+| Coolscan 5000 | Untested    |
+| Coolscan V    | Supported   |
+| Coolscan IV   | Not started |
 
 MacOS Firewire support is planned, but just stubbed out for the moment. It should work for USB scanners, like the Coolscan V.
 
