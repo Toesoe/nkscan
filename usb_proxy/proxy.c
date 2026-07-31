@@ -259,7 +259,12 @@ static void dump_sense(const unsigned char *sense, int len) {
     log_write("  -> MEDIUM CHANGED\n");
 }
 
-static void decode_nikon_vendor(const unsigned char *cdb, int len, int write) {
+static void decode_nikon_vendor(const unsigned char *cdb,
+                                int len,
+                                int write,
+                                const unsigned char *data,
+                                unsigned int data_len)
+{                                
   if (len < 4)
     return;
 
@@ -268,111 +273,128 @@ static void decode_nikon_vendor(const unsigned char *cdb, int len, int write) {
   switch (reg)
     {
         case 0x40:
-            log_write("    subcmd 0x40: Scan parameters (max 11 bytes)\r\n");
+            log_write("0x40: Scan parameters\r\n");
             break;
 
         case 0x41:
-            log_write("    subcmd 0x41: Calibration data (max 11 bytes)\r\n");
+            log_write("0x41: Calibration data (max 11 bytes)\r\n");
             break;
 
         case 0x42:
-            log_write("    subcmd 0x42: Gain values (max 11 bytes)\r\n");
+            log_write("0x42: Gain values (max 11 bytes)\r\n");
             break;
 
         case 0x43:
-            log_write("    subcmd 0x43: Offset values (max 11 bytes)\r\n");
+            log_write("0x43: Offset values (max 11 bytes)\r\n");
             break;
 
         case 0x44:
-            log_write("    subcmd 0x44: Motor position (max 5 bytes)\r\n");
+            log_write("0x44: Motor position (max 5 bytes)\r\n");
             break;
 
         case 0x45:
-            log_write("    subcmd 0x45: Exposure time (max 11 bytes)\r\n");
+            log_write("0x45: Exposure time (max 11 bytes)\r\n");
             break;
 
         case 0x46:
-            log_write("    subcmd 0x46: Focus position (max 11 bytes)\r\n");
+            log_write("0x46: Focus position (max 11 bytes)\r\n");
             break;
 
         case 0x47:
-            log_write("    subcmd 0x47: Lamp settings (max 11 bytes)\r\n");
+            log_write("0x47: Lamp settings (max 11 bytes)\r\n");
             break;
 
         case 0x80:
-            log_write("    subcmd 0x80: Lamp on/off trigger\r\n");
+            log_write("0x80: Lamp on/off trigger\r\n");
             break;
 
         case 0x81:
-            log_write("    subcmd 0x81: Motor init trigger\r\n");
+            log_write("0x81: Motor init trigger\r\n");
             break;
 
         case 0x91:
-            log_write("    subcmd 0x91: Motor step (direction + count)\r\n");
+            log_write("0x91: Motor step (direction + count)\r\n");
             break;
 
         case 0xA0:
-            log_write("    subcmd 0xA0: CCD setup (max 9 bytes)\r\n");
+            log_write("0xA0: CCD setup (max 9 bytes)\r\n");
             break;
 
         case 0xB0:
-            log_write("    subcmd 0xB0: State change trigger\r\n");
+            log_write("0xB0: State change trigger\r\n");
             break;
 
         case 0xB1:
-            log_write("    subcmd 0xB1: State change trigger\r\n");
+            log_write("0xB1: State change trigger\r\n");
             break;
 
         case 0xB3:
-            log_write("    subcmd 0xB3: Config write (max 13 bytes)\r\n");
+            log_write("0xB3: Config write (max 13 bytes)\r\n");
             break;
 
         case 0xB4:
-            log_write("    subcmd 0xB4: Extended config (max 9 bytes)\r\n");
+            log_write("0xB4: Extended config (max 9 bytes)\r\n");
             break;
 
         case 0xC0:
-            log_write("    subcmd 0xC0: Gain calibration (max 5 bytes)\r\n");
+            log_write("0xC0: Gain calibration (max 5 bytes)\r\n");
             break;
 
         case 0xC1:
-            log_write("    subcmd 0xC1: Offset calibration (max 5 bytes)\r\n");
+            log_write("0xC1: Offset calibration (max 5 bytes)\r\n");
             break;
 
         case 0xD0:
-            log_write("    subcmd 0xD0: Diagnostic trigger\r\n");
+            log_write("0xD0: Diagnostic trigger\r\n");
             break;
 
         case 0xD1:
-            log_write("    subcmd 0xD1: Diagnostic trigger\r\n");
+            log_write("0xD1: Diagnostic trigger\r\n");
             break;
 
         case 0xD2:
-            log_write("    subcmd 0xD2: Diagnostic data (max 5 bytes)\r\n");
+            log_write("0xD2: Diagnostic data (max 5 bytes)\r\n");
             break;
 
         case 0xD5:
-            log_write("    subcmd 0xD5: Extended diagnostic (max 5 bytes)\r\n");
+            log_write("0xD5: Extended diagnostic (max 5 bytes)\r\n");
             break;
 
         case 0xD6:
-            log_write("    subcmd 0xD6: Persistent settings (max 5 bytes)\r\n");
+            log_write("0xD6: Persistent settings (max 5 bytes)\r\n");
             break;
 
         default:
-            log_write("    subcmd 0x%02X: UNKNOWN\r\n", subcmd);
+            log_write("subcmd 0x%02X: UNKNOWN\r\n", reg);
             break;
   }
 
   if (len >= 10) {
-    unsigned int transfer = ((unsigned int)cdb[6] << 16) |
-                            ((unsigned int)cdb[7] << 8) | (unsigned int)cdb[8];
+        unsigned int transfer = ((unsigned int)cdb[6] << 16) |
+                                ((unsigned int)cdb[7] << 8) |
+                                (unsigned int)cdb[8];
 
-    log_write("    transfer=%u bytes\n", transfer);
-  }
+        log_write("    transfer=%u bytes\r\n", transfer);
+    }
+
+    if (data && data_len) {
+        log_write("    %s payload (%u bytes): ",
+                write ? "WRITE" : "READ",
+                data_len);
+
+        for (unsigned int i = 0; i < data_len; i++) {
+            log_printf("%02X ", data[i]);
+        }
+
+        log_printf("\r\n");
+    }
 }
 
-static void dump_cdb(const unsigned char *cdb, int len) {
+static void dump_cdb(const unsigned char *cdb,
+                     int len,
+                     const unsigned char *data,
+                     unsigned int data_len)
+{
   if (!cdb || len == 0)
     return;
 
@@ -405,6 +427,16 @@ static void dump_cdb(const unsigned char *cdb, int len) {
     log_write("  MODE SELECT(6)\n");
     break;
 
+  case 0x1B:
+    log_write("  START STOP UNIT\n");
+    if (len >= 6) {
+        log_write("    immed=%u start=%u loej=%u\n",
+            (cdb[1] >> 1) & 1,
+            cdb[4] & 1,
+            (cdb[4] >> 1) & 1);
+    }
+    break;
+
   case 0x25:
     log_write("  READ CAPACITY(10)\n");
     break;
@@ -428,12 +460,12 @@ static void dump_cdb(const unsigned char *cdb, int len) {
 
   case 0xE0:
     log_write("  NIKON VENDOR WRITE\n");
-    decode_nikon_vendor(cdb, len, 1);
+    decode_nikon_vendor(cdb, len, 1, data, data_len);
     break;
 
   case 0xE1:
     log_write("  NIKON VENDOR READ\n");
-    decode_nikon_vendor(cdb, len, 0);
+    decode_nikon_vendor(cdb, len, 0, data, data_len);
     break;
 
   default:
@@ -821,7 +853,7 @@ __declspec(dllexport) int WINAPI NkDriverEntry(DWORD op, DWORD param2,
               : p->direction == 2 ? "OUT"
                                   : "none",
               fake.TransferLength);
-    dump_cdb(fake.Cdb, fake.CdbLength);
+    dump_cdb(fake.Cdb, fake.CdbLength, (BYTE *)p->data_buffer, p->transfer_length);
 
     if (p->direction == 1) {
       result = g_realNkDriverEntry(op, param2, param3);
