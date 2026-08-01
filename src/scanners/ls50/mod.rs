@@ -190,7 +190,7 @@ where
             single,
             window_identifier,
             8 + WINDOW_DESCRIPTOR_LEN,
-            0x00,
+            VENDOR_CONTROL,
         ))
     }
 
@@ -316,7 +316,7 @@ where
         if self.wait_settled()? == Status::NoFilm {
             return Err(scsi::Error::InvalidResponse("no film loaded"));
         }
-        let feeder = matches!(self.holder(), Ok(Holder::Feeder));
+        let feeder = self.holder().map(Holder::is_roll).unwrap_or(false);
         self.tolerate_busy(&ReserveUnit::default())?;
         self.probe_adapter_pages();
         if !feeder {
