@@ -8,6 +8,7 @@
 //! particular unit reports lives in [`DeviceLimits`](crate::scanners::nikon::limits).
 
 use crate::capability::Capabilities;
+use crate::capability::resolve::{ResolvedFrame, ResolvedPrepare};
 use crate::capability::unsupported::{Allowed, Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::{DeviceInfo, Model};
@@ -194,31 +195,18 @@ pub(crate) fn reported_capabilities<D: Copy>(
     crate::capability::table::compute(model, adapter).refine(&reported, &rungs)
 }
 
-/// Cropping is wired through the API but not implemented anywhere
-///
-/// No capture crops a frame and the alignment a window has to keep is per model, so this is
-/// refused rather than guessed at.
-pub(crate) fn reject_window(settings: &FrameSettings) -> Result<(), Error> {
-    match settings.window {
-        None => Ok(()),
-        Some(_) => Err(Unsupported::not_implemented(
-            Feature::FrameWindow,
-            "no capture crops a frame, and the alignment a window has to keep is per model",
-        )
-        .into()),
-    }
-}
-
 /// One model's half of a [`Session`]
 ///
 /// Object-safe on purpose: the model is chosen at runtime and nothing above this names it, which
 /// is what lets a caller reach a session without naming a transport either.
 pub(crate) trait Driver: Send {
     fn capabilities(&mut self) -> Result<Capabilities, Error>;
-    fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error>;
     fn media_loaded(&mut self) -> Result<bool, Error>;
-    fn prepare(&mut self, prepare: &Prepare, progress: &mut ProgressFn<'_>)
-    -> Result<usize, Error>;
+    fn prepare(
+        &mut self,
+        prepare: &ResolvedPrepare,
+        progress: &mut ProgressFn<'_>,
+    ) -> Result<usize, Error>;
     fn frames(&self) -> usize;
     /// How many frames the loaded holder reports, where the model can be asked
     fn sensed_frames(&mut self) -> Option<u32> {
@@ -227,7 +215,7 @@ pub(crate) trait Driver: Send {
     fn scan_frame(
         &mut self,
         index: usize,
-        settings: &FrameSettings,
+        settings: &ResolvedFrame,
         progress: &mut ProgressFn<'_>,
     ) -> Result<Image, Error>;
     fn lock_gain(&mut self);
@@ -301,8 +289,26 @@ impl Session {
     ///
     /// Worth calling first: a scan discovers these only once it is building the pass, which on
     /// some models is after a focus and a metering run have already taken a minute.
-    pub fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
-        self.driver.check(prepare, settings)
+    pub fn check(&mut self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
+        self.resolve(prepare, settings).map(|_| ())
+    }
+
+    /// Check both halves against this unit and hand back what a pass will actually run with
+    ///
+    /// Not something a caller has to remember: [`prepare`](Self::prepare) and
+    /// [`scan_frame`](Self::scan_frame) resolve too, and a driver is only reachable through a
+    /// resolved value. Worth calling first anyway, since a scan otherwise discovers a refusal
+    /// after a focus and a metering run have already spent a minute.
+    pub fn resolve(
+        &mut self,
+        prepare: &Prepare,
+        settings: &FrameSettings,
+    ) -> Result<(ResolvedPrepare, ResolvedFrame), Error> {
+        let capabilities = self.capabilities()?;
+        Ok((
+            capabilities.resolve_prepare(prepare)?,
+            capabilities.resolve_frame(settings)?,
+        ))
     }
 
     /// Whether there is film in the scanner now
@@ -316,7 +322,11 @@ impl Session {
         prepare: &Prepare,
         progress: &mut ProgressFn<'_>,
     ) -> Result<usize, Error> {
-        self.driver.prepare(prepare, progress)
+        // Refused here whether or not a caller thought to check first. The drivers still carry
+        // their own copies of these checks; the next commit takes those away and hands the
+        // resolved value down instead, so there is only one place left that can refuse.
+        let resolved = self.capabilities()?.resolve_prepare(prepare)?;
+        self.driver.prepare(&resolved, progress)
     }
 
     /// How many frames [`prepare`](Self::prepare) placed
@@ -352,10 +362,10 @@ impl Session {
             )
             .into());
         }
-        // Here as well as in `check`, because silently scanning the whole frame when a caller
-        // asked for part of it is worse than refusing
-        reject_window(settings)?;
-        self.driver.scan_frame(index, settings, progress)
+        // Every path into a driver resolves, so a setting the capability table refuses cannot
+        // reach one whether or not a caller thought to check first
+        let resolved = self.capabilities()?.resolve_frame(settings)?;
+        self.driver.scan_frame(index, &resolved, progress)
     }
 
     /// Hold whatever gain the last scan settled on, so the rest of the roll matches it
@@ -506,6 +516,8 @@ mod tests {
                 0x28, // READ, the per-channel calibration
                 // --- the frame table this strip actually has
                 0x2A, // SEND, the boundaries
+                // --- scanning a frame, which resolves its settings before anything moves
+                0x12, // INQUIRY, the adapter page: what a frame may ask for depends on it
                 // --- autofocus, which needs the table written first
                 0xE0, // vendor write, the focus point
                 0xC1, // vendor TRIGGER

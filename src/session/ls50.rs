@@ -4,9 +4,12 @@
 //! The frame table is re-declared on every pass, since one that cannot see the whole table leaves
 //! the film where it is.
 
-use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
+use super::{Driver, Error, FocusMode};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
+use crate::capability::resolve::{
+    ResolvedExposure, ResolvedFrame, ResolvedPlacement, ResolvedPrepare,
+};
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
@@ -53,11 +56,11 @@ impl Ls50Driver {
         )
     }
 
-    fn settings(&self, index: usize, settings: &FrameSettings) -> Result<ScanSettings, Error> {
+    fn settings(&self, index: usize, settings: &ResolvedFrame) -> Result<ScanSettings, Error> {
         let capabilities = self.scanner.capabilities();
         Ok(ScanSettings {
-            dpi: self.dpi(settings.dpi)?,
-            ir: settings.ir,
+            dpi: self.dpi(settings.dpi())?,
+            ir: settings.ir(),
             samples: 1,
             window: self.frames.0[index].scan_area(capabilities),
             capabilities,
@@ -77,59 +80,18 @@ impl Driver for Ls50Driver {
         ))
     }
 
-    fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
-        self.dpi(settings.dpi)?;
-        if settings.single_line {
-            return Err(Unsupported::not_on_model(Feature::CcdMode, Model::Ls50).into());
-        }
-        if settings.multisample != 1 {
-            return Err(Unsupported::not_on_model(Feature::Multisample, Model::Ls50).into());
-        }
-        match prepare.exposure {
-            // The firmware meters this model, so there is no knob to hold the channels together
-            Exposure::Auto {
-                lock_white_balance: true,
-            } => {
-                return Err(
-                    Unsupported::not_on_model(Feature::WhiteBalanceLock, Model::Ls50).into(),
-                );
-            }
-            // Infrared is driven off a zeroed gain here, so a value for it means nothing
-            Exposure::Fixed { ir: Some(_), .. } => {
-                return Err(Unsupported::not_on_model(Feature::Exposure, Model::Ls50).into());
-            }
-            _ => {}
-        }
-        match prepare.placement {
-            // The adapter has a thumbnail pass; no driver here drives one yet
-            Placement::Detect { .. } => {
-                return Err(Unsupported::not_implemented(
-                    Feature::Overview,
-                    "no overview pass is written for this model",
-                )
-                .into());
-            }
-            // Nothing on this model reports a frame table, whatever is loaded
-            Placement::Sensed { .. } => {
-                return Err(Unsupported::not_on_model(Feature::FramePlacement, Model::Ls50).into());
-            }
-            Placement::Pitch { .. } => {}
-        }
-        super::reject_window(settings)
-    }
-
     fn media_loaded(&mut self) -> Result<bool, Error> {
         Ok(self.scanner.adapter()? != Adapter::None)
     }
 
     fn prepare(
         &mut self,
-        prepare: &Prepare,
+        prepare: &ResolvedPrepare,
         _progress: &mut ProgressFn<'_>,
     ) -> Result<usize, Error> {
         self.scanner.warm_up()?;
 
-        if let Exposure::Fixed { visible, .. } = prepare.exposure {
+        if let ResolvedExposure::Fixed { visible, .. } = prepare.exposure() {
             self.gain = ChannelExposures {
                 red: visible[0],
                 green: visible[1],
@@ -140,13 +102,21 @@ impl Driver for Ls50Driver {
         }
 
         let capabilities = self.scanner.capabilities();
-        let (frames, pitch_mm, offsets_mm) = match &prepare.placement {
-            Placement::Pitch {
+        let (frames, pitch_mm, offsets_mm) = match prepare.placement() {
+            ResolvedPlacement::Pitch {
                 frames,
                 pitch_mm,
                 offsets_mm,
             } => (*frames, *pitch_mm, offsets_mm.as_slice()),
-            _ => {
+            // Resolution allows both where the hardware has them; neither pass is written here
+            ResolvedPlacement::Detect { .. } => {
+                return Err(Unsupported::not_implemented(
+                    Feature::Overview,
+                    "no overview pass is written for this model",
+                )
+                .into());
+            }
+            ResolvedPlacement::Sensed { .. } => {
                 return Err(Unsupported::not_on_model(Feature::FramePlacement, Model::Ls50).into());
             }
         };
@@ -174,7 +144,7 @@ impl Driver for Ls50Driver {
     fn scan_frame(
         &mut self,
         index: usize,
-        settings: &FrameSettings,
+        settings: &ResolvedFrame,
         progress: &mut ProgressFn<'_>,
     ) -> Result<Image, Error> {
         let pass = self.settings(index, settings)?;
@@ -182,7 +152,7 @@ impl Driver for Ls50Driver {
         // Re-declared every pass: one that cannot see the whole table leaves the film where it is
         self.scanner.set_frame_boundaries(&self.frames)?;
 
-        match settings.focus {
+        match settings.focus() {
             FocusMode::Auto => {
                 info!("Frame {index}: autofocusing");
                 self.scanner.autofocus(pass.center())?;

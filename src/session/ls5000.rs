@@ -3,9 +3,12 @@
 //! The roll feeder senses where the frames are and reports a transport table, so
 //! [`Placement::Sensed`] is the accurate way to place them and an even pitch is the fallback.
 
-use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
+use super::{Driver, Error, FocusMode};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
+use crate::capability::resolve::{
+    ResolvedExposure, ResolvedFrame, ResolvedPlacement, ResolvedPrepare,
+};
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
@@ -61,12 +64,12 @@ impl Ls5000Driver {
         FrameBoundaries::evenly_spaced(count, pitch)
     }
 
-    fn settings(&self, index: usize, settings: &FrameSettings) -> Result<ScanSettings, Error> {
+    fn settings(&self, index: usize, settings: &ResolvedFrame) -> Result<ScanSettings, Error> {
         let capabilities = self.scanner.capabilities();
         Ok(ScanSettings {
-            resolution: self.dpi(settings.dpi)?.to_dpi(),
-            ir: settings.ir,
-            samples: samples(settings.multisample)?,
+            resolution: self.dpi(settings.dpi())?.to_dpi(),
+            ir: settings.ir(),
+            samples: samples(settings.multisample())?,
             window: self.frames.0[index].scan_area(capabilities),
             capabilities,
         })
@@ -85,45 +88,24 @@ impl Driver for Ls5000Driver {
         ))
     }
 
-    fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
-        self.dpi(settings.dpi)?;
-        if settings.single_line {
-            return Err(Unsupported::not_on_model(Feature::CcdMode, Model::Ls5000).into());
-        }
-        // Armed correctly but never decoded: a multi-sampled pass streams every sample rather
-        // than one averaged image, and that readout is not implemented
-        if settings.multisample != 1 {
-            return Err(Unsupported::not_implemented(
-                Feature::Multisample,
-                "the scanner streams every sample rather than averaging them, and that readout \
-                 has not been written",
-            )
-            .into());
-        }
-        if let Placement::Detect { .. } = prepare.placement {
-            return Err(Unsupported::not_implemented(
-                Feature::Overview,
-                "no overview pass is written for this model",
-            )
-            .into());
-        }
-        super::reject_window(settings)
-    }
-
     fn media_loaded(&mut self) -> Result<bool, Error> {
         Ok(self.scanner.adapter()? != Adapter::None)
     }
 
     fn prepare(
         &mut self,
-        prepare: &Prepare,
+        prepare: &ResolvedPrepare,
         _progress: &mut ProgressFn<'_>,
     ) -> Result<usize, Error> {
         self.scanner.warm_up()?;
 
-        match prepare.exposure {
-            Exposure::Auto { lock_white_balance } => self.lock_white_balance = lock_white_balance,
-            Exposure::Fixed { visible, ir } => {
+        match prepare.exposure() {
+            ResolvedExposure::HostMetered { lock_white_balance } => {
+                self.lock_white_balance = lock_white_balance
+            }
+            // This model meters host-side, so resolution never hands it the firmware variant
+            ResolvedExposure::FirmwareMetered => self.lock_white_balance = false,
+            ResolvedExposure::Fixed { visible, ir } => {
                 self.gain = ChannelExposures {
                     red: visible[0],
                     green: visible[1],
@@ -136,19 +118,19 @@ impl Driver for Ls5000Driver {
             }
         }
 
-        let mut frames = match &prepare.placement {
-            Placement::Detect { .. } => {
+        let mut frames = match prepare.placement() {
+            ResolvedPlacement::Detect { .. } => {
                 return Err(Unsupported::not_implemented(
                     Feature::Overview,
                     "no overview pass is written for this model",
                 )
                 .into());
             }
-            Placement::Pitch {
+            ResolvedPlacement::Pitch {
                 frames, pitch_mm, ..
             } => self.place_by_hand(*frames, *pitch_mm),
             // The feeder senses frames itself, so its table is the truth about where they are
-            Placement::Sensed { frames } => match self.scanner.roll_table() {
+            ResolvedPlacement::Sensed { frames } => match self.scanner.roll_table() {
                 Ok(table) if !table.0.is_empty() => {
                     info!("Roll transport reports {} frames", table.0.len());
                     table
@@ -161,12 +143,12 @@ impl Driver for Ls5000Driver {
             },
         };
 
-        if let Placement::Pitch {
+        if let ResolvedPlacement::Pitch {
             frames: Some(n), ..
         }
-        | Placement::Sensed { frames: Some(n) } = prepare.placement
+        | ResolvedPlacement::Sensed { frames: Some(n) } = prepare.placement()
         {
-            frames.0.truncate(n as usize);
+            frames.0.truncate(*n as usize);
         }
         self.frames = frames;
         Ok(self.frames.0.len())
@@ -183,12 +165,12 @@ impl Driver for Ls5000Driver {
     fn scan_frame(
         &mut self,
         index: usize,
-        settings: &FrameSettings,
+        settings: &ResolvedFrame,
         progress: &mut ProgressFn<'_>,
     ) -> Result<Image, Error> {
         let pass = self.settings(index, settings)?;
 
-        match settings.focus {
+        match settings.focus() {
             FocusMode::Auto => {
                 info!("Frame {index}: autofocusing");
                 self.scanner.autofocus(pass.center())?;

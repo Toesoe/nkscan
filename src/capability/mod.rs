@@ -16,6 +16,7 @@ use crate::adapter::Adapter;
 use crate::model::{Interface, Model};
 use crate::scanners::nikon::limits::DeviceLimits;
 
+pub mod resolve;
 pub mod table;
 pub mod unsupported;
 
