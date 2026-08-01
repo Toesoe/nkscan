@@ -1,5 +1,7 @@
+pub mod adapter;
 pub mod decode;
 pub mod devices;
+pub mod model;
 pub mod output;
 pub mod scanners;
 pub mod scsi;

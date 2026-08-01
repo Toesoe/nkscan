@@ -9,6 +9,7 @@
 
 use crate::decode::Image;
 use crate::devices::{DeviceCapabilities, DeviceInfo, Model};
+use crate::model::Protocol;
 use crate::scanners::{ProgressFn, nikon::ChannelExposures};
 use crate::scsi;
 use std::io;
@@ -278,10 +279,18 @@ impl Session {
         transport: Box<dyn crate::scsi::Transport + Send>,
     ) -> Result<Self, Error> {
         let model = device.model;
-        let driver: Box<dyn Driver> = match model {
-            Model::Ls9000 => Box::new(ls9000::Ls9000Driver::open(transport, model)?),
-            Model::Ls50 => Box::new(ls50::Ls50Driver::open(transport, model)?),
-            Model::Ls5000 => Box::new(ls5000::Ls5000Driver::open(transport, model)?),
+        // Dispatched on the dialect rather than on the model, so giving one of the recognized
+        // models a driver is a line in `Model::protocol` and nothing here
+        let driver: Box<dyn Driver> = match model.protocol() {
+            Some(Protocol::Ls9000) => Box::new(ls9000::Ls9000Driver::open(transport, model)?),
+            Some(Protocol::Ls50) => Box::new(ls50::Ls50Driver::open(transport, model)?),
+            Some(Protocol::Ls5000) => Box::new(ls5000::Ls5000Driver::open(transport, model)?),
+            None => {
+                return Err(Error::Unsupported(format!(
+                    "this library recognizes the {} but has no driver for it",
+                    model.name()
+                )));
+            }
         };
         Ok(Self { device, driver })
     }
