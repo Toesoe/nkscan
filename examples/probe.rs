@@ -28,10 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  adapter:     {} ({})", caps.adapter_name(), caps.adapter);
         println!("  optical dpi: {}", caps.resolution.optical);
         println!("  dpi ladder:  {:?}", caps.resolution.ladder);
-        println!(
-            "  depth:       {} native, offers {:?}",
-            caps.depth.native, caps.depth.offered
-        );
+        println!("  depth:       {} bits", caps.depth);
         println!("  multisample: {:?}", caps.multisample);
         println!("  single line: {}", caps.single_line);
         println!("  focus range: {:?}", caps.focus_range);

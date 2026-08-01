@@ -29,7 +29,12 @@ pub struct Capabilities {
     // --- decided by the model
     pub interface: Interface,
     pub resolution: Resolution,
-    pub depth: Depth,
+    /// Bits per sample the converter resolves: 12 on an LS-40, 14 on an LS-50, 16 on an LS-5000
+    ///
+    /// The wire is always 16 bits whatever the converter manages, so this says how much of a
+    /// sample carries signal rather than how wide it is. Nikon Scan could write narrower files;
+    /// this library never downsamples, so there is no list of widths to choose from.
+    pub depth: u8,
     /// Repeat counts the model averages in hardware, `[1]` where it drives none
     pub multisample: &'static [u8],
     /// Whether the slower single-line readout can be chosen. Only the medium format bodies.
@@ -71,7 +76,7 @@ pub enum EjectAction {
 
 /// How the frame positions are known
 ///
-/// Separate from [`Overview`] on purpose. The two are orthogonal: a mounted-slide adapter has
+/// Separate from `overview` on purpose. The two are orthogonal: a mounted-slide adapter has
 /// fixed positions and no overview, and a strip feeder has an overview and unfixed positions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameLocation {
@@ -96,22 +101,6 @@ pub enum ExposureControl {
     Host { lock_white_balance: bool },
     /// The firmware meters. Fixing the gain is the only way to hold the ratios.
     Firmware,
-}
-
-/// Bits per sample
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Depth {
-    /// What the converter actually resolves, refined from what the unit reports
-    ///
-    /// The real figure, and the one that says how much of a 16-bit sample carries signal: 12 on
-    /// an LS-40, 14 on an LS-50, 16 on an LS-5000.
-    pub native: u8,
-    /// The widths Nikon Scan would have written a file at
-    ///
-    /// Advisory, like [`Ice`]. The wire is always 16 bits whatever is asked for, so anything
-    /// narrower is a host-side conversion at write time rather than a device mode — this library
-    /// hands back what the scanner sent and leaves that choice to whatever writes the file.
-    pub offered: &'static [u8],
 }
 
 /// The sensor's own pitch, and the divisions the firmware offers
@@ -153,7 +142,7 @@ impl Capabilities {
             .copied()
             .filter(|&dpi| limits.x_resolution.allows(dpi))
             .collect();
-        self.depth.native = limits.max_bits;
+        self.depth = limits.max_bits;
         self.focus_range = Some(limits.focus);
         // Against the reported optical pitch rather than a hardcoded one, which is what makes
         // this right on a body whose sensor is not 4000 DPI

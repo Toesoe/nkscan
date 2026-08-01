@@ -128,7 +128,7 @@ impl ScanSettings {
         (w * pitch, h * pitch)
     }
 
-    /// Where [`autofocus`](super::Ls50::autofocus) wants aiming
+    /// Where [`autofocus`](crate::scanners::nikon::usb::UsbCoolscan::autofocus) wants aiming
     ///
     /// Against [`native_dims`](Self::native_dims), not the window's own size: the descriptor
     /// carries the pitch-rounded extent and that is what the scanner covers.

@@ -143,7 +143,8 @@ struct PyCapabilities {
     dpi: Vec<u32>,
     /// The sensor's own pitch, which is not 4000 on every model
     optical_dpi: u32,
-    depths: Vec<u32>,
+    /// Bits per sample the converter resolves; the wire is always 16 wide
+    depth: u32,
     multisample: Vec<u32>,
     ir_channel: bool,
     kodachrome_ice: bool,
@@ -176,7 +177,7 @@ impl From<Capabilities> for PyCapabilities {
             adapter: c.adapter_name(),
             dpi: c.resolution.ladder.iter().map(|&d| u32::from(d)).collect(),
             optical_dpi: u32::from(c.resolution.optical),
-            depths: c.depth.offered.iter().map(|&d| u32::from(d)).collect(),
+            depth: u32::from(c.depth),
             multisample: c.multisample.iter().map(|&n| u32::from(n)).collect(),
             ir_channel: c.ice.infrared,
             kodachrome_ice: c.ice.kodachrome,

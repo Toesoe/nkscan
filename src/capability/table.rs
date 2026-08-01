@@ -7,7 +7,7 @@
 //! The model half is from the published specifications. The adapter half is from Nikon Scan's own
 //! per-holder tables.
 
-use super::{Capabilities, Depth, EjectAction, ExposureControl, FrameLocation, Ice, Resolution};
+use super::{Capabilities, EjectAction, ExposureControl, FrameLocation, Ice, Resolution};
 use crate::adapter::Adapter;
 use crate::model::{Family, Model};
 
@@ -19,7 +19,7 @@ const MULTISAMPLE_NONE: &[u8] = &[1];
 struct ModelRow {
     optical: u16,
     ladder: &'static [u16],
-    depth: Depth,
+    depth: u8,
     multisample: &'static [u8],
     single_line: bool,
     kodachrome_ice: bool,
@@ -42,10 +42,7 @@ fn per_model(model: Model) -> ModelRow {
         Model::Ls9000 => ModelRow {
             optical: 4000,
             ladder: LADDER_MEDIUM,
-            depth: Depth {
-                native: 16,
-                offered: &[16, 8],
-            },
+            depth: 16,
             multisample: MULTISAMPLE_FULL,
             single_line: true,
             kodachrome_ice: true,
@@ -55,10 +52,7 @@ fn per_model(model: Model) -> ModelRow {
         Model::Ls8000 => ModelRow {
             optical: 4000,
             ladder: LADDER_MEDIUM,
-            depth: Depth {
-                native: 14,
-                offered: &[14, 8],
-            },
+            depth: 14,
             multisample: MULTISAMPLE_FULL,
             single_line: true,
             kodachrome_ice: false,
@@ -67,10 +61,7 @@ fn per_model(model: Model) -> ModelRow {
         Model::Ls5000 => ModelRow {
             optical: 4000,
             ladder: LADDER_4000,
-            depth: Depth {
-                native: 16,
-                offered: &[16, 8],
-            },
+            depth: 16,
             multisample: MULTISAMPLE_FULL,
             single_line: false,
             kodachrome_ice: true,
@@ -79,10 +70,7 @@ fn per_model(model: Model) -> ModelRow {
         Model::Ls4000 => ModelRow {
             optical: 4000,
             ladder: LADDER_4000,
-            depth: Depth {
-                native: 14,
-                offered: &[14, 8],
-            },
+            depth: 14,
             multisample: MULTISAMPLE_FULL,
             single_line: false,
             kodachrome_ice: false,
@@ -91,10 +79,7 @@ fn per_model(model: Model) -> ModelRow {
         Model::Ls50 => ModelRow {
             optical: 4000,
             ladder: LADDER_4000,
-            depth: Depth {
-                native: 14,
-                offered: &[14, 8],
-            },
+            depth: 14,
             multisample: MULTISAMPLE_NONE,
             single_line: false,
             kodachrome_ice: true,
@@ -105,10 +90,7 @@ fn per_model(model: Model) -> ModelRow {
         Model::Ls40 => ModelRow {
             optical: 2900,
             ladder: LADDER_2900,
-            depth: Depth {
-                native: 12,
-                offered: &[12, 8],
-            },
+            depth: 12,
             multisample: MULTISAMPLE_NONE,
             single_line: false,
             kodachrome_ice: false,
@@ -374,7 +356,7 @@ mod tests {
             (Model::Ls50, 14),
             (Model::Ls40, 12),
         ] {
-            assert_eq!(Capabilities::of(model).depth.native, native, "{model:?}");
+            assert_eq!(Capabilities::of(model).depth, native, "{model:?}");
         }
     }
 
