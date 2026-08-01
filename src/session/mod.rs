@@ -223,6 +223,18 @@ pub(crate) trait Driver: Send {
     ) -> Result<Image, Error>;
     fn lock_gain(&mut self);
     fn gain(&self) -> ChannelExposures;
+    /// The low-resolution pass, where the model drives one
+    ///
+    /// Defaults to refusing: the pass exists in hardware on most adapters, but writing it is per
+    /// model and only one driver has.
+    fn overview(&mut self, _progress: &mut ProgressFn<'_>) -> Result<(Image, u16), Error> {
+        Err(Unsupported::not_implemented(
+            Feature::Overview,
+            "no overview pass is written for this model",
+        )
+        .into())
+    }
+
     /// Settle whatever loading the film raised, once it is known to be in
     ///
     /// Split out of the wait so the polling half can live above the drivers. A model with
@@ -401,6 +413,21 @@ impl Session {
         // reach one whether or not a caller thought to check first
         let resolved = self.capabilities()?.resolve_frame(settings)?;
         self.driver.scan_frame(index, &resolved, progress)
+    }
+
+    /// The low-resolution pass Nikon Scan calls a thumbnail
+    ///
+    /// The whole strip in one image, which is what a host needs in order to show the film and
+    /// let someone place frames on it. [`prepare`](Self::prepare) with [`Placement::Detect`]
+    /// takes the same pass and finds the frames itself; this hands the raster back instead.
+    ///
+    /// Returns the resolution it ran at alongside the image, since mapping a point on the
+    /// thumbnail back to a position on the film is the reason to have it.
+    pub fn overview(&mut self, progress: &mut ProgressFn<'_>) -> Result<(Image, u16), Error> {
+        if !self.capabilities()?.overview {
+            return Err(Unsupported::not_present(Feature::Overview, &self.capabilities()?).into());
+        }
+        self.driver.overview(progress)
     }
 
     /// Hold whatever gain the last scan settled on, so the rest of the roll matches it

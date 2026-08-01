@@ -95,8 +95,8 @@ impl Ls9000Driver {
         progress: &mut ProgressFn<'_>,
     ) -> Result<FrameBoundaries, Error> {
         info!("Taking an overview to find the frames");
-        let overview = self.scanner.overview_with(DEFAULT_GAIN, progress)?;
-        FrameBoundaries::detect(&overview, frames)
+        let (overview, _) = Driver::overview(self, progress)?;
+        FrameBoundaries::detect(&overview.rgb, frames)
             .ok_or_else(|| Error::Media("no frames found on the strip".into()))
     }
 
@@ -242,6 +242,14 @@ impl Driver for Ls9000Driver {
 
     /// Loading a holder raises a unit attention and starts the mechanism moving, and neither is
     /// finished by the time the holder first reports in
+    fn overview(&mut self, progress: &mut ProgressFn<'_>) -> Result<(Image, u16), Error> {
+        let rgb = self.scanner.overview_with(DEFAULT_GAIN, progress)?;
+        // The pass divides the sensor by a fixed 48, so its resolution follows the optical one
+        let dpi =
+            self.scanner.capabilities().x_resolution.optical / ScanArea::OVERVIEW_DIVISOR as u16;
+        Ok((Image { rgb, ir: None }, dpi))
+    }
+
     fn after_media_ready(&mut self) -> Result<(), Error> {
         self.scanner.drain_unit_attentions()?;
         self.scanner.wait_until_ready()?;
