@@ -5,6 +5,7 @@
 //!
 //! Nothing here has been run against a real unit. See `docs/LS5000_HARDWARE_CHECKLIST.md`.
 
+use crate::scanners::nikon::status_usb::UsbStatus as Status;
 use crate::{
     adapter::Adapter,
     decode::{Image, StreamDecoder},
@@ -26,7 +27,6 @@ use cdbs::vendor_read_write::{VendorPayload, VendorRead};
 use decode::{DecodeError, frame_decoder};
 use dtc::Dtc;
 use geometry::ScanSettings;
-use status::Status;
 use std::{
     thread::sleep,
     time::{Duration, Instant},
@@ -42,7 +42,6 @@ pub mod cdbs;
 pub mod decode;
 pub mod dtc;
 pub mod geometry;
-pub mod status;
 pub mod window;
 
 /// For [`UsbTransport::open`](crate::scsi::usb::UsbTransport::open)
@@ -279,7 +278,10 @@ where
 {
     /// The staged setpoint, which the motor may still be traveling towards
     fn focus(&mut self) -> Result<u16, scsi::Error> {
-        match self.transport.send(&VendorRead::focus())? {
+        match self
+            .transport
+            .send(&VendorRead::focus(cdbs::FOCUS_READ_LEN))?
+        {
             VendorPayload::Focus(focus) => {
                 u16::try_from(focus).map_err(|_| scsi::Error::InvalidResponse("focus beyond a u16"))
             }

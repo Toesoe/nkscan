@@ -1,20 +1,23 @@
-//! What the LS-5000 stages in the shared vendor registers
+//! What the USB bodies stage in the shared vendor registers
 //!
-//! The CDB framing, the subcode values and [`VendorWrite`](crate::scanners::nikon::cdbs::VendorWrite)
-//! itself live in [`nikon::cdbs`](crate::scanners::nikon::cdbs). What lives here is how this
-//! model encodes a payload and decodes a read.
+//! The CDB framing, the subcode values and [`VendorWrite`] itself live in
+//! [`nikon::cdbs`](crate::scanners::nikon::cdbs). What lives here is how a payload is encoded
+//! and a read decoded, which the LS-50 and the LS-5000 do identically apart from the focus read
+//! length. That one is a parameter rather than a second copy of this file.
 
 use crate::{
     scanners::nikon::cdbs::{Subcode, VendorRegister, vendor_cdb},
     scsi::{Cdb, Command, CommandData, Error},
 };
 
-/// What a [`VendorWrite`](crate::scanners::nikon::cdbs::VendorWrite) stages
+/// What a [`VendorWrite`] stages
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VendorPayload {
-    /// Focus setpoint, big-endian at bytes 1..5
+    /// Focus setpoint, big-endian at bytes 1..5. Probed against hardware: written
+    /// setpoints read back exactly through [`VendorRead::focus`], and the firmware takes
+    /// this payload at either 5 or 9 bytes.
     Focus(u32),
-    /// Autofocus at `(x, y)` in native dots
+    /// Autofocus at `(x, y)` in native pixels (SANE's `cs3_autofocus`)
     AutoFocus {
         x: u32,
         y: u32,
@@ -58,7 +61,7 @@ impl VendorRegister for VendorPayload {
     }
 }
 
-/// A vendor register read
+/// The firmware rejects a transfer length above 13 bytes here
 #[derive(Debug, Copy, Clone)]
 pub struct VendorRead {
     subcode: Subcode,
@@ -73,11 +76,15 @@ impl VendorRead {
         }
     }
 
-    /// The focus position, 9 bytes
+    /// The focus position
     ///
-    /// Nine bytes, which is the payload length rather than a truncation.
-    pub fn focus() -> Self {
-        Self::new(Subcode::Focus, 9)
+    /// `length` is the one thing the two USB bodies disagree about: the LS-50 asks for 13 bytes,
+    /// saying the firmware rejects a longer transfer, and the LS-5000 asks for 9, saying 9 is
+    /// the payload length rather than a truncation. Nobody has read one at both lengths, so it
+    /// is the caller's constant rather than a choice made here.
+    /// See docs/OPEN_QUESTIONS.md section 18.
+    pub fn focus(length: u32) -> Self {
+        Self::new(Subcode::Focus, length)
     }
 }
 
@@ -93,7 +100,8 @@ impl Command for VendorRead {
         CommandData::Read(self.transfer_length as usize)
     }
 
-    /// Focus sits at bytes 1..5, big-endian. Everything else comes back uninterpreted.
+    /// Focus sits at bytes 1..5, big-endian. Everything else comes back uninterpreted: the
+    /// lamp, eject and autofocus registers have only ever been written.
     fn parse_response(&self, data: &[u8]) -> Result<VendorPayload, Error> {
         match self.subcode {
             Subcode::Focus => data
@@ -112,12 +120,13 @@ mod tests {
     use super::*;
     use crate::scanners::nikon::cdbs::VendorWrite;
 
-    /// `E0 00 A0 ... 09 00`, then `00` + x BE32 + y BE32
     #[test]
-    fn autofocus_cdb_and_payload_match_the_driven_layout() {
+    fn autofocus_cdb_and_payload_match_the_capture() {
+        // Focus at (0x07B4, 0x0BA3): `E0 00 A0 00 00 00 00 00 09 00`, then
+        // 00 + x BE32 + y BE32
         let write = VendorWrite::new(VendorPayload::AutoFocus {
-            x: 0x0000_07B5,
-            y: 0x0000_8589,
+            x: 0x0000_07B4,
+            y: 0x0000_0BA3,
         });
         assert_eq!(
             write.cdb().0,
@@ -125,49 +134,14 @@ mod tests {
         );
         assert!(matches!(
             write.data(),
-            CommandData::Write([0x00, 0x00, 0x00, 0x07, 0xB5, 0x00, 0x00, 0x85, 0x89])
-        ));
-    }
-
-    /// `E1 00 C1 ... 09 00`, nine bytes
-    #[test]
-    fn focus_read_matches_the_driven_layout() {
-        let read = VendorRead::focus();
-        assert_eq!(
-            read.cdb().0,
-            [0xE1, 0x00, 0xC1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00]
-        );
-        assert!(matches!(read.data(), CommandData::Read(9)));
-
-        let mut response = [0u8; 9];
-        response[1..5].copy_from_slice(&228u32.to_be_bytes());
-        assert_eq!(
-            read.parse_response(&response).unwrap(),
-            VendorPayload::Focus(228)
-        );
-    }
-
-    #[test]
-    fn focus_setpoint_round_trips_through_the_write() {
-        let write = VendorWrite::new(VendorPayload::Focus(320));
-        assert_eq!(
-            write.cdb().0,
-            [0xE0, 0x00, 0xC1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00]
-        );
-        assert!(matches!(
-            write.data(),
-            CommandData::Write([0x00, 0x00, 0x00, 0x01, 0x40, 0x00, 0x00, 0x00, 0x00])
+            CommandData::Write([0x00, 0x00, 0x00, 0x07, 0xB4, 0x00, 0x00, 0x0B, 0xA3])
         ));
     }
 
     #[test]
-    fn parking_is_a_zero_setpoint() {
-        let write = VendorWrite::new(VendorPayload::Focus(0));
-        assert!(matches!(write.data(), CommandData::Write(p) if p == [0u8; 9]));
-    }
-
-    #[test]
-    fn eject_carries_thirteen_zero_bytes() {
+    fn eject_cdb_matches_the_capture() {
+        // Subcode 0xD0 with 13 zero bytes. The load counterpart 0xD1 is rejected
+        // 05/24 on this unit, so eject is the only working form.
         let write = VendorWrite::new(VendorPayload::Eject);
         assert_eq!(
             write.cdb().0,
@@ -186,17 +160,54 @@ mod tests {
     }
 
     #[test]
+    fn focus_setpoint_matches_the_probed_layout() {
+        // Probed on hardware: 320 written here reads back as 320
+        let write = VendorWrite::new(VendorPayload::Focus(320));
+        assert_eq!(
+            write.cdb().0,
+            [0xE0, 0x00, 0xC1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00]
+        );
+        assert!(matches!(
+            write.data(),
+            CommandData::Write([0x00, 0x00, 0x00, 0x01, 0x40, 0x00, 0x00, 0x00, 0x00])
+        ));
+    }
+
+    #[test]
+    fn parking_is_a_zero_setpoint() {
+        let write = VendorWrite::new(VendorPayload::Focus(0));
+        assert!(matches!(write.data(), CommandData::Write(p) if p == [0u8; 9]));
+    }
+
+    #[test]
+    fn focus_read_asks_for_thirteen_bytes_and_decodes_the_position() {
+        let read = VendorRead::focus(13);
+        assert_eq!(
+            read.cdb().0,
+            [0xE1, 0x00, 0xC1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0x00]
+        );
+        assert!(matches!(read.data(), CommandData::Read(13)));
+
+        let mut response = [0u8; 13];
+        response[1..5].copy_from_slice(&228u32.to_be_bytes());
+        assert_eq!(
+            read.parse_response(&response).unwrap(),
+            VendorPayload::Focus(228)
+        );
+    }
+
+    #[test]
     fn focus_read_rejects_a_short_response() {
-        assert!(VendorRead::focus().parse_response(&[0u8; 3]).is_err());
+        assert!(VendorRead::focus(13).parse_response(&[0u8; 3]).is_err());
     }
 
     /// An uncharacterized register keeps its subcode and hands the bytes back untouched
     #[test]
     fn a_probe_read_is_uninterpreted() {
-        let read = VendorRead::new(Subcode::Other(0x91), 9);
+        let read = VendorRead::new(Subcode::Other(0x42), 11);
         assert_eq!(
             read.cdb().0,
-            [0xE1, 0x00, 0x91, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00]
+            [0xE1, 0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0x00]
         );
         assert_eq!(
             read.parse_response(&[1, 2, 3]).unwrap(),
