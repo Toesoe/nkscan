@@ -219,7 +219,7 @@ class Session:
         r"""
         Hold whatever gain the last scan settled on, so the rest of the roll matches it
         """
-    def eject(self) -> builtins.bool:
+    def eject(self) -> builtins.str:
         r"""
         Send the film back out
         """

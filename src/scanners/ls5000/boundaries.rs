@@ -7,6 +7,7 @@
 //!
 //! An adapter with no table falls back on [`FrameBoundaries::evenly_spaced`].
 
+use super::geometry::frame_offset;
 use super::{Ls5000, dtc::Dtc};
 use crate::scanners::{ScanArea, nikon::limits::DeviceLimits};
 use crate::scsi::{self, Transport};
@@ -79,11 +80,11 @@ impl FrameBoundaries {
     /// `count` frames one `pitch` apart, for an adapter that reports no table
     ///
     /// The selector is the frame's own index, since nothing is addressing slots here.
-    pub fn evenly_spaced(count: u32, pitch: u32) -> Self {
+    pub fn evenly_spaced(count: u32, pitch: u32, offsets_mm: &[f32]) -> Self {
         Self(
             (0..count)
                 .map(|i| FrameRecord {
-                    origin: i * pitch,
+                    origin: i * pitch + frame_offset(offsets_mm, i),
                     selector: i as u16,
                     flags: 0,
                 })
@@ -220,7 +221,7 @@ mod tests {
 
     #[test]
     fn evenly_spaced_places_frames_on_the_pitch() {
-        let table = FrameBoundaries::evenly_spaced(3, 5959);
+        let table = FrameBoundaries::evenly_spaced(3, 5959, &[]);
         assert_eq!(
             table.0.iter().map(|r| r.origin).collect::<Vec<_>>(),
             [0, 5959, 11918]

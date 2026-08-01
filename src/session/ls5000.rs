@@ -58,10 +58,15 @@ impl Ls5000Driver {
     }
 
     /// Frames at an even pitch, for an adapter that senses none
-    fn place_by_hand(&mut self, frames: Option<u32>, pitch_mm: Option<f32>) -> FrameBoundaries {
+    fn place_by_hand(
+        &mut self,
+        frames: Option<u32>,
+        pitch_mm: Option<f32>,
+        offsets_mm: &[f32],
+    ) -> FrameBoundaries {
         let count = frames.unwrap_or_else(|| self.scanner.sensed_frames().max(1));
         let pitch = pitch_mm.map_or(self.scanner.capabilities().frame_pitch, native_dots);
-        FrameBoundaries::evenly_spaced(count, pitch)
+        FrameBoundaries::evenly_spaced(count, pitch, offsets_mm)
     }
 
     fn settings(&self, index: usize, settings: &ResolvedFrame) -> Result<ScanSettings, Error> {
@@ -127,18 +132,20 @@ impl Driver for Ls5000Driver {
                 .into());
             }
             ResolvedPlacement::Pitch {
-                frames, pitch_mm, ..
-            } => self.place_by_hand(*frames, *pitch_mm),
+                frames,
+                pitch_mm,
+                offsets_mm,
+            } => self.place_by_hand(*frames, *pitch_mm, offsets_mm),
             // The feeder senses frames itself, so its table is the truth about where they are
             ResolvedPlacement::Sensed { frames } => match self.scanner.roll_table() {
                 Ok(table) if !table.0.is_empty() => {
                     info!("Roll transport reports {} frames", table.0.len());
                     table
                 }
-                Ok(_) => self.place_by_hand(*frames, None),
+                Ok(_) => self.place_by_hand(*frames, None, &[]),
                 Err(e) => {
                     debug!(%e, "No roll transport table, placing frames on the pitch");
-                    self.place_by_hand(*frames, None)
+                    self.place_by_hand(*frames, None, &[])
                 }
             },
         };

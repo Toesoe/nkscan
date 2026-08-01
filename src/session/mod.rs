@@ -7,9 +7,9 @@
 //! Everything here is model-agnostic. What varies per model lives behind [`Driver`], and what a
 //! particular unit reports lives in [`DeviceLimits`](crate::scanners::nikon::limits).
 
-use crate::capability::Capabilities;
 use crate::capability::resolve::{ResolvedFrame, ResolvedPrepare};
 use crate::capability::unsupported::{Allowed, Feature, Unsupported};
+use crate::capability::{Capabilities, EjectAction};
 use crate::decode::Image;
 use crate::devices::{DeviceInfo, Model};
 use crate::model::Protocol;
@@ -17,6 +17,9 @@ use crate::scanners::{ProgressFn, nikon::ChannelExposures};
 use crate::scsi;
 use std::io;
 use std::time::Duration;
+
+/// How often the media wait asks again
+const MEDIA_POLL: Duration = Duration::from_millis(500);
 
 mod ls50;
 mod ls5000;
@@ -220,6 +223,13 @@ pub(crate) trait Driver: Send {
     ) -> Result<Image, Error>;
     fn lock_gain(&mut self);
     fn gain(&self) -> ChannelExposures;
+    /// Settle whatever loading the film raised, once it is known to be in
+    ///
+    /// Split out of the wait so the polling half can live above the drivers. A model with
+    /// nothing to settle keeps the default.
+    fn after_media_ready(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
     fn eject(&mut self) -> Result<(), Error>;
     fn abort(&mut self) -> Result<(), Error>;
 }
@@ -322,11 +332,36 @@ impl Session {
         prepare: &Prepare,
         progress: &mut ProgressFn<'_>,
     ) -> Result<usize, Error> {
-        // Refused here whether or not a caller thought to check first. The drivers still carry
-        // their own copies of these checks; the next commit takes those away and hands the
-        // resolved value down instead, so there is only one place left that can refuse.
         let resolved = self.capabilities()?.resolve_prepare(prepare)?;
+        // Waiting for film is model-agnostic, so it happens once here rather than in each
+        // driver. Two of the three used to take the field and ignore it.
+        self.wait_for_media(resolved.wait_for_media(), progress)?;
+        self.driver.after_media_ready()?;
         self.driver.prepare(&resolved, progress)
+    }
+
+    /// Poll until there is film in the scanner, or until `timeout` runs out
+    ///
+    /// Zero refuses an empty scanner rather than waiting, which is what a batch run wants between
+    /// strips and what a one-shot run wants immediately.
+    fn wait_for_media(
+        &mut self,
+        timeout: Duration,
+        progress: &mut ProgressFn<'_>,
+    ) -> Result<(), Error> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if self.driver.media_loaded()? {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(Error::Media("no film is loaded".into()));
+            }
+            if progress(0, 0) == crate::scanners::Flow::Cancel {
+                return Err(Error::Cancelled);
+            }
+            std::thread::sleep(MEDIA_POLL);
+        }
     }
 
     /// How many frames [`prepare`](Self::prepare) placed
@@ -379,8 +414,15 @@ impl Session {
     }
 
     /// Send the film back out
-    pub fn eject(&mut self) -> Result<(), Error> {
-        self.driver.eject()
+    pub fn eject(&mut self) -> Result<EjectAction, Error> {
+        let action = self.capabilities()?.eject;
+        if action == EjectAction::Unavailable {
+            // Refused before the bus is touched: a mount adapter has nothing to give back, and
+            // the command would either fail or move something that should not move
+            return Err(Unsupported::not_present(Feature::Eject, &self.capabilities()?).into());
+        }
+        self.driver.eject()?;
+        Ok(action)
     }
 
     /// Throw away a pass nobody is going to read, so the handle stays usable
