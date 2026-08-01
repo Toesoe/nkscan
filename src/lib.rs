@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod capability;
 pub mod decode;
 pub mod devices;
 pub mod model;
