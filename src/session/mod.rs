@@ -5,7 +5,7 @@
 //! opened once and used for as many frames as the film has.
 //!
 //! Everything here is model-agnostic. What varies per model lives behind [`Driver`], and what a
-//! particular unit reports lives in [`Capabilities`](crate::scanners::nikon::capabilities).
+//! particular unit reports lives in [`DeviceLimits`](crate::scanners::nikon::limits).
 
 use crate::decode::Image;
 use crate::devices::{DeviceCapabilities, DeviceInfo, Model};
@@ -179,7 +179,7 @@ pub(crate) fn confirm_model(
 /// The model's static table, refined by what this unit reports
 pub(crate) fn reported_capabilities<D: Copy>(
     model: Model,
-    reported: crate::scanners::nikon::capabilities::Capabilities,
+    reported: crate::scanners::nikon::limits::DeviceLimits,
     ladder: &[D],
     to_dpi: fn(D) -> u16,
 ) -> DeviceCapabilities {
@@ -379,7 +379,7 @@ impl Session {
 pub fn resolve_dpi<D: Copy>(
     requested: u16,
     ladder: &[D],
-    offered: crate::scanners::nikon::capabilities::ResolutionRange,
+    offered: crate::scanners::nikon::limits::ResolutionRange,
     to_dpi: fn(D) -> u16,
 ) -> Result<D, Error> {
     let legal: Vec<D> = ladder
@@ -404,7 +404,7 @@ mod tests {
     use crate::devices::Attach;
     use crate::scanners::Flow;
     use crate::scanners::ls9000::{capabilities as ls9000_capabilities, geometry::Dpi};
-    use crate::scanners::nikon::capabilities::ResolutionRange;
+    use crate::scanners::nikon::limits::ResolutionRange;
     use crate::scsi::mock::MockTransport;
     use std::path::PathBuf;
 

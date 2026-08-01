@@ -1,8 +1,12 @@
-//! What a scanner says it can do, from vital product data page 0xC1
+//! The limits an open unit reports for itself, from vital product data page 0xC1
 //!
 //! Reading it means the geometry the library will accept comes from the device rather than from
-//! constants, which matters most for [`boundary_y`](Capabilities::boundary_y). Not every field
+//! constants, which matters most for [`boundary_y`](DeviceLimits::boundary_y). Not every field
 //! is populated by every unit.
+//!
+//! This is what one particular unit answers with the adapter it has loaded, not what the model
+//! is capable of. The latter is `capability::Capabilities`, a table keyed on the model and the
+//! adapter, which these figures refine.
 
 use crate::scsi::{
     self, Transport, TransportExt,
@@ -16,7 +20,7 @@ pub const PAGE: u8 = 0xC1;
 /// What every unit seen answers this page with
 pub const ALLOCATION_LENGTH: u8 = 87;
 
-impl VendorPage for Capabilities {
+impl VendorPage for DeviceLimits {
     const PAGE_CODE: u8 = PAGE;
     const ALLOCATION_LENGTH: u8 = ALLOCATION_LENGTH;
 
@@ -36,7 +40,7 @@ impl VendorPage for Capabilities {
 /// divisor is a MODE SELECT parameter and a unit's optical resolution is whatever
 /// [`x_resolution`](Self::x_resolution) reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Capabilities {
+pub struct DeviceLimits {
     /// Bits per sample the scanner produces
     pub max_bits: u8,
     /// Native sensor resolution, and the range it will divide down to
@@ -76,7 +80,7 @@ impl ResolutionRange {
     }
 }
 
-impl Capabilities {
+impl DeviceLimits {
     /// The last scannable dot along the sensor bar
     ///
     /// The boundaries count dots; a window is bounded by the last of them. Never underflows:
@@ -160,14 +164,14 @@ impl Capabilities {
 pub fn read<T: Transport + ?Sized>(
     transport: &mut T,
     allocation_length: u8,
-) -> Result<Capabilities, scsi::Error> {
+) -> Result<DeviceLimits, scsi::Error> {
     let page = transport.send(&VpdInquiry::new(PAGE, allocation_length))?;
     if page.page_code != PAGE {
         return Err(scsi::Error::InvalidResponse(
             "device answered the capability request with a different page",
         ));
     }
-    Capabilities::parse(&page.data)
+    DeviceLimits::parse(&page.data)
 }
 
 #[cfg(test)]
@@ -202,7 +206,7 @@ mod tests {
 
     #[test]
     fn parses_the_ls9000_page() {
-        let caps = Capabilities::parse(&ls9000_page()).unwrap();
+        let caps = DeviceLimits::parse(&ls9000_page()).unwrap();
         assert_eq!(caps.max_bits, 16);
         assert_eq!(caps.boundary_x, 8964);
         assert_eq!(caps.boundary_y, 13176);
@@ -212,7 +216,7 @@ mod tests {
 
     #[test]
     fn parses_the_ls50_page() {
-        let caps = Capabilities::parse(&ls50_page()).unwrap();
+        let caps = DeviceLimits::parse(&ls50_page()).unwrap();
         assert_eq!(caps.max_bits, 14);
         assert_eq!(caps.boundary_x, 3946);
         assert_eq!(caps.boundary_y, 5959);
@@ -227,12 +231,12 @@ mod tests {
         for offset in [32, 54] {
             let mut page = ls50_page();
             page[offset..offset + 4].fill(0);
-            assert!(Capabilities::parse(&page).is_err(), "zero at {offset}");
+            assert!(DeviceLimits::parse(&page).is_err(), "zero at {offset}");
         }
     }
 
     #[test]
     fn a_short_page_is_rejected() {
-        assert!(Capabilities::parse(&ls50_page()[..78]).is_err());
+        assert!(DeviceLimits::parse(&ls50_page()[..78]).is_err());
     }
 }

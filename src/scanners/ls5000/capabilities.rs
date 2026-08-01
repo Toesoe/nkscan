@@ -3,7 +3,7 @@
 //! 16-bit samples, 4000 DPI optical, boundaries of 3946 by 5959 dots, a 5959-dot frame pitch
 //! and focus 0 to 323. Offset 71 counts roll-feeder slots.
 
-use crate::scanners::nikon::capabilities::{self as nikon, Capabilities};
+use crate::scanners::nikon::limits::{self as nikon, DeviceLimits};
 use crate::scsi::{self as scsi};
 use crate::scsi::{Transport, TransportExt, cdbs::VpdInquiry, cdbs::VpdPage};
 
@@ -12,14 +12,14 @@ const PAGE: u8 = 0xC1;
 const ALLOCATION_LENGTH: u8 = 87;
 
 /// Ask the device, before there is a scanner to ask
-pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Capabilities, scsi::Error> {
+pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<DeviceLimits, scsi::Error> {
     nikon::read(transport, ALLOCATION_LENGTH)
 }
 
 /// Slots the feeder reports for the loaded film, 0 for none
 ///
 /// Describes the film rather than the adapter, so it is read fresh rather than cached with
-/// [`Capabilities`]. A full roll reads 40; a shorter one reads what it sensed.
+/// [`DeviceLimits`]. A full roll reads 40; a shorter one reads what it sensed.
 pub(super) fn read_sensed_frames<T: Transport + ?Sized>(transport: &mut T) -> u32 {
     transport
         .send(&VpdInquiry::new(PAGE, ALLOCATION_LENGTH))
@@ -37,12 +37,12 @@ fn frames_in(page: &VpdPage) -> Option<u32> {
 
 #[cfg(test)]
 pub(super) mod fixture {
-    use crate::scanners::nikon::capabilities::Capabilities;
+    use crate::scanners::nikon::limits::DeviceLimits;
     use crate::scsi::cdbs::{VendorPage, VpdPage};
 
     /// What the fixture page parses to, for anything that needs geometry to test against
-    pub fn capabilities() -> Capabilities {
-        Capabilities::from_page(&captured()).expect("the fixture page parses")
+    pub fn capabilities() -> DeviceLimits {
+        DeviceLimits::from_page(&captured()).expect("the fixture page parses")
     }
 
     /// The whole response, header included, as a mock transport has to answer it
@@ -103,7 +103,7 @@ pub(super) mod fixture {
 #[cfg(test)]
 mod tests {
     use super::{fixture::*, *};
-    use crate::scanners::nikon::capabilities::ResolutionRange;
+    use crate::scanners::nikon::limits::ResolutionRange;
     use crate::scsi::cdbs::VendorPage;
 
     /// The allocation length has to cover the whole body the device answers with
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn parses_the_captured_page() {
-        let caps = Capabilities::from_page(&captured()).unwrap();
+        let caps = DeviceLimits::from_page(&captured()).unwrap();
 
         assert_eq!(caps.boundary_x, 3946);
         assert_eq!(caps.boundary_y, 5959);
@@ -134,7 +134,7 @@ mod tests {
     /// The window descriptor carries this straight through, so it comes off the device
     #[test]
     fn the_sample_depth_is_sixteen_bits() {
-        assert_eq!(Capabilities::from_page(&captured()).unwrap().max_bits, 16);
+        assert_eq!(DeviceLimits::from_page(&captured()).unwrap().max_bits, 16);
     }
 
     /// Empty feeder reads 0, a loaded 40-slot roll reads 40
@@ -147,8 +147,8 @@ mod tests {
     /// The geometry is per adapter; only the slot count moves when a roll is loaded
     #[test]
     fn loading_a_roll_does_not_change_the_geometry() {
-        let empty = Capabilities::from_page(&captured()).unwrap();
-        let loaded = Capabilities::from_page(&captured_with_roll()).unwrap();
+        let empty = DeviceLimits::from_page(&captured()).unwrap();
+        let loaded = DeviceLimits::from_page(&captured_with_roll()).unwrap();
         assert_eq!(empty.boundary_x, loaded.boundary_x);
         assert_eq!(empty.boundary_y, loaded.boundary_y);
         assert_eq!(empty.frame_pitch, loaded.frame_pitch);
@@ -162,7 +162,7 @@ mod tests {
             let mut page = captured();
             page.data[offset..offset + 4].fill(0);
             assert!(
-                Capabilities::from_page(&page).is_none(),
+                DeviceLimits::from_page(&page).is_none(),
                 "a zero boundary at {offset} should be rejected"
             );
         }
@@ -174,7 +174,7 @@ mod tests {
             page_code: 0xC1,
             data: vec![0u8; 10],
         };
-        assert_eq!(Capabilities::from_page(&page), None);
+        assert_eq!(DeviceLimits::from_page(&page), None);
         assert_eq!(frames_in(&page), None);
     }
 
@@ -182,7 +182,7 @@ mod tests {
     fn rejects_another_page() {
         let mut other = captured();
         other.page_code = 0xD1;
-        assert_eq!(Capabilities::from_page(&other), None);
+        assert_eq!(DeviceLimits::from_page(&other), None);
         assert_eq!(frames_in(&other), None);
     }
 }

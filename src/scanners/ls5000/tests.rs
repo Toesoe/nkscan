@@ -488,9 +488,7 @@ fn the_window_bound_is_inclusive_of_the_reported_boundary() {
     let capabilities = capabilities::fixture::capabilities();
     let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
 
-    fn window_at(
-        capabilities: crate::scanners::nikon::capabilities::Capabilities,
-    ) -> WindowDescriptor {
+    fn window_at(capabilities: crate::scanners::nikon::limits::DeviceLimits) -> WindowDescriptor {
         WindowParams {
             samples: Samples::default(),
             exposure: 0,
