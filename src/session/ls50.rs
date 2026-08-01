@@ -4,12 +4,10 @@
 //! The frame table is re-declared on every pass, since one that cannot see the whole table leaves
 //! the film where it is.
 
-use super::{Driver, Error, FocusMode};
+use super::{Driver, Error, FocusMode, Placement};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
-use crate::capability::resolve::{
-    ResolvedExposure, ResolvedFrame, ResolvedPlacement, ResolvedPrepare,
-};
+use crate::capability::resolve::{ResolvedExposure, ResolvedFrame, ResolvedPrepare};
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
@@ -103,20 +101,20 @@ impl Driver for Ls50Driver {
 
         let capabilities = self.scanner.capabilities();
         let (frames, pitch_mm, offsets_mm) = match prepare.placement() {
-            ResolvedPlacement::Pitch {
+            Placement::Pitch {
                 frames,
                 pitch_mm,
                 offsets_mm,
             } => (*frames, *pitch_mm, offsets_mm.as_slice()),
             // Resolution allows both where the hardware has them; neither pass is written here
-            ResolvedPlacement::Detect { .. } => {
+            Placement::Detect { .. } => {
                 return Err(Unsupported::not_implemented(
                     Feature::Overview,
                     "no overview pass is written for this model",
                 )
                 .into());
             }
-            ResolvedPlacement::Sensed { .. } => {
+            Placement::Sensed { .. } => {
                 return Err(Unsupported::not_on_model(Feature::FramePlacement, Model::Ls50).into());
             }
         };

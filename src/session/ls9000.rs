@@ -3,12 +3,10 @@
 //! Frames are found by an 83-DPI overview pass unless the caller placed them, exposure is metered
 //! host-side on every frame, and the holder has to be in before anything moves.
 
-use super::{Driver, Error, FocusMode};
+use super::{Driver, Error, FocusMode, Placement};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
-use crate::capability::resolve::{
-    ResolvedExposure, ResolvedFrame, ResolvedPlacement, ResolvedPrepare,
-};
+use crate::capability::resolve::{ResolvedExposure, ResolvedFrame, ResolvedPrepare};
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
@@ -161,13 +159,13 @@ impl Driver for Ls9000Driver {
         }
 
         self.frames = match prepare.placement() {
-            ResolvedPlacement::Detect { frames } => self.search(*frames, progress)?,
-            ResolvedPlacement::Pitch {
+            Placement::Detect { frames } => self.search(*frames, progress)?,
+            Placement::Pitch {
                 frames,
                 pitch_mm,
                 offsets_mm,
             } => self.place_by_hand(*frames, *pitch_mm, offsets_mm),
-            ResolvedPlacement::Sensed { .. } => {
+            Placement::Sensed { .. } => {
                 return Err(
                     Unsupported::not_on_model(Feature::FramePlacement, Model::Ls9000).into(),
                 );

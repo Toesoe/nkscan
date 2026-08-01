@@ -3,12 +3,10 @@
 //! The roll feeder senses where the frames are and reports a transport table, so
 //! [`Placement::Sensed`] is the accurate way to place them and an even pitch is the fallback.
 
-use super::{Driver, Error, FocusMode};
+use super::{Driver, Error, FocusMode, Placement};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
-use crate::capability::resolve::{
-    ResolvedExposure, ResolvedFrame, ResolvedPlacement, ResolvedPrepare,
-};
+use crate::capability::resolve::{ResolvedExposure, ResolvedFrame, ResolvedPrepare};
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
@@ -124,20 +122,20 @@ impl Driver for Ls5000Driver {
         }
 
         let mut frames = match prepare.placement() {
-            ResolvedPlacement::Detect { .. } => {
+            Placement::Detect { .. } => {
                 return Err(Unsupported::not_implemented(
                     Feature::Overview,
                     "no overview pass is written for this model",
                 )
                 .into());
             }
-            ResolvedPlacement::Pitch {
+            Placement::Pitch {
                 frames,
                 pitch_mm,
                 offsets_mm,
             } => self.place_by_hand(*frames, *pitch_mm, offsets_mm),
             // The feeder senses frames itself, so its table is the truth about where they are
-            ResolvedPlacement::Sensed { frames } => match self.scanner.roll_table() {
+            Placement::Sensed { frames } => match self.scanner.roll_table() {
                 Ok(table) if !table.0.is_empty() => {
                     info!("Roll transport reports {} frames", table.0.len());
                     table
@@ -150,10 +148,10 @@ impl Driver for Ls5000Driver {
             },
         };
 
-        if let ResolvedPlacement::Pitch {
+        if let Placement::Pitch {
             frames: Some(n), ..
         }
-        | ResolvedPlacement::Sensed { frames: Some(n) } = prepare.placement()
+        | Placement::Sensed { frames: Some(n) } = prepare.placement()
         {
             frames.0.truncate(*n as usize);
         }
