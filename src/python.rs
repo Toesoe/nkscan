@@ -539,6 +539,34 @@ impl PySession {
         })
     }
 
+    /// The whole strip in one low-resolution pass, as Nikon Scan's thumbnail view
+    ///
+    /// What a host needs to show the film and let someone pick or place frames on it. `prepare`
+    /// with `detect=True` runs the same pass and finds the frames itself; this hands back the
+    /// image instead. `dpi` on the result is the pass's own, which is what maps a point on the
+    /// thumbnail back to a position on the film.
+    #[pyo3(signature = (*, progress = None))]
+    fn overview(
+        &self,
+        py: Python<'_>,
+        #[gen_stub(override_type(
+            type_repr = "collections.abc.Callable[[int, int], bool | None] | None",
+            imports = ("collections.abc")
+        ))]
+        progress: Option<Py<PyAny>>,
+    ) -> PyResult<PyScanResult> {
+        let model = self.model.clone();
+        let (image, dpi) = self.run(py, progress, |session, report| session.overview(report))?;
+        let (rgb, ir) = into_arrays(py, image)?;
+        Ok(PyScanResult {
+            rgb,
+            ir,
+            dpi: u32::from(dpi),
+            device_model: model,
+            frame: 0,
+        })
+    }
+
     /// Hold whatever gain the last scan settled on, so the rest of the roll matches it
     fn lock_gain(&self) -> PyResult<()> {
         let mut guard = self.inner.lock().expect("no panic holds this");

@@ -215,6 +215,15 @@ class Session:
         r"""
         Focus, expose and scan one of the placed frames
         """
+    def overview(self, *, progress: collections.abc.Callable[[int, int], bool | None] | None = None) -> ScanResult:
+        r"""
+        The whole strip in one low-resolution pass, as Nikon Scan's thumbnail view
+        
+        What a host needs to show the film and let someone pick or place frames on it. `prepare`
+        with `detect=True` runs the same pass and finds the frames itself; this hands back the
+        image instead. `dpi` on the result is the pass's own, which is what maps a point on the
+        thumbnail back to a position on the film.
+        """
     def lock_gain(self) -> None:
         r"""
         Hold whatever gain the last scan settled on, so the rest of the roll matches it
