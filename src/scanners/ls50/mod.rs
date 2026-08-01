@@ -1,4 +1,5 @@
 use crate::scanners::nikon::status_usb::UsbStatus as Status;
+use crate::scanners::nikon::usb::{POLL_INTERVAL, READY_TIMEOUT, UsbCoolscan, is_not_ready};
 use crate::{
     adapter::Adapter,
     decode::{Image, StreamDecoder},
@@ -10,11 +11,7 @@ use crate::{
             limits::DeviceLimits,
         },
     },
-    scsi::{
-        self as scsi, Command, Transport, TransportExt,
-        cdbs::*,
-        mode_pages::{BasicUnit, MeasurementUnits},
-    },
+    scsi::{self as scsi, Transport, TransportExt, cdbs::*},
 };
 use cdbs::vendor_read_write::{VendorPayload, VendorRead};
 use decode::{DecodeError, frame_decoder};
@@ -51,13 +48,6 @@ const VENDOR_CONTROL: u8 = 0x80;
 const MAX_SCAN_ATTEMPTS: usize = 30;
 /// Long enough for the lamp to make progress between tries, so the budget covers ~15 s
 const SCAN_RETRY_PAUSE: Duration = Duration::from_millis(500);
-/// How often the driver asks a busy scanner whether it has settled
-pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
-/// How long [`wait_until_ready`](Ls50::wait_until_ready) keeps asking before giving up
-///
-/// Generous on purpose: a pass reports NotReady throughout and an autoexposure measured 29 s.
-/// Firing early leaves the next command reaching a moving scanner.
-const READY_TIMEOUT: Duration = Duration::from_secs(300);
 /// Mid-pass not-ready means the next line isn't out of the carriage yet, not end of data
 const IMAGE_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 /// Shorter than the ready poll: a line arrives in tens of milliseconds once the carriage moves
@@ -70,12 +60,6 @@ fn channels(settings: &ScanSettings) -> &'static [Channel] {
     } else {
         &Channel::RGB
     }
-}
-
-/// Mid-pass "the line isn't ready yet", as opposed to end of data
-fn is_not_ready(sense: &scsi::SenseData) -> bool {
-    matches!(sense.sense_key(), scsi::SenseKey::NotReady)
-        || (matches!(sense.sense_key(), scsi::SenseKey::IllegalRequest) && sense.asc == 0x2C)
 }
 
 /// 16384 big-endian words, `table[i] = i`. Applied in hardware, so identity is what keeps
@@ -151,30 +135,6 @@ where
         }
     }
 
-    /// Pin the working units to 1/4000 in, the sensor's own pitch
-    ///
-    /// Without this the scan mode stays unset and SET WINDOW is rejected. The block descriptor
-    /// is what Nikon Scan sends.
-    fn set_global_units(&mut self) -> Result<(), scsi::Error> {
-        let units = MeasurementUnits {
-            basic_unit: BasicUnit::Inches,
-            divisor: geometry::DOTS_PER_INCH as u16,
-        };
-        let descriptor = BlockDescriptor {
-            density_code: 0x00,
-            number_of_blocks: 0x00,
-            block_length: 0x01,
-        };
-        match self.transport.set_mode_page(&units, Some(descriptor)) {
-            // Answered while still applying it, which is not a refusal
-            Err(scsi::Error::Status { status, sense }) => {
-                trace!(status, ?sense, "MODE SELECT reported busy");
-                Ok(())
-            }
-            other => other,
-        }
-    }
-
     /// `Some(channel)` fetches that window's descriptor, `None` whatever the scanner leads with
     pub fn get_window(
         &mut self,
@@ -230,19 +190,6 @@ where
             other => other,
         }
     }
-
-    /// Send a control command that answers CHECK CONDITION while it runs. A real transport
-    /// failure still propagates.
-    pub(crate) fn tolerate_busy<C: Command>(&mut self, command: &C) -> Result<(), scsi::Error> {
-        match self.transport.send(command) {
-            Ok(_) => Ok(()),
-            Err(scsi::Error::Status { status, sense }) => {
-                trace!(status, ?sense, "Control command reported busy");
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
-    }
 }
 
 impl<T> Scanner for Ls50<T>
@@ -269,27 +216,16 @@ impl<T> Focus for Ls50<T>
 where
     T: Transport,
 {
-    /// The staged setpoint, which the motor may still be traveling towards
     fn focus(&mut self) -> Result<u16, scsi::Error> {
-        match self
-            .transport
-            .send(&VendorRead::focus(cdbs::FOCUS_READ_LEN))?
-        {
-            VendorPayload::Focus(focus) => {
-                u16::try_from(focus).map_err(|_| scsi::Error::InvalidResponse("focus beyond a u16"))
-            }
-            // A VendorRead built with Subcode::Focus always decodes to Focus, see
-            // VendorRead::parse_response
-            _ => unreachable!(),
-        }
+        self.read_focus(cdbs::FOCUS_READ_LEN)
     }
 
-    /// Staged, then committed via TRIGGER. 0 parks the motor.
     fn set_focus(&mut self, focus: u16) -> Result<(), scsi::Error> {
-        self.tolerate_busy(&VendorWrite::new(VendorPayload::Focus(focus.into())))?;
-        self.tolerate_busy(&VendorTrigger)
+        self.write_focus(focus)
     }
 }
+
+impl<T> UsbCoolscan for Ls50<T> where T: Transport {}
 
 /// Either half of a pass can fail: the transport, or decoding what came back
 pub type ScanError = crate::scanners::ReadError<DecodeError>;
@@ -319,40 +255,6 @@ where
             self.tolerate_busy(&VendorTrigger)?;
         }
         self.wait_until_ready()
-    }
-
-    /// Eject the loaded film
-    ///
-    /// The load counterpart, subcode 0xD1, is rejected on this unit.
-    pub fn eject(&mut self) -> Result<(), scsi::Error> {
-        self.tolerate_busy(&ReserveUnit::default())?;
-        self.tolerate_busy(&VendorWrite::new(VendorPayload::Eject))?;
-        self.tolerate_busy(&VendorTrigger)?;
-        // The motor runs for several seconds, reporting Ejecting the whole time. Let it
-        // settle before handing the scanner back, or the release lands mid-motion.
-        //
-        // Whether it settled is the one part worth reporting: if it never did, the film is
-        // still somewhere inside. A failed release only leaves a stale reservation behind.
-        let settled = self.wait_settled();
-        if let Err(e) = self.release() {
-            debug!(%e, "Could not release the scanner after ejecting");
-        }
-        settled.map(|_| ())
-    }
-
-    /// Focus on one point of the film, in 1/4000-in dots
-    ///
-    /// Aim it at the [`center`](ScanSettings::center) of the frame about to be scanned. Other
-    /// payloads for this subcode eject. Blocks for the ten or so seconds it takes, and reports
-    /// where the setpoint landed.
-    pub fn autofocus(&mut self, (x, y): (u32, u32)) -> Result<u16, scsi::Error> {
-        let before = self.focus().unwrap_or(0);
-        self.tolerate_busy(&VendorWrite::new(VendorPayload::AutoFocus { x, y }))?;
-        self.tolerate_busy(&VendorTrigger)?;
-        self.wait_until_ready()?;
-        let after = self.focus().unwrap_or(0);
-        debug!(x, y, before, after, "Autofocus done");
-        Ok(after)
     }
 
     /// Stage the channels this pass needs, scan, and decode what comes back
@@ -468,25 +370,6 @@ where
         Err(scsi::Error::InvalidResponse("scanner kept rejecting SCAN"))
     }
 
-    /// Walk the adapter-configuration VPD pages the way Nikon Scan does before arming
-    ///
-    /// Read-only, every result discarded. Kept because the arming sequence was only ever
-    /// verified with it in place.
-    fn probe_adapter_pages(&mut self) {
-        for (page, allocation_length) in [
-            (0x00u8, 23u8),
-            (0xD1, 28),
-            (0xC1, 87),
-            (0xE1, 39),
-            (0xF0, 53),
-            (0xF8, 17),
-        ] {
-            let _ = self
-                .transport
-                .send(&VpdInquiry::new(page, allocation_length));
-        }
-    }
-
     /// Read one padded line, waiting for the carriage to produce it
     ///
     /// Reading mid-positioning aborts the scan, hence the status gate.
@@ -514,42 +397,6 @@ where
         Err(scsi::Error::InvalidResponse(
             "scanner stopped producing image lines",
         ))
-    }
-
-    /// Poll until the state is one that waiting can't change
-    ///
-    /// Returns the state rather than folding it into an error: [`warm_up`](Self::warm_up)
-    /// treats `NoFilm` differently from the rest.
-    fn wait_settled(&mut self) -> Result<Status, scsi::Error> {
-        let deadline = Instant::now() + READY_TIMEOUT;
-        loop {
-            let status = self.status()?;
-            if !status.is_transient() {
-                return Ok(status);
-            }
-            if Instant::now() >= deadline {
-                warn!(?status, "Scanner never settled");
-                return Err(scsi::Error::InvalidResponse("scanner never became ready"));
-            }
-            sleep(POLL_INTERVAL);
-        }
-    }
-
-    /// Poll until ready, draining the transient states on the way
-    ///
-    /// Settling elsewhere is not a timeout but a state waiting cannot clear: `NeedsInit` wants
-    /// the self-test, `NoFilm` wants film. Debug rather than warn, since arming calls this
-    /// speculatively and discards the result.
-    pub fn wait_until_ready(&mut self) -> Result<(), scsi::Error> {
-        match self.wait_settled()? {
-            Status::Ready => Ok(()),
-            status => {
-                debug!(?status, "Scanner settled short of ready");
-                Err(scsi::Error::InvalidResponse(
-                    "scanner will not become ready without help",
-                ))
-            }
-        }
     }
 }
 

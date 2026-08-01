@@ -11,6 +11,7 @@ use crate::capability::resolve::{ResolvedExposure, ResolvedFrame, ResolvedPrepar
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
+use crate::scanners::nikon::usb::UsbCoolscan;
 use crate::scanners::{
     FilmHolder, Focus, ProgressFn, Scanner,
     ls50::{
