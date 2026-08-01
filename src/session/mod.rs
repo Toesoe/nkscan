@@ -112,6 +112,11 @@ pub struct FrameSettings {
     pub window: Option<(f32, f32, f32, f32)>,
 }
 
+/// Full resolution on the five 4000 DPI bodies
+///
+/// A default cannot know which model it is for, and the LS-40's sensor is 2900, so this is the
+/// one place a resolution is still assumed. It fails as a refusal naming the rungs that body
+/// does have rather than as a wrong scan, which is the most a default can manage.
 impl Default for FrameSettings {
     fn default() -> Self {
         Self {

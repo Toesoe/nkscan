@@ -99,12 +99,18 @@ pub enum ExposureControl {
 }
 
 /// Bits per sample
-///
-/// The wire is always 16 regardless; anything narrower is a host-side conversion, which is why
-/// `offered` can be wider than what the sensor actually resolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Depth {
+    /// What the converter actually resolves, refined from what the unit reports
+    ///
+    /// The real figure, and the one that says how much of a 16-bit sample carries signal: 12 on
+    /// an LS-40, 14 on an LS-50, 16 on an LS-5000.
     pub native: u8,
+    /// The widths Nikon Scan would have written a file at
+    ///
+    /// Advisory, like [`Ice`]. The wire is always 16 bits whatever is asked for, so anything
+    /// narrower is a host-side conversion at write time rather than a device mode — this library
+    /// hands back what the scanner sent and leaves that choice to whatever writes the file.
     pub offered: &'static [u8],
 }
 
