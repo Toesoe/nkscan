@@ -1,7 +1,7 @@
 //! The film adapters and holders, as one vocabulary across every model
 //!
-//! Each model recognises its adapter differently on the wire — the medium format bodies report a
-//! class byte, the 35 mm bodies advertise a page code — but what they are recognising is the same
+//! Each model recognizes its adapter differently on the wire — the medium format bodies report a
+//! class byte, the 35 mm bodies advertise a page code — but what they are recognizing is the same
 //! short list of physical objects. Naming that list once is what lets the capability table be
 //! keyed on the adapter instead of on the model.
 //!

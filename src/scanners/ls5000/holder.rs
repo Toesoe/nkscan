@@ -22,7 +22,7 @@ pub enum Holder {
     /// No adapter-specific page. 0xF8/0xFB/0xFC are advertised with an adapter loaded
     /// too, so this is a fallback rather than a positive match.
     None,
-    /// 0x47 with 0xE2, the motorised roll feeder.
+    /// 0x47 with 0xE2, the motorized roll feeder.
     RollFeeder,
     /// 0x47 without 0xE2
     SixStrip,
@@ -46,7 +46,7 @@ impl VendorPage for Holder {
         }
         let has = |code: u8| page.data.contains(&code);
         Some(if has(0x47) {
-            // 0xE2 separates the motorised feeder from a six-frame strip holder
+            // 0xE2 separates the motorized feeder from a six-frame strip holder
             if has(0xE2) {
                 Holder::RollFeeder
             } else {

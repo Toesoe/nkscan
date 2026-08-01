@@ -7,17 +7,7 @@
 //! have a wire implementation behind them. The rest are here so that enumeration can name what
 //! it found, and so the capability tables can answer for hardware nobody has plugged in yet.
 
-use crate::scanners::{ls50, ls5000};
-
-/// Nikon's USB vendor id, which every Coolscan on the bus answers to
-const USB_VENDOR: u16 = 0x04B0;
-
-/// The LS-40's product id
-///
-/// It has no driver module to keep this in. Reported from a live descriptor as
-/// `USB\VID_04b0&PID_4000`, and it sits directly below the LS-50's 0x4001 and the LS-5000's
-/// 0x4002.
-const LS40_PRODUCT: u16 = 0x4000;
+use crate::scanners::{ls40, ls50, ls5000};
 
 /// A scanner Nikon Scan drove
 ///
@@ -138,7 +128,7 @@ impl Model {
         match self {
             Model::Ls50 => Some((ls50::VENDOR_ID, ls50::PRODUCT_ID)),
             Model::Ls5000 => Some((ls5000::VENDOR_ID, ls5000::PRODUCT_ID)),
-            Model::Ls40 => Some((USB_VENDOR, LS40_PRODUCT)),
+            Model::Ls40 => Some((ls40::VENDOR_ID, ls40::PRODUCT_ID)),
             Model::Ls8000 | Model::Ls9000 | Model::Ls4000 => None,
         }
     }
@@ -211,7 +201,8 @@ mod tests {
     #[test]
     fn the_usb_ids_are_one_vendor_and_all_distinct() {
         let ids: Vec<_> = Model::ALL.into_iter().filter_map(Model::usb_ids).collect();
-        assert!(ids.iter().all(|(vendor, _)| *vendor == USB_VENDOR));
+        // Nikon's, and the three USB models declare it separately in their own modules
+        assert!(ids.iter().all(|(vendor, _)| *vendor == 0x04B0));
         let mut products: Vec<_> = ids.iter().map(|(_, product)| *product).collect();
         products.sort_unstable();
         products.dedup();

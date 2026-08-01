@@ -445,7 +445,7 @@ fn autofocus_targets_the_frame_center() {
     };
     scanner.autofocus(whole_frame.center()).unwrap();
 
-    // The full 3946 x 5959 window, centred
+    // The full 3946 x 5959 window, centered
     let mut expected = vec![0u8; 9];
     expected[1..5].copy_from_slice(&1973u32.to_be_bytes());
     expected[5..9].copy_from_slice(&2979u32.to_be_bytes());
