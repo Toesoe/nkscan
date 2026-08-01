@@ -10,7 +10,10 @@ pub mod cdbs;
 pub mod decode;
 pub mod dtc;
 pub mod limits;
+pub mod limits_usb;
 pub mod metering;
+pub mod status_usb;
+pub mod vendor_read_write;
 
 /// A color the scanner's lamp emits, which is also the window it is scanned through
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
