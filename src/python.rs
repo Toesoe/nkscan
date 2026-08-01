@@ -6,7 +6,7 @@
 //! Nothing here knows about any particular Python consumer. The types are shaped so an adapter
 //! for one is a translation rather than a rewrite.
 
-use crate::capability::{self, Capabilities};
+use crate::capability::{self, Capabilities, FrameLocation};
 use crate::decode::Image;
 use crate::devices::{self, DeviceInfo};
 use crate::scanners::Flow;
@@ -276,7 +276,7 @@ fn into_arrays(py: Python<'_>, image: Image) -> PyResult<Planes> {
 /// a model cannot run. Sensed is kept for the transports that do report one, and only while the
 /// caller has not overridden the placement with a pitch or an offset.
 fn placement_for(
-    capabilities: &DeviceCapabilities,
+    capabilities: &Capabilities,
     detected: Option<u32>,
     frames: Option<u32>,
     pitch_mm: Option<f32>,
@@ -288,7 +288,7 @@ fn placement_for(
         };
     }
     let placed = pitch_mm.is_some() || offsets_mm.iter().any(|&offset| offset != 0.0);
-    if capabilities.senses_frames && !placed {
+    if capabilities.frames == FrameLocation::Reported && !placed {
         return Placement::Sensed { frames };
     }
     Placement::Pitch {
@@ -473,7 +473,7 @@ impl PySession {
         let wait_for_media = Duration::from_secs_f64(wait_for_media_s.max(0.0));
         self.run(py, progress, |session, report| {
             let placement = placement_for(
-                &session.capabilities(),
+                &session.capabilities()?,
                 detected,
                 frames,
                 pitch_mm,
@@ -668,17 +668,32 @@ define_stub_info_gatherer!(stub_info);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapter::Adapter;
+    use crate::capability::table;
     use crate::devices::Model;
 
-    fn placement(model: Model, pitch_mm: Option<f32>, offsets_mm: Vec<f32>) -> Placement {
-        placement_for(&model.capabilities(), None, Some(6), pitch_mm, offsets_mm)
+    /// Whether frames are sensed is a property of the loaded adapter, not of the model: only a
+    /// roll adapter reports a table, and the same body with a strip adapter reports none.
+    fn placement(
+        model: Model,
+        adapter: Adapter,
+        pitch_mm: Option<f32>,
+        offsets_mm: Vec<f32>,
+    ) -> Placement {
+        placement_for(
+            &table::compute(model, adapter),
+            None,
+            Some(6),
+            pitch_mm,
+            offsets_mm,
+        )
     }
 
     /// The LS-50 refuses Sensed, so the plain call has to reach Pitch
     #[test]
     fn a_model_that_senses_nothing_is_placed_by_pitch() {
         assert_eq!(
-            placement(Model::Ls50, None, vec![0.0]),
+            placement(Model::Ls50, Adapter::StripFilm, None, vec![0.0]),
             Placement::Pitch {
                 frames: Some(6),
                 pitch_mm: None,
@@ -687,19 +702,30 @@ mod tests {
         );
     }
 
+    /// The SA-30 senses frames, so a plain call takes the table it reports
     #[test]
-    fn a_sensing_model_keeps_its_own_table() {
+    fn a_sensing_adapter_keeps_its_own_table() {
         assert_eq!(
-            placement(Model::Ls5000, None, vec![0.0]),
+            placement(Model::Ls5000, Adapter::RollFilm, None, vec![0.0]),
             Placement::Sensed { frames: Some(6) }
         );
+    }
+
+    /// The same body with a strip adapter senses nothing, which the old model-level flag could
+    /// not express
+    #[test]
+    fn the_same_body_with_a_strip_adapter_is_placed_by_pitch() {
+        assert!(matches!(
+            placement(Model::Ls5000, Adapter::StripFilm, None, vec![0.0]),
+            Placement::Pitch { .. }
+        ));
     }
 
     /// A pitch or an offset is a placement the caller chose, and outranks the sensed table
     #[test]
     fn an_explicit_placement_overrides_sensing() {
         assert_eq!(
-            placement(Model::Ls5000, Some(38.0), vec![0.0]),
+            placement(Model::Ls5000, Adapter::RollFilm, Some(38.0), vec![0.0]),
             Placement::Pitch {
                 frames: Some(6),
                 pitch_mm: Some(38.0),
@@ -707,7 +733,7 @@ mod tests {
             }
         );
         assert!(matches!(
-            placement(Model::Ls5000, None, vec![0.0, 0.4]),
+            placement(Model::Ls5000, Adapter::RollFilm, None, vec![0.0, 0.4]),
             Placement::Pitch { .. }
         ));
     }
@@ -716,7 +742,7 @@ mod tests {
     fn detect_wins_wherever_it_is_asked_for() {
         assert_eq!(
             placement_for(
-                &Model::Ls9000.capabilities(),
+                &Capabilities::of(Model::Ls9000),
                 Some(4),
                 Some(6),
                 Some(38.0),
