@@ -5,6 +5,7 @@
 //! host-side for a target or a percentile to act on.
 
 use super::{Ls50, geometry::ScanSettings, window::ScanMode};
+use crate::scanners::nikon::usb::UsbCoolscan;
 use crate::scanners::nikon::{Channel, ChannelExposures};
 use crate::scsi::{self, Transport};
 use tracing::*;
