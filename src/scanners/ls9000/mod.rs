@@ -5,8 +5,8 @@ use crate::{
         FilmHolder, Flow, Focus, ReadError, ScanArea, Scanner,
         nikon::{
             Channel, ChannelExposures,
-            capabilities::Capabilities,
             cdbs::{Subcode, VendorTrigger, VendorWrite},
+            limits::DeviceLimits,
         },
     },
     scsi::{
@@ -99,7 +99,7 @@ fn stage_target(length: u32) -> i32 {
 /// The Nikon LS-9000 ED (Super Coolscan 9000)
 pub struct Ls9000<T> {
     pub(crate) transport: T,
-    capabilities: Capabilities,
+    capabilities: DeviceLimits,
 }
 
 /// The coolscan 9000 is SCSI-only, so we can gate here on scsi backends
@@ -232,7 +232,7 @@ where
     }
 
     /// What the scanner reported about itself when this handle was opened
-    pub fn capabilities(&self) -> Capabilities {
+    pub fn capabilities(&self) -> DeviceLimits {
         self.capabilities
     }
 

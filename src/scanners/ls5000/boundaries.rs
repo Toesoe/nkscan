@@ -8,7 +8,7 @@
 //! An adapter with no table falls back on [`FrameBoundaries::evenly_spaced`].
 
 use super::{Ls5000, dtc::Dtc};
-use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
+use crate::scanners::{ScanArea, nikon::limits::DeviceLimits};
 use crate::scsi::{self, Transport};
 
 /// Bytes of header before the first record
@@ -29,7 +29,7 @@ pub struct FrameRecord {
 
 impl FrameRecord {
     /// The window that scans just this frame
-    pub fn scan_area(self, capabilities: Capabilities) -> ScanArea {
+    pub fn scan_area(self, capabilities: DeviceLimits) -> ScanArea {
         super::geometry::whole_frame(self.origin, capabilities)
     }
 }
@@ -95,7 +95,7 @@ impl FrameBoundaries {
     ///
     /// The feeder's table runs past the end of the film on a short roll, and a window starting
     /// there drives the transport into film that is not present.
-    pub fn within(&self, capabilities: Capabilities, travel: u32) -> Self {
+    pub fn within(&self, capabilities: DeviceLimits, travel: u32) -> Self {
         Self(
             self.0
                 .iter()

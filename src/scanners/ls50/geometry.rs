@@ -3,12 +3,12 @@
 //! Everything is in 1/4000-in dots, the sensor's native pitch, since
 //! [`Ls50::new`](super::Ls50::new) pins the measurement units to a 4000 divisor at open.
 
-use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
+use crate::scanners::{ScanArea, nikon::limits::DeviceLimits};
 
 /// The measurement units this driver sets at open
 ///
 /// Only for converting millimeters; anything that scales with the device takes it from
-/// [`Capabilities`] instead.
+/// [`DeviceLimits`] instead.
 pub const DOTS_PER_INCH: u32 = 4000;
 
 /// Windows on the film, in 1/4000-in dots. Y runs along the feed and X along the sensor bar,
@@ -16,9 +16,9 @@ pub const DOTS_PER_INCH: u32 = 4000;
 impl ScanArea {
     /// One whole frame at `y_pos`, spanning the adapter's full scan area
     ///
-    /// [`max_y`](Capabilities::max_y) rather than the boundary itself, since the firmware
+    /// [`max_y`](DeviceLimits::max_y) rather than the boundary itself, since the firmware
     /// refuses a descriptor whose length reaches it.
-    pub fn frame(y_pos: u32, capabilities: Capabilities) -> Self {
+    pub fn frame(y_pos: u32, capabilities: DeviceLimits) -> Self {
         Self {
             x_pos: 0,
             y_pos,
@@ -92,7 +92,7 @@ pub struct ScanSettings {
     pub samples: u8,
     /// What to scan, which is also what picks the frame out of a strip
     pub window: ScanArea,
-    pub capabilities: Capabilities,
+    pub capabilities: DeviceLimits,
 }
 
 impl ScanSettings {
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn geometry_follows_the_reported_capabilities() {
         // A device claiming half the scan area, so nothing here can be a constant
-        let capabilities = Capabilities {
+        let capabilities = DeviceLimits {
             boundary_x: 2001,
             boundary_y: 4001,
             ..super::super::capabilities::fixture::capabilities()

@@ -4,8 +4,8 @@ use crate::{
         FilmHolder, Flow, Focus, Scanner,
         nikon::{
             Channel, ChannelExposures,
-            capabilities::Capabilities,
             cdbs::{Subcode, VendorTrigger, VendorWrite},
+            limits::DeviceLimits,
         },
     },
     scsi::{
@@ -91,7 +91,7 @@ fn identity_gamma_table() -> Vec<u8> {
 /// [`UsbTransport`](crate::scsi::usb::UsbTransport).
 pub struct Ls50<T> {
     pub(crate) transport: T,
-    capabilities: Capabilities,
+    capabilities: DeviceLimits,
 }
 
 impl<T> Ls50<T>
@@ -128,7 +128,7 @@ where
     }
 
     /// What the adapter reported about itself when this handle was opened
-    pub fn capabilities(&self) -> Capabilities {
+    pub fn capabilities(&self) -> DeviceLimits {
         self.capabilities
     }
 

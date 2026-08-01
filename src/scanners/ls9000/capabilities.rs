@@ -1,17 +1,17 @@
 //! What the scanner says it can do, from vital product data page 0xC1
 //!
 //! The page layout and its parsing are shared, in
-//! [`nikon::capabilities`](crate::scanners::nikon::capabilities). Only the allocation length is
+//! [`nikon::limits`](crate::scanners::nikon::limits). Only the allocation length is
 //! this driver's.
 
-use crate::scanners::nikon::capabilities::{self as nikon, Capabilities};
+use crate::scanners::nikon::limits::{self as nikon, DeviceLimits};
 use crate::scsi::{self, Transport};
 
 /// As much as the field carries. This unit answers with 83 bytes.
 const ALLOCATION_LENGTH: u8 = 0xFF;
 
 /// Ask the device, before there is a scanner to ask
-pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<Capabilities, scsi::Error> {
+pub(super) fn read<T: Transport + ?Sized>(transport: &mut T) -> Result<DeviceLimits, scsi::Error> {
     nikon::read(transport, ALLOCATION_LENGTH)
 }
 
@@ -20,7 +20,7 @@ pub(crate) mod fixture {
     /// The whole response, header included, as a mock transport has to answer it
     pub fn raw_page() -> Vec<u8> {
         let body = super::tests::captured();
-        let mut raw = vec![0x06, crate::scanners::nikon::capabilities::PAGE];
+        let mut raw = vec![0x06, crate::scanners::nikon::limits::PAGE];
         raw.extend_from_slice(&(body.len() as u16).to_be_bytes());
         raw.extend_from_slice(&body);
         raw
@@ -45,7 +45,7 @@ mod tests {
     /// Every focus value read off real hardware sits inside the reported range
     #[test]
     fn observed_focus_values_are_in_the_reported_range() {
-        let (min, max) = Capabilities::parse(&captured()).unwrap().focus;
+        let (min, max) = DeviceLimits::parse(&captured()).unwrap().focus;
         for focus in [189u16, 190, 195, 200, 207, 217, 226] {
             assert!(focus >= min && focus <= max, "{focus} outside {min}..{max}");
         }
@@ -57,7 +57,7 @@ mod tests {
     /// makes the 666x333 prescan the coarsest frame window, and puts 333 DPI out of reach.
     #[test]
     fn the_resolutions_we_send_are_offered() {
-        let caps = Capabilities::parse(&captured()).unwrap();
+        let caps = DeviceLimits::parse(&captured()).unwrap();
         assert_eq!((caps.x_resolution.min, caps.x_resolution.max), (666, 4000));
         assert_eq!((caps.y_resolution.min, caps.y_resolution.max), (333, 4000));
         // the whole-number divisions that clear the bar's floor

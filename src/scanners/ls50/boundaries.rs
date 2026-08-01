@@ -5,7 +5,7 @@
 //! window from [`FrameRect::scan_area`] so the two cannot disagree about where a frame is.
 
 use super::{Ls50, dtc::Dtc, geometry::frame_offset};
-use crate::scanners::{ScanArea, nikon::capabilities::Capabilities};
+use crate::scanners::{ScanArea, nikon::limits::DeviceLimits};
 use crate::scsi::{self, Transport};
 
 /// One frame's extent in native pixels. Y runs along the feed, X along the sensor bar.
@@ -32,9 +32,9 @@ impl FrameRect {
     ///
     /// The firmware serves film from where the table says the frame starts, so a window offset
     /// the table does not know about reads that far *into* the frame instead of moving to it.
-    /// The length is [`max_y`](Capabilities::max_y), one short of the boundary the firmware
+    /// The length is [`max_y`](DeviceLimits::max_y), one short of the boundary the firmware
     /// enforces, so every frame comes out the same size.
-    pub fn scan_area(self, capabilities: Capabilities) -> ScanArea {
+    pub fn scan_area(self, capabilities: DeviceLimits) -> ScanArea {
         ScanArea {
             x_pos: self.x_left,
             y_pos: self.y_top,

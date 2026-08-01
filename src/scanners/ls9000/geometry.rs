@@ -43,7 +43,7 @@ impl Multisample {
 /// The measurement units this driver sets at open
 ///
 /// Only for converting millimeters; anything that scales with the device takes it from
-/// [`Capabilities`](super::Capabilities) instead.
+/// [`DeviceLimits`](super::DeviceLimits) instead.
 pub const DOTS_PER_INCH: u32 = 4000;
 
 /// A millimeter figure in this scanner's dots
@@ -82,7 +82,7 @@ impl Dpi {
     /// Every division the firmware offers, lowest divisor first
     ///
     /// Not all of them reach a frame window: the sensor bar has its own floor, which
-    /// [`Capabilities`](crate::scanners::nikon::capabilities::Capabilities) reports.
+    /// [`DeviceLimits`](crate::scanners::nikon::limits::DeviceLimits) reports.
     pub const ALL: [Dpi; 5] = [Dpi::_4000, Dpi::_2000, Dpi::_1333, Dpi::_666, Dpi::_333];
 }
 

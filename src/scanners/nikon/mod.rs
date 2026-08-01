@@ -5,10 +5,10 @@
 //! even when it shares a name here, because the wire formats disagree in ways that would be
 //! silent if merged.
 
-pub mod capabilities;
 pub mod cdbs;
 pub mod decode;
 pub mod dtc;
+pub mod limits;
 pub mod metering;
 
 /// A color the scanner's lamp emits, which is also the window it is scanned through

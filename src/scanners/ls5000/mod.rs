@@ -11,8 +11,8 @@ use crate::{
         FilmHolder, Flow, Focus, Scanner,
         nikon::{
             Channel, ChannelExposures,
-            capabilities::Capabilities,
             cdbs::{Subcode, VendorTrigger, VendorWrite},
+            limits::DeviceLimits,
         },
     },
     scsi::{
@@ -99,7 +99,7 @@ fn is_not_ready(sense: &scsi::SenseData) -> bool {
 /// [`UsbTransport`](crate::scsi::usb::UsbTransport).
 pub struct Ls5000<T> {
     pub(crate) transport: T,
-    capabilities: Capabilities,
+    capabilities: DeviceLimits,
 }
 
 impl<T> Ls5000<T>
@@ -134,7 +134,7 @@ where
     }
 
     /// What the adapter reported about itself when this handle was opened
-    pub fn capabilities(&self) -> Capabilities {
+    pub fn capabilities(&self) -> DeviceLimits {
         self.capabilities
     }
 
