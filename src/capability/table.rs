@@ -7,17 +7,9 @@
 //! The model half is from the published specifications. The adapter half is from Nikon Scan's own
 //! per-holder tables.
 
-use super::{
-    Capabilities, CcdMode, Depth, EjectAction, ExposureControl, FocusSupport, FrameLocation, Ice,
-    Overview, Resolution,
-};
+use super::{Capabilities, Depth, EjectAction, ExposureControl, FrameLocation, Ice, Resolution};
 use crate::adapter::Adapter;
 use crate::model::{Family, Model};
-
-/// Both bodies with a selectable readout mode offer both modes
-const BOTH_CCD_MODES: &[CcdMode] = &[CcdMode::ThreeLine, CcdMode::SingleLine];
-/// Every other model reads out one way and gives no choice about it
-const NO_CCD_CHOICE: &[CcdMode] = &[];
 
 const MULTISAMPLE_FULL: &[u8] = &[1, 2, 4, 8, 16];
 /// The two entry bodies average nothing in hardware
@@ -29,7 +21,7 @@ struct ModelRow {
     ladder: &'static [u16],
     depth: Depth,
     multisample: &'static [u8],
-    ccd_modes: &'static [CcdMode],
+    single_line: bool,
     kodachrome_ice: bool,
     exposure: ExposureControl,
 }
@@ -55,7 +47,7 @@ fn per_model(model: Model) -> ModelRow {
                 offered: &[16, 8],
             },
             multisample: MULTISAMPLE_FULL,
-            ccd_modes: BOTH_CCD_MODES,
+            single_line: true,
             kodachrome_ice: true,
             exposure: host,
         },
@@ -68,7 +60,7 @@ fn per_model(model: Model) -> ModelRow {
                 offered: &[14, 8],
             },
             multisample: MULTISAMPLE_FULL,
-            ccd_modes: BOTH_CCD_MODES,
+            single_line: true,
             kodachrome_ice: false,
             exposure: host,
         },
@@ -80,7 +72,7 @@ fn per_model(model: Model) -> ModelRow {
                 offered: &[16, 8],
             },
             multisample: MULTISAMPLE_FULL,
-            ccd_modes: NO_CCD_CHOICE,
+            single_line: false,
             kodachrome_ice: true,
             exposure: host,
         },
@@ -92,7 +84,7 @@ fn per_model(model: Model) -> ModelRow {
                 offered: &[14, 8],
             },
             multisample: MULTISAMPLE_FULL,
-            ccd_modes: NO_CCD_CHOICE,
+            single_line: false,
             kodachrome_ice: false,
             exposure: host,
         },
@@ -104,10 +96,10 @@ fn per_model(model: Model) -> ModelRow {
                 offered: &[14, 8],
             },
             multisample: MULTISAMPLE_NONE,
-            ccd_modes: NO_CCD_CHOICE,
+            single_line: false,
             kodachrome_ice: true,
-            // The firmware meters this one, which is why it has no white balance lock. See
-            // nikon::divergence: whether that is true of the LS-5000 too is unsettled.
+            // The firmware meters this one, which is why it has no white balance lock. Whether
+            // that is true of the LS-5000 too is unsettled: docs/OPEN_QUESTIONS.md section 13.
             exposure: ExposureControl::Firmware,
         },
         Model::Ls40 => ModelRow {
@@ -118,7 +110,7 @@ fn per_model(model: Model) -> ModelRow {
                 offered: &[12, 8],
             },
             multisample: MULTISAMPLE_NONE,
-            ccd_modes: NO_CCD_CHOICE,
+            single_line: false,
             kodachrome_ice: false,
             // Inherited from the LS-50, its direct successor. Unverified, like everything else
             // about this body.
@@ -130,7 +122,7 @@ fn per_model(model: Model) -> ModelRow {
 /// What the adapter decides
 struct AdapterRow {
     eject: EjectAction,
-    overview: Overview,
+    overview: bool,
     frames: FrameLocation,
     batch: bool,
     strip_offset: bool,
@@ -140,7 +132,7 @@ fn per_adapter(family: Family, adapter: Adapter) -> AdapterRow {
     /// Nothing loaded, and nothing an unfitted adapter could do
     const INERT: AdapterRow = AdapterRow {
         eject: EjectAction::Unavailable,
-        overview: Overview::Unavailable,
+        overview: false,
         frames: FrameLocation::Single,
         batch: false,
         strip_offset: false,
@@ -157,14 +149,14 @@ fn per_adapter(family: Family, adapter: Adapter) -> AdapterRow {
         // Six mechanically fixed apertures, but the film within them may need shifting
         (_, Adapter::StripFilm) => AdapterRow {
             eject: EjectAction::EjectFilm,
-            overview: Overview::Available,
+            overview: true,
             frames: FrameLocation::Mechanical(6),
             batch: true,
             strip_offset: true,
         },
         (_, Adapter::RollFilm) => AdapterRow {
             eject: EjectAction::EjectFilm,
-            overview: Overview::Available,
+            overview: true,
             frames: FrameLocation::Reported,
             batch: true,
             strip_offset: true,
@@ -173,14 +165,14 @@ fn per_adapter(family: Family, adapter: Adapter) -> AdapterRow {
         (_, Adapter::MountedSlide) => INERT,
         (_, Adapter::SlideFeeder) => AdapterRow {
             eject: EjectAction::FeedNextSlide,
-            overview: Overview::Unavailable,
+            overview: false,
             frames: FrameLocation::Single,
             batch: true,
             strip_offset: false,
         },
         (_, Adapter::Ix240) => AdapterRow {
             eject: EjectAction::RewindFilm,
-            overview: Overview::Available,
+            overview: true,
             frames: FrameLocation::Reported,
             batch: true,
             strip_offset: false,
@@ -189,14 +181,14 @@ fn per_adapter(family: Family, adapter: Adapter) -> AdapterRow {
         // --- medium format. Every holder comes out of the body the same way.
         (_, Adapter::Fh869Gr) => AdapterRow {
             eject: EjectAction::EjectHolder,
-            overview: Overview::Unavailable,
+            overview: false,
             frames: FrameLocation::Detected,
             batch: false,
             strip_offset: false,
         },
         (_, Adapter::Fh869S) | (_, Adapter::Fh869G) => AdapterRow {
             eject: EjectAction::EjectHolder,
-            overview: Overview::Available,
+            overview: true,
             frames: FrameLocation::Detected,
             batch: true,
             strip_offset: true,
@@ -207,7 +199,7 @@ fn per_adapter(family: Family, adapter: Adapter) -> AdapterRow {
         | (_, Adapter::Fh816)
         | (_, Adapter::Fh8G1) => AdapterRow {
             eject: EjectAction::EjectHolder,
-            overview: Overview::Available,
+            overview: true,
             // The aperture counts are not written down anywhere in this project, so they are
             // found rather than assumed. See `Adapter::Unknown` below for the same reason.
             frames: FrameLocation::Detected,
@@ -224,7 +216,7 @@ fn per_adapter(family: Family, adapter: Adapter) -> AdapterRow {
         // LS-9000 has always had. On a 35 mm body there is no such majority, so it stays inert.
         (Family::MediumFormat, Adapter::Unknown(_)) => AdapterRow {
             eject: EjectAction::EjectHolder,
-            overview: Overview::Available,
+            overview: true,
             frames: FrameLocation::Detected,
             batch: true,
             strip_offset: false,
@@ -257,15 +249,12 @@ pub fn compute(model: Model, adapter: Adapter) -> Capabilities {
         },
         depth: m.depth,
         multisample: m.multisample,
-        ccd_modes: m.ccd_modes,
+        single_line: m.single_line,
         ice: Ice {
             infrared: true,
             kodachrome: m.kodachrome_ice,
         },
-        focus: FocusSupport {
-            auto: true,
-            range: None,
-        },
+        focus_range: None,
         exposure: m.exposure,
         eject: a.eject,
         overview: a.overview,
@@ -300,7 +289,7 @@ mod tests {
     fn an_adapter_from_the_wrong_family_is_inert() {
         let caps = compute(Model::Ls9000, Adapter::RollFilm);
         assert_eq!(caps.eject, EjectAction::Unavailable);
-        assert_eq!(caps.overview, Overview::Unavailable);
+        assert!(!caps.overview);
         assert!(!caps.batch);
     }
 
@@ -326,21 +315,12 @@ mod tests {
     #[test]
     fn the_adapters_with_no_thumbnail_pass_are_the_starred_ones() {
         for adapter in [Adapter::MountedSlide, Adapter::SlideFeeder] {
-            assert_eq!(
-                compute(Model::Ls50, adapter).overview,
-                Overview::Unavailable
-            );
+            assert!(!compute(Model::Ls50, adapter).overview);
         }
-        assert_eq!(
-            compute(Model::Ls9000, Adapter::Fh869Gr).overview,
-            Overview::Unavailable
-        );
+        assert!(!compute(Model::Ls9000, Adapter::Fh869Gr).overview);
         // And it is the only medium format holder without one
         for adapter in [Adapter::Fh869S, Adapter::Fh869G, Adapter::Fh835S] {
-            assert_eq!(
-                compute(Model::Ls9000, adapter).overview,
-                Overview::Available
-            );
+            assert!(compute(Model::Ls9000, adapter).overview);
         }
     }
 
@@ -370,7 +350,7 @@ mod tests {
     #[test]
     fn an_unrecognized_medium_format_holder_keeps_the_family_behavior() {
         let caps = compute(Model::Ls9000, Adapter::Unknown(2));
-        assert_eq!(caps.overview, Overview::Available);
+        assert!(caps.overview);
         assert_eq!(caps.eject, EjectAction::EjectHolder);
         assert!(caps.batch);
     }
@@ -379,7 +359,7 @@ mod tests {
     #[test]
     fn an_unrecognized_thirty_five_mm_adapter_is_inert() {
         let caps = compute(Model::Ls50, Adapter::Unknown(0x43));
-        assert_eq!(caps.overview, Overview::Unavailable);
+        assert!(!caps.overview);
         assert_eq!(caps.eject, EjectAction::Unavailable);
     }
 
@@ -420,14 +400,12 @@ mod tests {
 
     /// Only the two medium format bodies let a caller pick the readout
     #[test]
-    fn the_ccd_mode_is_selectable_on_the_medium_format_bodies_only() {
+    fn the_single_line_readout_is_selectable_on_the_medium_format_bodies_only() {
         for model in [Model::Ls8000, Model::Ls9000] {
-            assert!(Capabilities::of(model).allows_ccd_mode(CcdMode::SingleLine));
+            assert!(Capabilities::of(model).single_line, "{model:?}");
         }
         for model in [Model::Ls5000, Model::Ls4000, Model::Ls50, Model::Ls40] {
-            let caps = Capabilities::of(model);
-            assert!(!caps.allows_ccd_mode(CcdMode::SingleLine));
-            assert!(!caps.allows_ccd_mode(CcdMode::ThreeLine));
+            assert!(!Capabilities::of(model).single_line, "{model:?}");
         }
     }
 

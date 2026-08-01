@@ -198,8 +198,9 @@ impl ScanSettings {
 /// The last value repeats, so one offset shifts the whole strip and a list of them corrects
 /// gap drift along it. An empty list shifts nothing.
 ///
-/// The same shape as the LS-50's. Kept separate because the two scanners' dot pitches are their
-/// own; see `nikon::divergence` before merging them.
+/// The same shape as the LS-50's `frame_offset`, and kept separate: the two drivers disagree
+/// about enough of this generation that merging on a resemblance is how a wrong answer sticks.
+/// docs/OPEN_QUESTIONS.md sections 13 to 18.
 pub fn frame_offset(offsets: &[f32], index: u32) -> u32 {
     match offsets.len().checked_sub(1) {
         Some(last) => native_dots(offsets[(index as usize).min(last)]),

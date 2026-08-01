@@ -32,15 +32,17 @@ pub struct Capabilities {
     pub depth: Depth,
     /// Repeat counts the model averages in hardware, `[1]` where it drives none
     pub multisample: &'static [u8],
-    /// Readout modes a caller may choose between, empty where the model offers no choice
-    pub ccd_modes: &'static [CcdMode],
+    /// Whether the slower single-line readout can be chosen. Only the medium format bodies.
+    pub single_line: bool,
     pub ice: Ice,
-    pub focus: FocusSupport,
+    /// The focus travel the unit reports, `None` until one is open
+    pub focus_range: Option<(u16, u16)>,
     pub exposure: ExposureControl,
 
     // --- decided by the adapter
     pub eject: EjectAction,
-    pub overview: Overview,
+    /// Whether this adapter supports the low-resolution pass Nikon Scan calls a thumbnail
+    pub overview: bool,
     pub frames: FrameLocation,
     /// Whether a whole holder or roll can be run without a person in between
     pub batch: bool,
@@ -65,13 +67,6 @@ pub enum EjectAction {
     RewindFilm,
     /// Returns the slide in the gate and feeds the next one
     FeedNextSlide,
-}
-
-/// Whether this adapter supports the low-resolution pass Nikon Scan calls a thumbnail
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Overview {
-    Unavailable,
-    Available,
 }
 
 /// How the frame positions are known
@@ -101,15 +96,6 @@ pub enum ExposureControl {
     Host { lock_white_balance: bool },
     /// The firmware meters. Fixing the gain is the only way to hold the ratios.
     Firmware,
-}
-
-/// The sensor readout mode, where a model lets one be chosen
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CcdMode {
-    /// All three sensor lines, the faster readout
-    ThreeLine,
-    /// One line, slower, and it reduces the banding the three-line readout can show
-    SingleLine,
 }
 
 /// Bits per sample
@@ -143,13 +129,6 @@ pub struct Ice {
     pub kodachrome: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FocusSupport {
-    pub auto: bool,
-    /// The setpoint range the unit reports, `None` until one is open
-    pub range: Option<(u16, u16)>,
-}
-
 impl Capabilities {
     /// What this model can do before anything is open, with nothing loaded
     pub fn of(model: Model) -> Self {
@@ -169,7 +148,7 @@ impl Capabilities {
             .filter(|&dpi| limits.x_resolution.allows(dpi))
             .collect();
         self.depth.native = limits.max_bits;
-        self.focus.range = Some(limits.focus);
+        self.focus_range = Some(limits.focus);
         // Against the reported optical pitch rather than a hardcoded one, which is what makes
         // this right on a body whose sensor is not 4000 DPI
         self.max_area_mm = (
@@ -193,11 +172,6 @@ impl Capabilities {
     /// Whether this unit offers `dpi` at all
     pub fn allows_dpi(&self, dpi: u16) -> bool {
         self.resolution.ladder.contains(&dpi)
-    }
-
-    /// Whether a caller may ask for this readout mode
-    pub fn allows_ccd_mode(&self, mode: CcdMode) -> bool {
-        self.ccd_modes.contains(&mode)
     }
 }
 
