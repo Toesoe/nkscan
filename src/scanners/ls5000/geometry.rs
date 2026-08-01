@@ -171,7 +171,7 @@ impl ScanSettings {
         (self.window.x_size, self.window.y_size)
     }
 
-    /// Where [`autofocus`](crate::scanners::nikon::usb::UsbCoolscan::autofocus) wants aiming
+    /// Where `autofocus` wants aiming
     pub fn center(&self) -> (u32, u32) {
         let (width, length) = self.native_dims();
         (

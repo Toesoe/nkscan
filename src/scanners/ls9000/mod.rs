@@ -581,7 +581,7 @@ where
         Ok(gain)
     }
 
-    /// [`overview`](Self::overview), reporting (received, expected) bytes as it reads
+    /// [`overview_with`](Self::overview_with), reporting (received, expected) bytes as it reads
     pub fn overview_with<F: FnMut(u64, u64) -> Flow>(
         &mut self,
         gain: ChannelExposures,

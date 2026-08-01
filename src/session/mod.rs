@@ -57,7 +57,7 @@ impl std::str::FromStr for FocusMode {
 pub enum Placement {
     /// Look for them: a low-resolution overview pass, then find the frames in it
     ///
-    /// Only where [`Overview::Available`](crate::capability::Overview) is reported.
+    /// Only where `overview` is reported.
     Detect { frames: usize },
     /// Place them arithmetically along the feed
     ///
@@ -258,7 +258,7 @@ pub struct Session {
 }
 
 impl Session {
-    /// Claim the scanner `id` names, as [`devices::list`] reported it
+    /// Claim the scanner `id` names, as [`devices::list`](crate::devices::list) reported it
     ///
     /// The unit is asked who it is again on the way up, so an id left over from before something
     /// was replugged fails here rather than driving the wrong scanner.
@@ -307,7 +307,7 @@ impl Session {
     }
 
     /// What this unit reports, which refines the static table
-    /// [`Model::capabilities`](crate::devices::Model::capabilities) has to answer from
+    /// `Capabilities::of` has to answer from
     pub fn capabilities(&mut self) -> Result<Capabilities, Error> {
         self.driver.capabilities()
     }

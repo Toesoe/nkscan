@@ -45,7 +45,10 @@ class Capabilities:
         The sensor's own pitch, which is not 4000 on every model
         """
     @property
-    def depths(self) -> builtins.list[builtins.int]: ...
+    def depth(self) -> builtins.int:
+        r"""
+        Bits per sample the converter resolves; the wire is always 16 wide
+        """
     @property
     def multisample(self) -> builtins.list[builtins.int]: ...
     @property
