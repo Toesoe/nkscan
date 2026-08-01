@@ -46,21 +46,6 @@ impl ResolvedFrame {
     }
 }
 
-/// How the frames get located, checked against the loaded adapter
-#[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedPlacement {
-    /// An overview pass, with the frames found in it
-    Detect { frames: usize },
-    /// Placed arithmetically along the feed
-    Pitch {
-        frames: Option<u32>,
-        pitch_mm: Option<f32>,
-        offsets_mm: Vec<f32>,
-    },
-    /// The transport's own sensed table
-    Sensed { frames: Option<u32> },
-}
-
 /// Where the gain comes from, with the model's own answer already folded in
 ///
 /// A driver no longer has to know whether it meters: asking for `Auto` on a firmware-metered
@@ -76,13 +61,13 @@ pub enum ResolvedExposure {
 /// A prepare, checked against the unit it is for
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedPrepare {
-    placement: ResolvedPlacement,
+    placement: Placement,
     exposure: ResolvedExposure,
     wait_for_media: Duration,
 }
 
 impl ResolvedPrepare {
-    pub fn placement(&self) -> &ResolvedPlacement {
+    pub fn placement(&self) -> &Placement {
         &self.placement
     }
     pub fn exposure(&self) -> ResolvedExposure {
@@ -164,36 +149,22 @@ impl Capabilities {
 
     /// Check a prepare against this unit and the adapter it has loaded
     pub fn resolve_prepare(&self, request: &Prepare) -> Result<ResolvedPrepare, Unsupported> {
-        let placement = match &request.placement {
-            Placement::Detect { frames } => {
-                if !self.overview {
-                    return Err(Unsupported::not_present(Feature::Overview, self));
-                }
-                ResolvedPlacement::Detect { frames: *frames }
+        match &request.placement {
+            Placement::Detect { .. } if !self.overview => {
+                return Err(Unsupported::not_present(Feature::Overview, self));
             }
-            Placement::Sensed { frames } => {
-                if self.frames != FrameLocation::Reported {
-                    return Err(Unsupported::not_present(Feature::FramePlacement, self));
-                }
-                ResolvedPlacement::Sensed { frames: *frames }
+            Placement::Sensed { .. } if self.frames != FrameLocation::Reported => {
+                return Err(Unsupported::not_present(Feature::FramePlacement, self));
             }
-            Placement::Pitch {
-                frames,
-                pitch_mm,
-                offsets_mm,
-            } => {
-                // Shifting film along the strip needs an adapter that can move it. Asking a
-                // fixed holder to is not a no-op, it is a frame placed somewhere else.
-                if offsets_mm.iter().any(|&offset| offset != 0.0) && !self.strip_offset {
-                    return Err(Unsupported::not_present(Feature::StripFilmOffset, self));
-                }
-                ResolvedPlacement::Pitch {
-                    frames: *frames,
-                    pitch_mm: *pitch_mm,
-                    offsets_mm: offsets_mm.clone(),
-                }
+            // Shifting film along the strip needs an adapter that can move it. Asking a fixed
+            // holder to is not a no-op, it is a frame placed somewhere else.
+            Placement::Pitch { offsets_mm, .. }
+                if !self.strip_offset && offsets_mm.iter().any(|&o| o != 0.0) =>
+            {
+                return Err(Unsupported::not_present(Feature::StripFilmOffset, self));
             }
-        };
+            _ => {}
+        }
 
         let exposure = match (request.exposure, self.exposure) {
             (Exposure::Auto { lock_white_balance }, ExposureControl::Host { .. }) => {
@@ -229,7 +200,7 @@ impl Capabilities {
         };
 
         Ok(ResolvedPrepare {
-            placement,
+            placement: request.placement.clone(),
             exposure,
             wait_for_media: request.wait_for_media,
         })
