@@ -126,7 +126,7 @@ impl Attach {
 
 /// What a model can do, before it is open
 ///
-/// Millimetre figures are for the film the model takes, not the loaded adapter, which only the
+/// Millimeter figures are for the film the model takes, not the loaded adapter, which only the
 /// device can report. Every one of these scanners is transparency-only, so there is no film
 /// source to choose.
 #[derive(Debug, Clone, PartialEq)]

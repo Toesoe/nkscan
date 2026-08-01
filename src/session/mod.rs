@@ -44,8 +44,8 @@ impl std::str::FromStr for FocusMode {
 
 /// How the frames on the loaded film get located
 ///
-/// Millimetre figures become whole dots at the model's own pitch, and a frame length then floors
-/// to whatever the model's interleave needs, so a placement given in millimetres is not exactly
+/// Millimeter figures become whole dots at the model's own pitch, and a frame length then floors
+/// to whatever the model's interleave needs, so a placement given in millimeters is not exactly
 /// recoverable from the frames it produces.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Placement {
@@ -198,7 +198,7 @@ pub(crate) fn reported_capabilities<D: Copy>(
     capabilities
 }
 
-/// A length in a scanner's own dots, as millimetres
+/// A length in a scanner's own dots, as millimeters
 ///
 /// Every model here is driven in 1/4000-inch dots, which the driver pins at open.
 fn dots_to_mm(dots: u32) -> f32 {

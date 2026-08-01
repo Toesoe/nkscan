@@ -1,6 +1,6 @@
 //! The Nikon LS-5000 ED (Super Coolscan 5000 ED), a 35 mm USB film scanner
 //!
-//! 16-bit samples, hardware multi-sampling, and a motorised feeder that senses frames along a
+//! 16-bit samples, hardware multi-sampling, and a motorized feeder that senses frames along a
 //! whole roll and reports where they are.
 //!
 //! Nothing here has been run against a real unit. See `docs/LS5000_HARDWARE_CHECKLIST.md`.
