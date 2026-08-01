@@ -106,14 +106,22 @@ impl HolderClass {
 
 /// What a medium format body answers on page 0xC8
 ///
-/// Three signals rather than one. The class is the coarse kind; `apertures` is how many frames
-/// the holder presents; `width_dots` is how wide it is, which is what separates a 120 holder from
-/// a 35 mm carrier on the same body.
+/// Three signals rather than one, and only two of them are understood.
+///
+/// `class` is the coarse kind. `width_dots` is how wide the holder is, which is what separates a
+/// 120 holder from a 35 mm carrier on the same body, and it agrees with `boundary_x` on page 0xC1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HolderReading {
     /// `None` when the body reports nothing loaded
     pub class: Option<HolderClass>,
-    pub apertures: u8,
+    /// Byte 4, meaning unestablished
+    ///
+    /// It was read as an aperture count, which the hardware contradicts: an FH-869S holds one
+    /// continuous strip and has no apertures at all, and it answers 6 here. It may be a format
+    /// (every medium format size is 6 by something), a default frame count, or something else
+    /// again. Named for its offset rather than for a guess until a capture settles it.
+    pub byte_4: u8,
+    /// How wide the holder is, in the scanner's own dots
     pub width_dots: u16,
 }
 
@@ -131,14 +139,14 @@ impl VendorPage for HolderReading {
         if page.data.first().copied().unwrap_or(0) == 0 {
             return Some(HolderReading {
                 class: None,
-                apertures: 0,
+                byte_4: 0,
                 width_dots: 0,
             });
         }
         let at = |i: usize| page.data.get(i).copied();
         Some(HolderReading {
             class: Some(HolderClass::from_byte(at(3)?)),
-            apertures: at(4).unwrap_or(0),
+            byte_4: at(4).unwrap_or(0),
             // Absent on the shorter answer, which is not an error: only the class is load-bearing
             width_dots: match (at(11), at(12)) {
                 (Some(high), Some(low)) => u16::from_be_bytes([high, low]),
@@ -283,7 +291,7 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(reading.class, Some(HolderClass::Strip));
-        assert_eq!(reading.apertures, 6);
+        assert_eq!(reading.byte_4, 6);
         assert_eq!(reading.width_dots, 8964);
     }
 
@@ -292,7 +300,7 @@ mod tests {
     fn a_loaded_holder_keeps_its_class_rather_than_guessing_a_part() {
         let reading = HolderReading {
             class: Some(HolderClass::Strip),
-            apertures: 6,
+            byte_4: 6,
             width_dots: 8964,
         };
         assert_eq!(reading.adapter(), Adapter::Unknown(2));
