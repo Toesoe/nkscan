@@ -3,7 +3,9 @@
 //! 16-bit samples, hardware multi-sampling, and a motorized feeder that senses frames along a
 //! whole roll and reports where they are.
 //!
-//! Nothing here has been run against a real unit. See `docs/LS5000_HARDWARE_CHECKLIST.md`.
+//! First run against a real unit in 2026: an SA-21 on Windows scans. Most of the rest is still
+//! inference, so `docs/LS5000_HARDWARE_CHECKLIST.md` still applies -- the roll transport, the
+//! multi-sample readout and the metering path have all still only been reasoned about.
 
 use crate::scanners::nikon::status_usb::UsbStatus as Status;
 use crate::scanners::nikon::usb::{POLL_INTERVAL, READY_TIMEOUT, UsbCoolscan, is_not_ready};
@@ -365,7 +367,11 @@ where
         for attempt in 0..MAX_SCAN_ATTEMPTS {
             match self
                 .transport
-                .send(&Scan::new(0, window_ids.clone(), VENDOR_CONTROL))
+                // 0x00, not VENDOR_CONTROL. Both models anyone has run use 0x00 here while
+                // setting bit 7 on SET WINDOW, and this driver was the only one that did not --
+                // written from inference, in the one place nobody could check. An LS-5000 with
+                // an SA-21 scans with 0x00 and refuses with 0x80.
+                .send(&Scan::new(0, window_ids.clone(), 0x00))
             {
                 Ok(()) => return Ok(()),
                 Err(scsi::Error::Status { sense, .. }) => {

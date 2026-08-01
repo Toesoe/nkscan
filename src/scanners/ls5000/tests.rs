@@ -75,6 +75,8 @@ struct ScanMock {
     refuse_scans: usize,
     /// Window ids each accepted SCAN carried
     scans: Vec<Vec<u8>>,
+    /// The control byte of the last SCAN, which the firmware is particular about
+    scan_control: Option<u8>,
     /// SCAN was issued without the scan parameters having been read first
     scanned_ungated: bool,
     /// Image reads the driver asked for, in bytes
@@ -96,6 +98,7 @@ impl ScanMock {
             read_scan_parameters: false,
             refuse_scans: 0,
             scans: Vec::new(),
+            scan_control: None,
             scanned_ungated: false,
             image_reads: Vec::new(),
             autofocus_payload: None,
@@ -166,6 +169,7 @@ impl Transport for ScanMock {
                     self.scanned_ungated = true;
                 }
                 self.scans.push(data.to_vec());
+                self.scan_control = Some(cdb[5]);
                 self.cursor = 0;
                 self.windows_set.clear();
                 Ok(())
@@ -284,6 +288,19 @@ fn scan_reads_the_scan_parameters_before_it_is_accepted() {
         "a SCAN went out without the scan parameters having been read"
     );
     assert_eq!(scanner.transport.scans.len(), 1);
+}
+
+/// SCAN goes out with a zero control byte, not the vendor bit
+///
+/// This driver set bit 7 on everything, which is the one thing it did that neither model anyone
+/// had run did: both use 0x00 here while setting it on SET WINDOW. An LS-5000 with an SA-21
+/// refuses the pass with 0x80 and takes it with 0x00. Pinned because nothing pinned it before,
+/// which is how the guess survived to reach hardware.
+#[test]
+fn scan_carries_no_vendor_bit_in_its_control_byte() {
+    let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
+    scan_one(&mut scanner, &settings(false, 1));
+    assert_eq!(scanner.transport.scan_control, Some(0x00));
 }
 
 /// A scanner that never opens the gate is an error rather than an infinite retry

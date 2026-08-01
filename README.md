@@ -12,9 +12,13 @@ Please reach out if you have a scanner we can test! Even just dumps of USB/SCSI 
 
 Our goal is to support all the scanners supported by Nikon Scan, which are enumerated here
 
-- ✅ Supported
+- ✅ Supported, and run against the hardware
 - ⚠️ Untested but theoretically should work
 - ❌ Not started
+
+Every scanner Nikon Scan supported is recognized by name, including the ones with no driver:
+`nkscan --list` will report an attached 8000, 4000 or IV and say it has no driver rather than
+staying silent about it.
 
 ### Medium Format Scanners
 
@@ -27,7 +31,7 @@ Our goal is to support all the scanners supported by Nikon Scan, which are enume
 
 | Scanner \ Holder | SA-21  | IA-20/21  | MA-20/21   | SA-30  | SF-210/200  |
 |------------------|:------:|:---------:|:----------:|:------:|:-----------:|
-| 5000             | ⚠️     | ❌        | ⚠️         | ⚠️     | ❌         |
+| 5000             | ✅     | ❌        | ⚠️         | ⚠️     | ❌         |
 | 4000             | ❌     | ❌        | ❌         | ❌     | ❌         |
 | V                | ✅     | ❌        | ⚠️         | ✅     | ❌         |
 | IV               | ❌     | ❌        | ❌         | ❌     | ❌         |
@@ -40,7 +44,13 @@ While the 9000 has the best support right now, there are still some gaps in capa
 
 - The Coolscan 9000 workflow assumes a medium format strip film holder. The frame detection algorithm will not work for others, but you can manually place the frames for the time being. If someone has the 35 holder or others, please reach out and we can add the missing logic.
 - The Coolscan V workflow assumes a strip holder, not a full roll holder. I need more dumps of payloads/RE work to understand the typical flow for those (or the other inserts like the bulk slide loader)
-- The Coolscan 5000 path is totally untested. Someone should try it ;)
+- The Coolscan 5000 has now scanned with an SA-21, on Windows. The roll transport, the
+  multi-sample readout and the metering path are all still inference, so treat anything past a
+  strip scan as unproven.
+- Which film holder a medium format body has loaded cannot yet be identified exactly. The
+  scanner reports a holder *class* rather than a part number, and a class does not say whether
+  it is an FH-869S, an FH-869G or a 35 mm carrier, so capabilities fall back to what every
+  holder in the family can do. See `docs/HOLDERS.md`.
 
 If you would like to contribute support for new scanners, please take a look at scsi_proxy/README.md
 
@@ -112,6 +122,16 @@ with nkscan.Session(device.id) as session:
         result.ir           # (height, width) uint16, or None
     session.eject()
 ```
+
+`session.overview()` takes the low-resolution pass Nikon Scan calls a thumbnail, returning the
+whole strip in one image alongside the resolution it ran at, which is what maps a point on the
+thumbnail back to a position on the film.
+
+`session.capabilities` answers for the model *and the loaded adapter*, since most of what a
+scanner will do depends on what is in it: ejecting returns a holder on one adapter and rewinds a
+cartridge on another. Anything the scanner will not do raises `nkscan.UnsupportedError`, which
+carries `feature` and `reason` so a caller can tell "this scanner cannot" (`not_present`) from
+"this library does not yet" (`not_implemented`) without reading the message.
 
 The scan may take minutes, so a progress callback can drive a UI and returning `False` from it stops the scan.
 Failures worth retrying share a `nkscan.TransientError` base, so one `except` covers a link glitch or a short read without swallowing a real problem like `nkscan.MediaError`.
