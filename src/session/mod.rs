@@ -228,6 +228,10 @@ pub(crate) trait Driver: Send {
     fn prepare(&mut self, prepare: &Prepare, progress: &mut ProgressFn<'_>)
     -> Result<usize, Error>;
     fn frames(&self) -> usize;
+    /// How many frames the loaded holder reports, where the model can be asked
+    fn sensed_frames(&mut self) -> Option<u32> {
+        None
+    }
     fn scan_frame(
         &mut self,
         index: usize,
@@ -317,6 +321,15 @@ impl Session {
     /// How many frames [`prepare`](Self::prepare) placed
     pub fn frames(&self) -> usize {
         self.driver.frames()
+    }
+
+    /// How many frames the loaded holder reports, `None` where the model cannot be asked
+    ///
+    /// A cheap vendor page read, so this answers before anything mechanical happens — which is
+    /// also the only time it is worth trusting on the models that clear it as the film moves.
+    /// `Some(0)` is an empty transport, and is not the same answer as `None`.
+    pub fn sensed_frames(&mut self) -> Option<u32> {
+        self.driver.sensed_frames()
     }
 
     /// Focus, expose and scan one of the placed frames

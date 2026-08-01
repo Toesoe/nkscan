@@ -178,6 +178,35 @@ fn into_arrays(py: Python<'_>, image: Image) -> PyResult<Planes> {
     Ok((rgb, ir))
 }
 
+/// How `prepare`'s arguments name one of the three ways frames get placed
+///
+/// Pitch is the fallback rather than Sensed: a model that reports no frame table refuses Sensed
+/// outright, so inferring it from absent arguments would make the default call the one shape such
+/// a model cannot run. Sensed is kept for the transports that do report one, and only while the
+/// caller has not overridden the placement with a pitch or an offset.
+fn placement_for(
+    capabilities: &DeviceCapabilities,
+    detected: Option<u32>,
+    frames: Option<u32>,
+    pitch_mm: Option<f32>,
+    offsets_mm: Vec<f32>,
+) -> Placement {
+    if let Some(frames) = detected {
+        return Placement::Detect {
+            frames: frames as usize,
+        };
+    }
+    let placed = pitch_mm.is_some() || offsets_mm.iter().any(|&offset| offset != 0.0);
+    if capabilities.senses_frames && !placed {
+        return Placement::Sensed { frames };
+    }
+    Placement::Pitch {
+        frames,
+        pitch_mm,
+        offsets_mm,
+    }
+}
+
 /// An exclusive hold on one scanner
 #[gen_stub_pyclass]
 #[pyclass(name = "Session", module = "nkscan")]
@@ -285,13 +314,25 @@ impl PySession {
         self.run(py, None, |session, _| session.media_loaded())
     }
 
+    /// How many frames the loaded holder reports, `None` where the model cannot be asked
+    ///
+    /// A vendor page read rather than a pass, so it answers before the mechanism moves — and on
+    /// the models that clear it as the film advances, before the first pass is the only time it
+    /// means anything. `0` is an empty transport, which is not the same answer as `None`.
+    fn sensed_frames(&self, py: Python<'_>) -> PyResult<Option<u32>> {
+        self.run(py, None, |session, _| Ok(session.sensed_frames()))
+    }
+
     /// Wake the mechanism, settle the exposure and place the frames, returning how many
     ///
     /// `detect` asks the scanner to find them with an overview pass, where it can. Otherwise they
     /// are placed at `pitch_mm`, or at whatever the loaded holder reports. `gain` as a 3- or
     /// 4-tuple holds the exposure and skips metering.
+    ///
+    /// `offsets_mm` shifts each frame along the feed, the last value repeating down the strip, and
+    /// takes the place of `offset_mm` when both are given.
     #[pyo3(signature = (
-        *, frames = None, detect = false, pitch_mm = None, offset_mm = 0.0,
+        *, frames = None, detect = false, pitch_mm = None, offset_mm = 0.0, offsets_mm = None,
         gain = None, lock_white_balance = false, wait_for_media_s = 300.0, progress = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -302,6 +343,7 @@ impl PySession {
         detect: bool,
         pitch_mm: Option<f32>,
         offset_mm: f32,
+        offsets_mm: Option<Vec<f32>>,
         gain: Option<Vec<u32>>,
         lock_white_balance: bool,
         wait_for_media_s: f64,
@@ -311,21 +353,14 @@ impl PySession {
         ))]
         progress: Option<Py<PyAny>>,
     ) -> PyResult<usize> {
-        let placement = if detect {
-            Placement::Detect {
-                frames: frames.ok_or_else(|| {
+        let offsets_mm = offsets_mm.unwrap_or_else(|| vec![offset_mm]);
+        let detected = detect
+            .then(|| {
+                frames.ok_or_else(|| {
                     PyValueError::new_err("detect needs frames, to say how many to look for")
-                })? as usize,
-            }
-        } else if pitch_mm.is_some() || offset_mm != 0.0 {
-            Placement::Pitch {
-                frames,
-                pitch_mm,
-                offsets_mm: vec![offset_mm],
-            }
-        } else {
-            Placement::Sensed { frames }
-        };
+                })
+            })
+            .transpose()?;
 
         let exposure = match gain {
             Some(values) if matches!(values.len(), 3 | 4) => Exposure::Fixed {
@@ -341,13 +376,23 @@ impl PySession {
             None => Exposure::Auto { lock_white_balance },
         };
 
-        let prepare = Prepare {
-            placement,
-            exposure,
-            wait_for_media: Duration::from_secs_f64(wait_for_media_s.max(0.0)),
-        };
+        let wait_for_media = Duration::from_secs_f64(wait_for_media_s.max(0.0));
         self.run(py, progress, |session, report| {
-            session.prepare(&prepare, report)
+            let placement = placement_for(
+                &session.capabilities(),
+                detected,
+                frames,
+                pitch_mm,
+                offsets_mm,
+            );
+            session.prepare(
+                &Prepare {
+                    placement,
+                    exposure,
+                    wait_for_media,
+                },
+                report,
+            )
         })
     }
 
@@ -490,3 +535,65 @@ fn nkscan_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
 // Reads pyproject.toml for the module name, so `cargo run --bin stub_gen` writes the stub the
 // wheel ships
 define_stub_info_gatherer!(stub_info);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::Model;
+
+    fn placement(model: Model, pitch_mm: Option<f32>, offsets_mm: Vec<f32>) -> Placement {
+        placement_for(&model.capabilities(), None, Some(6), pitch_mm, offsets_mm)
+    }
+
+    /// The LS-50 refuses Sensed, so the plain call has to reach Pitch
+    #[test]
+    fn a_model_that_senses_nothing_is_placed_by_pitch() {
+        assert_eq!(
+            placement(Model::Ls50, None, vec![0.0]),
+            Placement::Pitch {
+                frames: Some(6),
+                pitch_mm: None,
+                offsets_mm: vec![0.0],
+            }
+        );
+    }
+
+    #[test]
+    fn a_sensing_model_keeps_its_own_table() {
+        assert_eq!(
+            placement(Model::Ls5000, None, vec![0.0]),
+            Placement::Sensed { frames: Some(6) }
+        );
+    }
+
+    /// A pitch or an offset is a placement the caller chose, and outranks the sensed table
+    #[test]
+    fn an_explicit_placement_overrides_sensing() {
+        assert_eq!(
+            placement(Model::Ls5000, Some(38.0), vec![0.0]),
+            Placement::Pitch {
+                frames: Some(6),
+                pitch_mm: Some(38.0),
+                offsets_mm: vec![0.0],
+            }
+        );
+        assert!(matches!(
+            placement(Model::Ls5000, None, vec![0.0, 0.4]),
+            Placement::Pitch { .. }
+        ));
+    }
+
+    #[test]
+    fn detect_wins_wherever_it_is_asked_for() {
+        assert_eq!(
+            placement_for(
+                &Model::Ls9000.capabilities(),
+                Some(4),
+                Some(6),
+                Some(38.0),
+                vec![0.2],
+            ),
+            Placement::Detect { frames: 4 }
+        );
+    }
+}
