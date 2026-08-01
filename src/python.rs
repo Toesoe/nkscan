@@ -6,8 +6,9 @@
 //! Nothing here knows about any particular Python consumer. The types are shaped so an adapter
 //! for one is a translation rather than a rewrite.
 
+use crate::capability::{self, Capabilities};
 use crate::decode::Image;
-use crate::devices::{self, DeviceCapabilities, DeviceInfo};
+use crate::devices::{self, DeviceInfo};
 use crate::scanners::Flow;
 use crate::session::{Error, Exposure, FocusMode, FrameSettings, Placement, Prepare, Session};
 use numpy::{IntoPyArray, PyArray2, PyArray3, PyArrayMethods};
@@ -87,37 +88,84 @@ fn to_py(error: Error) -> PyErr {
     }
 }
 
-/// What a model can do
+/// What a scanner can do, for the model and the adapter it has loaded
+///
+/// A flat view of `nkscan::capability::Capabilities`. The Rust side carries richer enums; this
+/// projects them into plain values, since that is what reads well from Python.
 #[gen_stub_pyclass]
 #[pyclass(name = "Capabilities", frozen, get_all, module = "nkscan")]
 struct PyCapabilities {
+    model: String,
+    /// The loaded adapter's part number, or a description where the part is not pinned down
+    adapter: String,
     dpi: Vec<u32>,
+    /// The sensor's own pitch, which is not 4000 on every model
+    optical_dpi: u32,
     depths: Vec<u32>,
     multisample: Vec<u32>,
     ir_channel: bool,
+    kodachrome_ice: bool,
     max_area_mm: (f32, f32),
+    /// Whether the host meters, which is also what makes a white balance lock possible
     auto_exposure: bool,
-    frame_control: bool,
-    detects_frames: bool,
-    senses_frames: bool,
+    lock_white_balance: bool,
     single_line: bool,
+    /// What ejecting does here: `none`, `holder`, `film`, `rewind` or `feed_next`
+    eject: String,
     can_eject: bool,
+    /// Whether this adapter has a thumbnail pass
+    overview: bool,
+    /// How many frames the adapter presents, where that is a fixed property of it
+    frames: Option<u32>,
+    /// Whether the frames have to be found rather than being mechanically fixed
+    detects_frames: bool,
+    /// Whether the transport senses the frames and reports a table
+    senses_frames: bool,
+    batch: bool,
+    strip_offset: bool,
+    focus_range: Option<(u16, u16)>,
 }
 
-impl From<DeviceCapabilities> for PyCapabilities {
-    fn from(c: DeviceCapabilities) -> Self {
+impl From<Capabilities> for PyCapabilities {
+    fn from(c: Capabilities) -> Self {
+        use capability::{EjectAction, ExposureControl, FrameLocation, Overview};
         Self {
-            dpi: c.dpi,
-            depths: c.depths,
-            multisample: c.multisample,
-            ir_channel: c.ir_channel,
+            model: c.model.name().to_owned(),
+            adapter: c.adapter_name(),
+            dpi: c.resolution.ladder.iter().map(|&d| u32::from(d)).collect(),
+            optical_dpi: u32::from(c.resolution.optical),
+            depths: c.depth.offered.iter().map(|&d| u32::from(d)).collect(),
+            multisample: c.multisample.iter().map(|&n| u32::from(n)).collect(),
+            ir_channel: c.ice.infrared,
+            kodachrome_ice: c.ice.kodachrome,
             max_area_mm: c.max_area_mm,
-            auto_exposure: c.auto_exposure,
-            frame_control: c.frame_control,
-            detects_frames: c.detects_frames,
-            senses_frames: c.senses_frames,
-            single_line: c.single_line,
-            can_eject: c.can_eject,
+            auto_exposure: matches!(c.exposure, ExposureControl::Host { .. }),
+            lock_white_balance: matches!(
+                c.exposure,
+                ExposureControl::Host {
+                    lock_white_balance: true
+                }
+            ),
+            single_line: c.allows_ccd_mode(capability::CcdMode::SingleLine),
+            eject: match c.eject {
+                EjectAction::Unavailable => "none",
+                EjectAction::EjectHolder => "holder",
+                EjectAction::EjectFilm => "film",
+                EjectAction::RewindFilm => "rewind",
+                EjectAction::FeedNextSlide => "feed_next",
+            }
+            .to_owned(),
+            can_eject: c.eject != EjectAction::Unavailable,
+            overview: c.overview == Overview::Available,
+            frames: match c.frames {
+                FrameLocation::Mechanical(n) => Some(u32::from(n)),
+                _ => None,
+            },
+            detects_frames: matches!(c.frames, FrameLocation::Detected),
+            senses_frames: matches!(c.frames, FrameLocation::Reported),
+            batch: c.batch,
+            strip_offset: c.strip_offset,
+            focus_range: c.focus.range,
         }
     }
 }
@@ -291,11 +339,14 @@ impl PySession {
     /// What this unit reports, which is more accurate than what `list_devices` could say
     #[getter]
     fn capabilities(&self, py: Python<'_>) -> PyResult<Py<PyCapabilities>> {
-        let guard = self.inner.lock().expect("no panic holds this");
+        // Takes a mutable hold now: which adapter is loaded is part of the answer, and reading
+        // that is a vendor page inquiry rather than something known at open
+        let mut guard = self.inner.lock().expect("no panic holds this");
         let session = guard
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| ScannerError::new_err("this session is closed"))?;
-        Py::new(py, PyCapabilities::from(session.capabilities()))
+        let capabilities = session.capabilities().map_err(to_py)?;
+        Py::new(py, PyCapabilities::from(capabilities))
     }
 
     /// The gain the next pass will use, as `(red, green, blue, ir)`
@@ -505,7 +556,7 @@ fn list_devices(py: Python<'_>) -> PyResult<Vec<PyDevice>> {
                 id: device.id,
                 vendor: devices::VENDOR.to_owned(),
                 model: device.model.name().to_owned(),
-                capabilities: Py::new(py, PyCapabilities::from(device.model.capabilities()))?,
+                capabilities: Py::new(py, PyCapabilities::from(Capabilities::of(device.model)))?,
             })
         })
         .collect()

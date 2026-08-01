@@ -28,66 +28,6 @@ pub const VENDOR: &str = "Nikon";
 /// [`session`](crate::session).
 pub use crate::model::Model;
 
-impl Model {
-    /// What this model can do, as a caller choosing one needs to know before opening it
-    ///
-    /// A static table, because enumeration must not reserve a device and the page that would
-    /// answer this needs an open handle.
-    /// [`Session::capabilities`](crate::session::Session::capabilities) is the device's own
-    /// answer and is the one to trust once you have a session.
-    pub fn capabilities(self) -> DeviceCapabilities {
-        match self {
-            Model::Ls9000 => DeviceCapabilities {
-                // 333 DPI divides the sensor evenly and the device still refuses it: the bar
-                // reports a floor of 666
-                dpi: vec![4000, 2000, 1333, 666],
-                multisample: vec![1, 2, 4, 8, 16],
-                // 56 mm film across the bar, the whole 120 strip along the feed
-                max_area_mm: (56.9, 220.0),
-                detects_frames: true,
-                single_line: true,
-                ..DeviceCapabilities::base()
-            },
-            Model::Ls50 => DeviceCapabilities {
-                dpi: vec![4000, 2000, 1333, 1000, 800, 500, 250],
-                // The firmware meters this one itself, so there is no white balance lock
-                auto_exposure: false,
-                ..DeviceCapabilities::base()
-            },
-            Model::Ls5000 => DeviceCapabilities {
-                dpi: vec![4000, 2000, 1333, 1000, 800, 500, 250],
-                senses_frames: true,
-                ..DeviceCapabilities::base()
-            },
-            // The three without drivers, from the published specifications rather than from a
-            // capture. Enumeration names them so a caller learns their unit is recognized and
-            // undriven, which is why these are filled in at all.
-            Model::Ls8000 => DeviceCapabilities {
-                dpi: vec![4000, 2000, 1333, 666],
-                multisample: vec![1, 2, 4, 8, 16],
-                max_area_mm: (56.9, 220.0),
-                detects_frames: true,
-                single_line: true,
-                depths: vec![14],
-                ..DeviceCapabilities::base()
-            },
-            Model::Ls4000 => DeviceCapabilities {
-                dpi: vec![4000, 2000, 1333, 1000, 800, 500, 250],
-                multisample: vec![1, 2, 4, 8, 16],
-                senses_frames: true,
-                depths: vec![14],
-                ..DeviceCapabilities::base()
-            },
-            // 2900 DPI optical, so the ladder is its own rather than the 4000 one divided
-            Model::Ls40 => DeviceCapabilities {
-                dpi: vec![2900, 1450, 966, 725, 580, 362, 181],
-                depths: vec![12],
-                ..DeviceCapabilities::base()
-            },
-        }
-    }
-}
-
 /// Where a particular scanner is
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Attach {
@@ -120,54 +60,6 @@ impl Attach {
         match self {
             Attach::Usb { vendor, product } => Ok(Box::new(UsbTransport::open(*vendor, *product)?)),
             Attach::Scsi { path } => open_scsi(path),
-        }
-    }
-}
-
-/// What a model can do, before it is open
-///
-/// Millimeter figures are for the film the model takes, not the loaded adapter, which only the
-/// device can report. Every one of these scanners is transparency-only, so there is no film
-/// source to choose.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DeviceCapabilities {
-    /// Divisions of the sensor the model offers, coarsest last
-    pub dpi: Vec<u32>,
-    /// Bits per sample. Always 16 on the wire, whatever a caller asks to be written.
-    pub depths: Vec<u32>,
-    /// Multi-sample repeat counts, `[1]` where repeats are not driven
-    pub multisample: Vec<u32>,
-    pub ir_channel: bool,
-    pub max_area_mm: (f32, f32),
-    /// Whether the host meters exposure, which is also what makes a white balance lock possible
-    pub auto_exposure: bool,
-    /// Whether frames can be placed by pitch and offset
-    pub frame_control: bool,
-    /// Whether the model can find frames itself, from an overview pass
-    pub detects_frames: bool,
-    /// Whether the transport senses where the frames are and reports a table
-    pub senses_frames: bool,
-    /// Whether the model has the slower single-line CCD readout
-    pub single_line: bool,
-    pub can_eject: bool,
-}
-
-impl DeviceCapabilities {
-    /// What every model here shares, for the tables above to vary from
-    fn base() -> Self {
-        Self {
-            dpi: Vec::new(),
-            depths: vec![16],
-            multisample: vec![1],
-            ir_channel: true,
-            // 35 mm, the format both USB models take
-            max_area_mm: (25.1, 36.8),
-            auto_exposure: true,
-            frame_control: true,
-            detects_frames: false,
-            senses_frames: false,
-            single_line: false,
-            can_eject: true,
         }
     }
 }
@@ -404,7 +296,9 @@ mod tests {
     /// though 12 divides the sensor evenly
     #[test]
     fn the_ls9000_ladder_stops_at_the_reported_floor() {
-        let dpi = Model::Ls9000.capabilities().dpi;
+        let dpi = crate::capability::Capabilities::of(Model::Ls9000)
+            .resolution
+            .ladder;
         assert_eq!(dpi, [4000, 2000, 1333, 666]);
         assert!(!dpi.contains(&333));
     }

@@ -7,8 +7,9 @@
 //! Everything here is model-agnostic. What varies per model lives behind [`Driver`], and what a
 //! particular unit reports lives in [`DeviceLimits`](crate::scanners::nikon::limits).
 
+use crate::capability::Capabilities;
 use crate::decode::Image;
-use crate::devices::{DeviceCapabilities, DeviceInfo, Model};
+use crate::devices::{DeviceInfo, Model};
 use crate::model::Protocol;
 use crate::scanners::{ProgressFn, nikon::ChannelExposures};
 use crate::scsi;
@@ -51,7 +52,7 @@ impl std::str::FromStr for FocusMode {
 pub enum Placement {
     /// Look for them: a low-resolution overview pass, then find the frames in it
     ///
-    /// Only where [`DeviceCapabilities::detects_frames`] is set.
+    /// Only where [`Overview::Available`](crate::capability::Overview) is reported.
     Detect { frames: usize },
     /// Place them arithmetically along the feed
     ///
@@ -177,32 +178,19 @@ pub(crate) fn confirm_model(
     Ok(())
 }
 
-/// The model's static table, refined by what this unit reports
+/// The table for this pairing, refined by what this unit reports
+///
+/// The driver supplies its own resolution rungs, since which divisions exist is per model and
+/// stays with the driver that encodes them.
 pub(crate) fn reported_capabilities<D: Copy>(
     model: Model,
+    adapter: crate::adapter::Adapter,
     reported: crate::scanners::nikon::limits::DeviceLimits,
     ladder: &[D],
     to_dpi: fn(D) -> u16,
-) -> DeviceCapabilities {
-    let mut capabilities = model.capabilities();
-    capabilities.dpi = ladder
-        .iter()
-        .copied()
-        .filter(|&mode| reported.x_resolution.allows(to_dpi(mode)))
-        .map(|mode| u32::from(to_dpi(mode)))
-        .collect();
-    capabilities.max_area_mm = (
-        dots_to_mm(reported.boundary_x),
-        dots_to_mm(reported.boundary_y),
-    );
-    capabilities
-}
-
-/// A length in a scanner's own dots, as millimeters
-///
-/// Every model here is driven in 1/4000-inch dots, which the driver pins at open.
-fn dots_to_mm(dots: u32) -> f32 {
-    dots as f32 * 25.4 / 4000.0
+) -> Capabilities {
+    let rungs: Vec<u16> = ladder.iter().copied().map(to_dpi).collect();
+    crate::capability::table::compute(model, adapter).refine(&reported, &rungs)
 }
 
 /// Cropping is wired through the API but not implemented anywhere
@@ -223,7 +211,7 @@ pub(crate) fn reject_window(settings: &FrameSettings) -> Result<(), Error> {
 /// Object-safe on purpose: the model is chosen at runtime and nothing above this names it, which
 /// is what lets a caller reach a session without naming a transport either.
 pub(crate) trait Driver: Send {
-    fn capabilities(&self) -> DeviceCapabilities;
+    fn capabilities(&mut self) -> Result<Capabilities, Error>;
     fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error>;
     fn media_loaded(&mut self) -> Result<bool, Error>;
     fn prepare(&mut self, prepare: &Prepare, progress: &mut ProgressFn<'_>)
@@ -301,7 +289,7 @@ impl Session {
 
     /// What this unit reports, which refines the static table
     /// [`Model::capabilities`](crate::devices::Model::capabilities) has to answer from
-    pub fn capabilities(&self) -> DeviceCapabilities {
+    pub fn capabilities(&mut self) -> Result<Capabilities, Error> {
         self.driver.capabilities()
     }
 

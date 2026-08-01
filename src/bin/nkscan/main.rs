@@ -3,8 +3,9 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
+    capability::{Capabilities, FrameLocation, Overview},
     decode::Image,
-    devices::{self, Attach, DeviceCapabilities, DeviceInfo},
+    devices::{self, Attach, DeviceInfo},
     output,
     scanners::Flow,
     session::{Exposure, FocusMode, FrameSettings, Placement, Prepare, Session},
@@ -143,18 +144,20 @@ impl Cli {
     /// Which discovery to use comes from what the scanner can do rather than from which model it
     /// is: one finds frames with an overview pass, one has a transport that senses them, and one
     /// can only be told where they are.
-    fn prepare(&self, capabilities: &DeviceCapabilities) -> Result<Prepare> {
+    fn prepare(&self, capabilities: &Capabilities) -> Result<Prepare> {
         let placement = if self.placed_by_hand() {
             Placement::Pitch {
                 frames: self.frames.map(|n| n as u32),
                 pitch_mm: self.pitch,
                 offsets_mm: self.offset.clone(),
             }
-        } else if capabilities.detects_frames {
+        } else if capabilities.overview == Overview::Available
+            && capabilities.frames == FrameLocation::Detected
+        {
             Placement::Detect {
                 frames: self.frames_to_find()?,
             }
-        } else if capabilities.senses_frames {
+        } else if capabilities.frames == FrameLocation::Reported {
             Placement::Sensed {
                 frames: self.frames.map(|n| n as u32),
             }
@@ -285,7 +288,14 @@ fn list_devices() -> Result<()> {
         return Ok(());
     }
     for device in found {
-        println!("{}  {}", device.id, device.model.name());
+        // Enumeration recognizes more models than this library can drive, so say which is which
+        // rather than listing a scanner that will refuse to open
+        let note = if device.model.is_driven() {
+            String::new()
+        } else {
+            "  (recognized, no driver)".to_owned()
+        };
+        println!("{}  {}{note}", device.id, device.model.name());
     }
     Ok(())
 }
@@ -386,7 +396,9 @@ fn init_logging() {
 /// The workflow, whichever scanner is on the other end, once around for `--batch`'s every
 /// strip and just the once otherwise
 fn run(session: &mut Session, cli: &Cli) -> Result<()> {
-    let prepare = cli.prepare(&session.capabilities())?;
+    let capabilities = session.capabilities()?;
+    println!("Adapter: {}", capabilities.adapter_name());
+    let prepare = cli.prepare(&capabilities)?;
     let settings = cli.frame_settings();
     // Before anything mechanical happens, since a scan discovers these only once it is building
     // the pass, which is after a focus and a metering run have already taken a minute

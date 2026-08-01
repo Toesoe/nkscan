@@ -6,8 +6,9 @@
 
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
 use crate::adapter::Adapter;
+use crate::capability::Capabilities;
 use crate::decode::Image;
-use crate::devices::{DeviceCapabilities, Model};
+use crate::devices::Model;
 use crate::scanners::{
     FilmHolder, Focus, ProgressFn, Scanner,
     ls50::{
@@ -64,13 +65,15 @@ impl Ls50Driver {
 }
 
 impl Driver for Ls50Driver {
-    fn capabilities(&self) -> DeviceCapabilities {
-        super::reported_capabilities(
+    fn capabilities(&mut self) -> Result<Capabilities, Error> {
+        let adapter = self.scanner.adapter()?;
+        Ok(super::reported_capabilities(
             Model::Ls50,
+            adapter,
             self.scanner.capabilities(),
             &Dpi::ALL,
             Dpi::to_dpi,
-        )
+        ))
     }
 
     fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {

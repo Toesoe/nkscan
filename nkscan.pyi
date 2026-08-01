@@ -25,10 +25,25 @@ __all__ = [
 @typing.final
 class Capabilities:
     r"""
-    What a model can do
+    What a scanner can do, for the model and the adapter it has loaded
+    
+    A flat view of `nkscan::capability::Capabilities`. The Rust side carries richer enums; this
+    projects them into plain values, since that is what reads well from Python.
     """
     @property
+    def model(self) -> builtins.str: ...
+    @property
+    def adapter(self) -> builtins.str:
+        r"""
+        The loaded adapter's part number, or a description where the part is not pinned down
+        """
+    @property
     def dpi(self) -> builtins.list[builtins.int]: ...
+    @property
+    def optical_dpi(self) -> builtins.int:
+        r"""
+        The sensor's own pitch, which is not 4000 on every model
+        """
     @property
     def depths(self) -> builtins.list[builtins.int]: ...
     @property
@@ -36,19 +51,51 @@ class Capabilities:
     @property
     def ir_channel(self) -> builtins.bool: ...
     @property
+    def kodachrome_ice(self) -> builtins.bool: ...
+    @property
     def max_area_mm(self) -> tuple[builtins.float, builtins.float]: ...
     @property
-    def auto_exposure(self) -> builtins.bool: ...
+    def auto_exposure(self) -> builtins.bool:
+        r"""
+        Whether the host meters, which is also what makes a white balance lock possible
+        """
     @property
-    def frame_control(self) -> builtins.bool: ...
-    @property
-    def detects_frames(self) -> builtins.bool: ...
-    @property
-    def senses_frames(self) -> builtins.bool: ...
+    def lock_white_balance(self) -> builtins.bool: ...
     @property
     def single_line(self) -> builtins.bool: ...
     @property
+    def eject(self) -> builtins.str:
+        r"""
+        What ejecting does here: `none`, `holder`, `film`, `rewind` or `feed_next`
+        """
+    @property
     def can_eject(self) -> builtins.bool: ...
+    @property
+    def overview(self) -> builtins.bool:
+        r"""
+        Whether this adapter has a thumbnail pass
+        """
+    @property
+    def frames(self) -> typing.Optional[builtins.int]:
+        r"""
+        How many frames the adapter presents, where that is a fixed property of it
+        """
+    @property
+    def detects_frames(self) -> builtins.bool:
+        r"""
+        Whether the frames have to be found rather than being mechanically fixed
+        """
+    @property
+    def senses_frames(self) -> builtins.bool:
+        r"""
+        Whether the transport senses the frames and reports a table
+        """
+    @property
+    def batch(self) -> builtins.bool: ...
+    @property
+    def strip_offset(self) -> builtins.bool: ...
+    @property
+    def focus_range(self) -> typing.Optional[tuple[builtins.int, builtins.int]]: ...
 
 @typing.final
 class Device:

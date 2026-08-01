@@ -5,8 +5,9 @@
 
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
 use crate::adapter::Adapter;
+use crate::capability::Capabilities;
 use crate::decode::Image;
-use crate::devices::{DeviceCapabilities, Model};
+use crate::devices::Model;
 use crate::scanners::{
     FilmHolder, Flow, Focus, ProgressFn, ReadError, ScanArea, Scanner,
     ls9000::{
@@ -140,13 +141,15 @@ impl Ls9000Driver {
 }
 
 impl Driver for Ls9000Driver {
-    fn capabilities(&self) -> DeviceCapabilities {
-        super::reported_capabilities(
+    fn capabilities(&mut self) -> Result<Capabilities, Error> {
+        let adapter = self.scanner.adapter()?;
+        Ok(super::reported_capabilities(
             Model::Ls9000,
+            adapter,
             self.scanner.capabilities(),
             &Dpi::ALL,
             Dpi::to_dpi,
-        )
+        ))
     }
 
     fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
