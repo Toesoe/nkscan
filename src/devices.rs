@@ -4,7 +4,7 @@
 //! it asks each who it is and no more. Building a driver would reserve the unit and write a mode
 //! page on its way up, which is why that waits for [`Session`](crate::session::Session).
 
-use crate::scanners::{ls50, ls5000};
+use crate::model::Interface;
 use crate::scsi::{Transport, TransportExt, cdbs::Inquiry, usb::UsbTransport};
 use nusb::MaybeFuture;
 use std::io;
@@ -22,47 +22,13 @@ use crate::scsi::windows::ScsiScanDevice as ScsiDevice;
 /// What this library reports as the maker of every scanner it drives
 pub const VENDOR: &str = "Nikon";
 
-/// A scanner this library can drive
+/// A scanner this library has vocabulary for
 ///
-/// Adding a model is a variant here, its tables below, and a driver in
+/// Adding a model is a variant in [`model`](crate::model), its tables below, and a driver in
 /// [`session`](crate::session).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Model {
-    Ls9000,
-    Ls50,
-    Ls5000,
-}
+pub use crate::model::Model;
 
 impl Model {
-    pub const ALL: [Model; 3] = [Model::Ls9000, Model::Ls50, Model::Ls5000];
-
-    /// The stable half of a device id, and what a caller names a model by
-    pub fn slug(self) -> &'static str {
-        match self {
-            Model::Ls9000 => "ls9000",
-            Model::Ls50 => "ls50",
-            Model::Ls5000 => "ls5000",
-        }
-    }
-
-    /// How the unit introduces itself in the INQUIRY product string
-    pub fn name(self) -> &'static str {
-        match self {
-            Model::Ls9000 => "LS-9000 ED",
-            Model::Ls50 => "LS-50 ED",
-            Model::Ls5000 => "LS-5000 ED",
-        }
-    }
-
-    /// The USB ids this model answers to, or `None` for a SCSI model found by sweeping paths
-    pub fn usb_ids(self) -> Option<(u16, u16)> {
-        match self {
-            Model::Ls9000 => None,
-            Model::Ls50 => Some((ls50::VENDOR_ID, ls50::PRODUCT_ID)),
-            Model::Ls5000 => Some((ls5000::VENDOR_ID, ls5000::PRODUCT_ID)),
-        }
-    }
-
     /// What this model can do, as a caller choosing one needs to know before opening it
     ///
     /// A static table, because enumeration must not reserve a device and the page that would
@@ -91,6 +57,31 @@ impl Model {
             Model::Ls5000 => DeviceCapabilities {
                 dpi: vec![4000, 2000, 1333, 1000, 800, 500, 250],
                 senses_frames: true,
+                ..DeviceCapabilities::base()
+            },
+            // The three without drivers, from the published specifications rather than from a
+            // capture. Enumeration names them so a caller learns their unit is recognized and
+            // undriven, which is why these are filled in at all.
+            Model::Ls8000 => DeviceCapabilities {
+                dpi: vec![4000, 2000, 1333, 666],
+                multisample: vec![1, 2, 4, 8, 16],
+                max_area_mm: (56.9, 220.0),
+                detects_frames: true,
+                single_line: true,
+                depths: vec![14],
+                ..DeviceCapabilities::base()
+            },
+            Model::Ls4000 => DeviceCapabilities {
+                dpi: vec![4000, 2000, 1333, 1000, 800, 500, 250],
+                multisample: vec![1, 2, 4, 8, 16],
+                senses_frames: true,
+                depths: vec![14],
+                ..DeviceCapabilities::base()
+            },
+            // 2900 DPI optical, so the ladder is its own rather than the 4000 one divided
+            Model::Ls40 => DeviceCapabilities {
+                dpi: vec![2900, 1450, 966, 725, 580, 362, 181],
+                depths: vec![12],
                 ..DeviceCapabilities::base()
             },
         }
@@ -214,7 +205,11 @@ impl DeviceInfo {
     }
 }
 
-/// Every scanner attached that this library can drive
+/// Every scanner attached that this library recognizes
+///
+/// Recognizing one is not the same as being able to drive it: a model without a driver is listed
+/// so a caller learns their unit was seen, and [`Session::open`](crate::session::Session::open)
+/// is where it is refused. [`Model::is_driven`] tells the two apart without opening anything.
 pub fn list() -> Vec<DeviceInfo> {
     let mut found = Vec::new();
 
@@ -247,12 +242,15 @@ pub fn list() -> Vec<DeviceInfo> {
     found
 }
 
-/// The model an INQUIRY product string names, if it is one this library drives
+/// The model an INQUIRY product string names, if it is one this library knows
+///
+/// Only the FireWire models, since those are what a SCSI node can be. A USB model is found by
+/// its ids instead, and matching one here would name a scanner that is not on this bus.
 fn model_named(product: &str) -> Option<Model> {
     let product = product.to_ascii_lowercase();
     Model::ALL
         .into_iter()
-        .filter(|model| model.usb_ids().is_none())
+        .filter(|model| model.interface() == Interface::Firewire400)
         .find(|model| product.contains(&model.name().to_ascii_lowercase()))
 }
 
@@ -387,9 +385,19 @@ mod tests {
     fn the_inquiry_product_string_names_a_model() {
         assert_eq!(model_named("LS-9000 ED"), Some(Model::Ls9000));
         assert_eq!(model_named("ls-9000 ed   "), Some(Model::Ls9000));
-        assert_eq!(model_named("LS-8000 ED"), None);
+        // Recognized without being driveable: enumeration names it, `Session::open` refuses it
+        assert_eq!(model_named("LS-8000 ED"), Some(Model::Ls8000));
+        assert!(!Model::Ls8000.is_driven());
         // The USB models are never found this way, so they never match here
         assert_eq!(model_named("LS-50 ED"), None);
+        assert_eq!(model_named("LS-40 ED"), None);
+    }
+
+    /// The two four-digit names must not shadow the two-digit ones, since the match is a substring
+    #[test]
+    fn a_four_thousand_is_not_a_forty() {
+        assert_eq!(model_named("LS-4000 ED"), Some(Model::Ls4000));
+        assert_ne!(model_named("LS-4000 ED"), Some(Model::Ls40));
     }
 
     /// The floor the LS-9000 reports across its sensor bar keeps 333 DPI off its ladder, even
