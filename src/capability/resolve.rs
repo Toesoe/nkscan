@@ -11,7 +11,7 @@
 //! different answers to a caller and are deliberately raised in different places.
 
 use super::unsupported::{Allowed, Feature, Unsupported};
-use super::{Capabilities, CcdMode, ExposureControl, FrameLocation, Overview};
+use super::{Capabilities, ExposureControl, FrameLocation};
 use crate::session::{Exposure, FocusMode, FrameSettings, Placement, Prepare};
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ pub struct ResolvedFrame {
     ir: bool,
     focus: FocusMode,
     multisample: u8,
-    ccd_mode: Option<CcdMode>,
+    single_line: bool,
 }
 
 impl ResolvedFrame {
@@ -40,13 +40,9 @@ impl ResolvedFrame {
     pub fn multisample(&self) -> u8 {
         self.multisample
     }
-    /// `None` on a model that offers no choice of readout
-    pub fn ccd_mode(&self) -> Option<CcdMode> {
-        self.ccd_mode
-    }
     /// Whether the slower single-line readout was asked for
     pub fn single_line(&self) -> bool {
-        self.ccd_mode == Some(CcdMode::SingleLine)
+        self.single_line
     }
 }
 
@@ -124,15 +120,9 @@ impl Capabilities {
             });
         }
 
-        let ccd_mode = match request.single_line {
-            true if !self.allows_ccd_mode(CcdMode::SingleLine) => {
-                return Err(Unsupported::not_on_model(Feature::CcdMode, self.model));
-            }
-            true => Some(CcdMode::SingleLine),
-            // Whatever the model does when given no choice, which is not a mode a caller picked
-            false if self.ccd_modes.is_empty() => None,
-            false => Some(CcdMode::ThreeLine),
-        };
+        if request.single_line && !self.single_line {
+            return Err(Unsupported::not_on_model(Feature::CcdMode, self.model));
+        }
 
         if request.ir && !self.ice.infrared {
             return Err(Unsupported::not_on_model(
@@ -143,7 +133,7 @@ impl Capabilities {
 
         // The setpoint range comes off the unit's own capability page, and until now nothing had
         // ever read it: a setpoint past the end of the travel went straight to the focus motor
-        if let (FocusMode::At(setpoint), Some((min, max))) = (request.focus, self.focus.range)
+        if let (FocusMode::At(setpoint), Some((min, max))) = (request.focus, self.focus_range)
             && !(min..=max).contains(&setpoint)
         {
             return Err(Unsupported::out_of_range(
@@ -168,7 +158,7 @@ impl Capabilities {
             ir: request.ir,
             focus: request.focus,
             multisample: request.multisample,
-            ccd_mode,
+            single_line: request.single_line,
         })
     }
 
@@ -176,7 +166,7 @@ impl Capabilities {
     pub fn resolve_prepare(&self, request: &Prepare) -> Result<ResolvedPrepare, Unsupported> {
         let placement = match &request.placement {
             Placement::Detect { frames } => {
-                if self.overview == Overview::Unavailable {
+                if !self.overview {
                     return Err(Unsupported::not_present(Feature::Overview, self));
                 }
                 ResolvedPlacement::Detect { frames: *frames }
@@ -314,23 +304,12 @@ mod tests {
         let resolved = caps(Model::Ls9000, Adapter::Fh869S)
             .resolve_frame(&request)
             .expect("the LS-9000 has both readouts");
-        assert_eq!(resolved.ccd_mode(), Some(CcdMode::SingleLine));
         assert!(resolved.single_line());
 
         let refusal = caps(Model::Ls50, Adapter::StripFilm)
             .resolve_frame(&request)
             .expect_err("no choice of readout on a 35 mm body");
         assert_eq!(refusal.feature, Feature::CcdMode);
-    }
-
-    /// A model with no choice reports none, rather than claiming the three-line mode was picked
-    #[test]
-    fn a_model_with_no_readout_choice_resolves_to_no_mode() {
-        let resolved = caps(Model::Ls50, Adapter::StripFilm)
-            .resolve_frame(&frame())
-            .expect("resolves");
-        assert_eq!(resolved.ccd_mode(), None);
-        assert!(!resolved.single_line());
     }
 
     #[test]
@@ -481,7 +460,7 @@ mod tests {
     #[test]
     fn a_focus_setpoint_past_the_reported_travel_is_refused() {
         let mut caps = caps(Model::Ls9000, Adapter::Fh869S);
-        caps.focus.range = Some((0, 450));
+        caps.focus_range = Some((0, 450));
         let mut request = frame();
 
         request.focus = FocusMode::At(320);
@@ -507,7 +486,7 @@ mod tests {
         let mut request = frame();
         request.focus = FocusMode::At(900);
         let caps = caps(Model::Ls9000, Adapter::Fh869S);
-        assert_eq!(caps.focus.range, None);
+        assert_eq!(caps.focus_range, None);
         caps.resolve_frame(&request)
             .expect("nothing to check against");
     }

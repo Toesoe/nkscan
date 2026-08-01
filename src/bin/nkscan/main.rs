@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
-    capability::{Capabilities, FrameLocation, Overview},
+    capability::{Capabilities, FrameLocation},
     decode::Image,
     devices::{self, Attach, DeviceInfo},
     output,
@@ -151,9 +151,7 @@ impl Cli {
                 pitch_mm: self.pitch,
                 offsets_mm: self.offset.clone(),
             }
-        } else if capabilities.overview == Overview::Available
-            && capabilities.frames == FrameLocation::Detected
-        {
+        } else if capabilities.overview && capabilities.frames == FrameLocation::Detected {
             Placement::Detect {
                 frames: self.frames_to_find()?,
             }

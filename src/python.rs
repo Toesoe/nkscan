@@ -170,7 +170,7 @@ struct PyCapabilities {
 
 impl From<Capabilities> for PyCapabilities {
     fn from(c: Capabilities) -> Self {
-        use capability::{EjectAction, ExposureControl, FrameLocation, Overview};
+        use capability::{EjectAction, ExposureControl, FrameLocation};
         Self {
             model: c.model.name().to_owned(),
             adapter: c.adapter_name(),
@@ -188,7 +188,7 @@ impl From<Capabilities> for PyCapabilities {
                     lock_white_balance: true
                 }
             ),
-            single_line: c.allows_ccd_mode(capability::CcdMode::SingleLine),
+            single_line: c.single_line,
             eject: match c.eject {
                 EjectAction::Unavailable => "none",
                 EjectAction::EjectHolder => "holder",
@@ -198,7 +198,7 @@ impl From<Capabilities> for PyCapabilities {
             }
             .to_owned(),
             can_eject: c.eject != EjectAction::Unavailable,
-            overview: c.overview == Overview::Available,
+            overview: c.overview,
             frames: match c.frames {
                 FrameLocation::Mechanical(n) => Some(u32::from(n)),
                 _ => None,
@@ -207,7 +207,7 @@ impl From<Capabilities> for PyCapabilities {
             senses_frames: matches!(c.frames, FrameLocation::Reported),
             batch: c.batch,
             strip_offset: c.strip_offset,
-            focus_range: c.focus.range,
+            focus_range: c.focus_range,
         }
     }
 }
