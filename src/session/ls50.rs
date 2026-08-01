@@ -7,6 +7,7 @@
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
+use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
 use crate::scanners::{
@@ -79,38 +80,40 @@ impl Driver for Ls50Driver {
     fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
         self.dpi(settings.dpi)?;
         if settings.single_line {
-            return Err(Error::Unsupported(
-                "the single-line CCD is an LS-9000 option".into(),
-            ));
+            return Err(Unsupported::not_on_model(Feature::CcdMode, Model::Ls50).into());
         }
         if settings.multisample != 1 {
-            return Err(Error::Unsupported(
-                "multisampling is an LS-9000 option".into(),
-            ));
+            return Err(Unsupported::not_on_model(Feature::Multisample, Model::Ls50).into());
         }
         match prepare.exposure {
             // The firmware meters this model, so there is no knob to hold the channels together
             Exposure::Auto {
                 lock_white_balance: true,
             } => {
-                return Err(Error::Unsupported(
-                    "the white balance lock is not controllable on this model; fix the gain \
-                     instead to hold the ratios"
-                        .into(),
-                ));
+                return Err(
+                    Unsupported::not_on_model(Feature::WhiteBalanceLock, Model::Ls50).into(),
+                );
             }
             // Infrared is driven off a zeroed gain here, so a value for it means nothing
             Exposure::Fixed { ir: Some(_), .. } => {
-                return Err(Error::Unsupported(
-                    "this model drives infrared off a zeroed gain, so it takes three gains".into(),
-                ));
+                return Err(Unsupported::not_on_model(Feature::Exposure, Model::Ls50).into());
             }
             _ => {}
         }
-        if let Placement::Detect { .. } | Placement::Sensed { .. } = prepare.placement {
-            return Err(Error::Unsupported(
-                "this model neither senses frames nor has an overview pass; place them".into(),
-            ));
+        match prepare.placement {
+            // The adapter has a thumbnail pass; no driver here drives one yet
+            Placement::Detect { .. } => {
+                return Err(Unsupported::not_implemented(
+                    Feature::Overview,
+                    "no overview pass is written for this model",
+                )
+                .into());
+            }
+            // Nothing on this model reports a frame table, whatever is loaded
+            Placement::Sensed { .. } => {
+                return Err(Unsupported::not_on_model(Feature::FramePlacement, Model::Ls50).into());
+            }
+            Placement::Pitch { .. } => {}
         }
         super::reject_window(settings)
     }
@@ -144,9 +147,7 @@ impl Driver for Ls50Driver {
                 offsets_mm,
             } => (*frames, *pitch_mm, offsets_mm.as_slice()),
             _ => {
-                return Err(Error::Unsupported(
-                    "this model neither senses frames nor has an overview pass".into(),
-                ));
+                return Err(Unsupported::not_on_model(Feature::FramePlacement, Model::Ls50).into());
             }
         };
 
@@ -219,8 +220,10 @@ impl Driver for Ls50Driver {
     fn abort(&mut self) -> Result<(), Error> {
         // No vendor abort is characterized here, so a pass left half-read needs the handle
         // reopening rather than clearing in place
-        Err(Error::Unsupported(
-            "this model has no abort; drop the session to clear a pending pass".into(),
-        ))
+        Err(Unsupported::not_implemented(
+            Feature::Abort,
+            "no vendor abort is characterized here; drop the session to clear a pending pass",
+        )
+        .into())
     }
 }

@@ -6,6 +6,7 @@
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
+use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
 use crate::scanners::{
@@ -156,9 +157,7 @@ impl Driver for Ls9000Driver {
         self.dpi(settings.dpi)?;
         multisample(settings.multisample)?;
         if let Placement::Sensed { .. } = prepare.placement {
-            return Err(Error::Unsupported(
-                "this model has no transport that senses frames; place them or detect them".into(),
-            ));
+            return Err(Unsupported::not_on_model(Feature::FramePlacement, Model::Ls9000).into());
         }
         super::reject_window(settings)
     }
@@ -200,9 +199,9 @@ impl Driver for Ls9000Driver {
                 offsets_mm,
             } => self.place_by_hand(*frames, *pitch_mm, offsets_mm),
             Placement::Sensed { .. } => {
-                return Err(Error::Unsupported(
-                    "this scanner has no transport that senses frames".into(),
-                ));
+                return Err(
+                    Unsupported::not_on_model(Feature::FramePlacement, Model::Ls9000).into(),
+                );
             }
         };
         self.scanner.set_frame_boundaries(&self.frames)?;
@@ -291,8 +290,9 @@ fn multisample(count: u8) -> Result<Multisample, Error> {
         4 => Ok(Multisample::X4),
         8 => Ok(Multisample::X8),
         16 => Ok(Multisample::X16),
-        _ => Err(Error::Unsupported(
-            "multisample must be one of 1, 2, 4, 8, 16".into(),
-        )),
+        _ => Err(
+            Unsupported::not_one_of(Feature::Multisample, u32::from(count), [1, 2, 4, 8, 16])
+                .into(),
+        ),
     }
 }

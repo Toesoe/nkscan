@@ -62,7 +62,7 @@ fn to_py(error: Error) -> PyErr {
     match error {
         Error::NotFound(m) | Error::BadDeviceId(m) => DeviceNotFound::new_err(m),
         Error::Media(m) => MediaError::new_err(m),
-        Error::Unsupported(m) => UnsupportedError::new_err(m),
+        Error::Unsupported(refusal) => unsupported_err(refusal),
         Error::Cancelled => ScanCancelled::new_err("the pass was cancelled"),
         // A short or scrambled stream is exactly what a retry fixes
         Error::Decode(m) => TransientError::new_err(m),
@@ -86,6 +86,48 @@ fn to_py(error: Error) -> PyErr {
             Scsi::Status { .. } => ScannerError::new_err(scsi.to_string()),
         },
     }
+}
+
+/// A refusal, carrying enough for a caller to branch instead of matching on the wording
+///
+/// The message is still the message. Alongside it the exception gets `feature`, `reason` and,
+/// where the refusal was about a value, `allowed` — so a consumer can grey out a control, pick
+/// another resolution, or tell "this scanner cannot" apart from "this library does not yet".
+fn unsupported_err(refusal: capability::unsupported::Unsupported) -> PyErr {
+    use capability::unsupported::{Allowed, Reason};
+    let error = UnsupportedError::new_err(refusal.to_string());
+    Python::attach(|py| {
+        let value = error.value(py);
+        let _ = value.setattr("feature", refusal.feature.slug());
+        let _ = value.setattr("reason", refusal.reason.slug());
+        let allowed = match &refusal.reason {
+            Reason::OutOfRange {
+                allowed: Allowed::Values(values),
+                ..
+            } => values
+                .clone()
+                .into_pyobject(py)
+                .ok()
+                .map(|v| v.into_any().unbind()),
+            Reason::OutOfRange {
+                allowed: Allowed::Range { min, max },
+                ..
+            } => (*min, *max)
+                .into_pyobject(py)
+                .ok()
+                .map(|v| v.into_any().unbind()),
+            _ => None,
+        };
+        let _ = value.setattr("allowed", allowed);
+        let _ = value.setattr(
+            "asked",
+            match &refusal.reason {
+                Reason::OutOfRange { asked, .. } => Some(*asked),
+                _ => None,
+            },
+        );
+    });
+    error
 }
 
 /// What a scanner can do, for the model and the adapter it has loaded

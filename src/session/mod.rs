@@ -8,6 +8,7 @@
 //! particular unit reports lives in [`DeviceLimits`](crate::scanners::nikon::limits).
 
 use crate::capability::Capabilities;
+use crate::capability::unsupported::{Allowed, Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::{DeviceInfo, Model};
 use crate::model::Protocol;
@@ -139,8 +140,8 @@ pub enum Error {
     /// No film, no holder, or nothing recognizable on the strip
     #[error("{0}")]
     Media(String),
-    #[error("{0}")]
-    Unsupported(String),
+    #[error(transparent)]
+    Unsupported(#[from] Unsupported),
     #[error("the pass was cancelled")]
     Cancelled,
 }
@@ -200,9 +201,11 @@ pub(crate) fn reported_capabilities<D: Copy>(
 pub(crate) fn reject_window(settings: &FrameSettings) -> Result<(), Error> {
     match settings.window {
         None => Ok(()),
-        Some(_) => Err(Error::Unsupported(
-            "cropping a frame is not implemented".into(),
-        )),
+        Some(_) => Err(Unsupported::not_implemented(
+            Feature::FrameWindow,
+            "no capture crops a frame, and the alignment a window has to keep is per model",
+        )
+        .into()),
     }
 }
 
@@ -274,10 +277,11 @@ impl Session {
             Some(Protocol::Ls50) => Box::new(ls50::Ls50Driver::open(transport, model)?),
             Some(Protocol::Ls5000) => Box::new(ls5000::Ls5000Driver::open(transport, model)?),
             None => {
-                return Err(Error::Unsupported(format!(
-                    "this library recognizes the {} but has no driver for it",
-                    model.name()
-                )));
+                return Err(Unsupported::not_implemented(
+                    Feature::Model,
+                    "crate::model::Model::protocol, and the stub module for this model",
+                )
+                .into());
             }
         };
         Ok(Self { device, driver })
@@ -337,10 +341,16 @@ impl Session {
         progress: &mut ProgressFn<'_>,
     ) -> Result<Image, Error> {
         if index >= self.driver.frames() {
-            return Err(Error::Unsupported(format!(
-                "frame {index} is not one of the {} placed",
-                self.driver.frames()
-            )));
+            let placed = self.driver.frames() as u32;
+            return Err(Unsupported::out_of_range(
+                Feature::FramePlacement,
+                index as u32,
+                Allowed::Range {
+                    min: 0,
+                    max: placed.saturating_sub(1),
+                },
+            )
+            .into());
         }
         // Here as well as in `check`, because silently scanning the whole frame when a caller
         // asked for part of it is worse than refusing
@@ -388,11 +398,12 @@ pub fn resolve_dpi<D: Copy>(
         return Ok(mode);
     }
 
-    let names: Vec<String> = legal.iter().map(|&mode| to_dpi(mode).to_string()).collect();
-    Err(Error::Unsupported(format!(
-        "dpi must be one of {}",
-        names.join(", ")
-    )))
+    Err(Unsupported::not_one_of(
+        Feature::Resolution,
+        u32::from(requested),
+        legal.iter().map(|&mode| u32::from(to_dpi(mode))),
+    )
+    .into())
 }
 
 #[cfg(test)]
@@ -578,16 +589,27 @@ mod tests {
         assert_eq!(mode.to_dpi(), 333);
     }
 
-    /// Under the floor and off the ladder are the same complaint, and neither names a rung the
+    /// Under the floor and off the ladder are the same complaint, and neither offers a rung the
     /// device will not take
+    ///
+    /// Asserted on the refusal itself rather than on its wording: a caller picking another
+    /// resolution reads `allowed`, and prose it had to parse is exactly what this replaced.
     #[test]
     fn a_resolution_the_device_does_not_reach_is_refused() {
+        use crate::capability::unsupported::{Allowed, Feature, Reason};
         for asked in [333, 800] {
             let error =
                 resolve_dpi(asked, &Dpi::ALL, offered(666), Dpi::to_dpi).expect_err("refused");
+            let Error::Unsupported(refusal) = error else {
+                panic!("a resolution off the ladder is an unsupported request");
+            };
+            assert_eq!(refusal.feature, Feature::Resolution);
             assert_eq!(
-                error.to_string(),
-                "dpi must be one of 4000, 2000, 1333, 666"
+                refusal.reason,
+                Reason::OutOfRange {
+                    asked: u32::from(asked),
+                    allowed: Allowed::Values(vec![4000, 2000, 1333, 666]),
+                }
             );
         }
     }
