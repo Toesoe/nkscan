@@ -518,7 +518,7 @@ fn the_window_bound_is_inclusive_of_the_reported_boundary() {
 #[test]
 fn a_roll_yields_a_frame_per_record() {
     let capabilities = capabilities::fixture::capabilities();
-    let table = FrameBoundaries::evenly_spaced(3, capabilities.frame_pitch);
+    let table = FrameBoundaries::evenly_spaced(3, capabilities.frame_pitch, &[]);
     let mut scanner = Ls5000::new(ScanMock::new(rgb_image(), STRIDE as u32)).unwrap();
     scanner.warm_up().unwrap();
 

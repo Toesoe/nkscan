@@ -13,7 +13,7 @@ use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
 use crate::scanners::{
-    FilmHolder, Flow, Focus, ProgressFn, ReadError, ScanArea, Scanner,
+    FilmHolder, Focus, ProgressFn, ReadError, ScanArea, Scanner,
     ls9000::{
         Ls9000,
         boundaries::{FrameBoundaries, FrameRect},
@@ -24,11 +24,7 @@ use crate::scanners::{
     nikon::ChannelExposures,
 };
 use crate::scsi::Transport;
-use std::time::{Duration, Instant};
 use tracing::*;
-
-/// How often the holder wait asks again
-const HOLDER_POLL: Duration = Duration::from_millis(500);
 
 pub(super) struct Ls9000Driver {
     scanner: Ls9000<Box<dyn Transport + Send>>,
@@ -68,29 +64,6 @@ impl Ls9000Driver {
     /// The VPD page reports a holder the moment it is detected, but the scanner spends seconds
     /// afterwards initializing. That state is not a unit attention, so it survives the drain, and
     /// the first real command is refused several seconds later.
-    fn wait_for_holder(
-        &mut self,
-        timeout: Duration,
-        progress: &mut ProgressFn<'_>,
-    ) -> Result<(), Error> {
-        let deadline = Instant::now() + timeout;
-        let mut holder = self.scanner.adapter()?;
-        while holder == Adapter::None {
-            if Instant::now() >= deadline {
-                return Err(Error::Media("no film holder is loaded".into()));
-            }
-            if progress(0, 0) == Flow::Cancel {
-                return Err(Error::Cancelled);
-            }
-            std::thread::sleep(HOLDER_POLL);
-            holder = self.scanner.adapter()?;
-        }
-        self.scanner.drain_unit_attentions()?;
-        self.scanner.wait_until_ready()?;
-        info!("Holder loaded: {holder}");
-        Ok(())
-    }
-
     /// Frames at a given pitch, skipping the overview entirely
     fn place_by_hand(
         &self,
@@ -165,8 +138,6 @@ impl Driver for Ls9000Driver {
         prepare: &ResolvedPrepare,
         progress: &mut ProgressFn<'_>,
     ) -> Result<usize, Error> {
-        self.wait_for_holder(prepare.wait_for_media(), progress)?;
-
         // The session preamble, which gates the first scan
         self.scanner.calibrate(DEFAULT_GAIN)?;
 
@@ -269,6 +240,14 @@ impl Driver for Ls9000Driver {
 
     fn gain(&self) -> ChannelExposures {
         self.gain
+    }
+
+    /// Loading a holder raises a unit attention and starts the mechanism moving, and neither is
+    /// finished by the time the holder first reports in
+    fn after_media_ready(&mut self) -> Result<(), Error> {
+        self.scanner.drain_unit_attentions()?;
+        self.scanner.wait_until_ready()?;
+        Ok(())
     }
 
     fn eject(&mut self) -> Result<(), Error> {

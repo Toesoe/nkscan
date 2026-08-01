@@ -550,9 +550,16 @@ impl PySession {
     }
 
     /// Send the film back out
-    fn eject(&self, py: Python<'_>) -> PyResult<bool> {
-        self.run(py, None, |session, _| session.eject())?;
-        Ok(true)
+    fn eject(&self, py: Python<'_>) -> PyResult<String> {
+        let action = self.run(py, None, |session, _| session.eject())?;
+        Ok(match action {
+            capability::EjectAction::Unavailable => "none",
+            capability::EjectAction::EjectHolder => "holder",
+            capability::EjectAction::EjectFilm => "film",
+            capability::EjectAction::RewindFilm => "rewind",
+            capability::EjectAction::FeedNextSlide => "feed_next",
+        }
+        .to_owned())
     }
 
     /// Throw away a pass nobody is going to read, so the session stays usable

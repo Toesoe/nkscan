@@ -367,7 +367,9 @@ fn main() -> Result<()> {
     // whatever went wrong first is still what gets reported
     if cli.eject {
         match session.eject() {
-            Ok(()) => info!("Ejected"),
+            // Says which of the five things it did, since on this range of scanners "eject"
+            // rewinds a cartridge on one adapter and swaps a slide on another
+            Ok(action) => info!("Ejected: {action:?}"),
             Err(e) if outcome.is_ok() => return Err(e.into()),
             Err(e) => warn!("Could not eject: {e}"),
         }

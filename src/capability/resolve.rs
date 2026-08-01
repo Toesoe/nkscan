@@ -10,7 +10,7 @@
 //! have a thumbnail pass, and no overview code is written for it. Those two refusals are
 //! different answers to a caller and are deliberately raised in different places.
 
-use super::unsupported::{Feature, Unsupported};
+use super::unsupported::{Allowed, Feature, Unsupported};
 use super::{Capabilities, CcdMode, ExposureControl, FrameLocation, Overview};
 use crate::session::{Exposure, FocusMode, FrameSettings, Placement, Prepare};
 use std::time::Duration;
@@ -134,6 +134,28 @@ impl Capabilities {
             false => Some(CcdMode::ThreeLine),
         };
 
+        if request.ir && !self.ice.infrared {
+            return Err(Unsupported::not_on_model(
+                Feature::InfraredChannel,
+                self.model,
+            ));
+        }
+
+        // The setpoint range comes off the unit's own capability page, and until now nothing had
+        // ever read it: a setpoint past the end of the travel went straight to the focus motor
+        if let (FocusMode::At(setpoint), Some((min, max))) = (request.focus, self.focus.range)
+            && !(min..=max).contains(&setpoint)
+        {
+            return Err(Unsupported::out_of_range(
+                Feature::Focus,
+                u32::from(setpoint),
+                Allowed::Range {
+                    min: u32::from(min),
+                    max: u32::from(max),
+                },
+            ));
+        }
+
         if request.window.is_some() {
             return Err(Unsupported::not_implemented(
                 Feature::FrameWindow,
@@ -169,11 +191,18 @@ impl Capabilities {
                 frames,
                 pitch_mm,
                 offsets_mm,
-            } => ResolvedPlacement::Pitch {
-                frames: *frames,
-                pitch_mm: *pitch_mm,
-                offsets_mm: offsets_mm.clone(),
-            },
+            } => {
+                // Shifting film along the strip needs an adapter that can move it. Asking a
+                // fixed holder to is not a no-op, it is a frame placed somewhere else.
+                if offsets_mm.iter().any(|&offset| offset != 0.0) && !self.strip_offset {
+                    return Err(Unsupported::not_present(Feature::StripFilmOffset, self));
+                }
+                ResolvedPlacement::Pitch {
+                    frames: *frames,
+                    pitch_mm: *pitch_mm,
+                    offsets_mm: offsets_mm.clone(),
+                }
+            }
         };
 
         let exposure = match (request.exposure, self.exposure) {
@@ -445,6 +474,95 @@ mod tests {
         caps(Model::Ls5000, Adapter::RollFilm)
             .resolve_prepare(&request)
             .expect("the LS-5000 meters infrared");
+    }
+
+    /// The unit reports its own focus travel, and until now nothing had ever read it: a setpoint
+    /// past the end of it went straight to the motor
+    #[test]
+    fn a_focus_setpoint_past_the_reported_travel_is_refused() {
+        let mut caps = caps(Model::Ls9000, Adapter::Fh869S);
+        caps.focus.range = Some((0, 450));
+        let mut request = frame();
+
+        request.focus = FocusMode::At(320);
+        caps.resolve_frame(&request).expect("320 is inside 0..450");
+
+        request.focus = FocusMode::At(900);
+        let refusal = caps
+            .resolve_frame(&request)
+            .expect_err("900 is past the end");
+        assert_eq!(refusal.feature, Feature::Focus);
+        assert_eq!(
+            refusal.reason,
+            Reason::OutOfRange {
+                asked: 900,
+                allowed: Allowed::Range { min: 0, max: 450 },
+            }
+        );
+    }
+
+    /// Nothing to check against before a unit is open, so this may not refuse a valid setpoint
+    #[test]
+    fn a_focus_setpoint_is_allowed_where_no_range_has_been_reported() {
+        let mut request = frame();
+        request.focus = FocusMode::At(900);
+        let caps = caps(Model::Ls9000, Adapter::Fh869S);
+        assert_eq!(caps.focus.range, None);
+        caps.resolve_frame(&request)
+            .expect("nothing to check against");
+    }
+
+    #[test]
+    fn the_infrared_channel_is_refused_where_the_model_has_none() {
+        let mut caps = caps(Model::Ls9000, Adapter::Fh869S);
+        let mut request = frame();
+        request.ir = true;
+        caps.resolve_frame(&request)
+            .expect("every model here has one");
+
+        caps.ice.infrared = false;
+        let refusal = caps.resolve_frame(&request).expect_err("not on this one");
+        assert_eq!(refusal.feature, Feature::InfraredChannel);
+    }
+
+    /// Asking a fixed holder to shift film is not a no-op, it is a frame placed somewhere else
+    #[test]
+    fn a_strip_offset_is_refused_on_an_adapter_that_cannot_move_film() {
+        let request = prepare(
+            Placement::Pitch {
+                frames: Some(3),
+                pitch_mm: None,
+                offsets_mm: vec![1.5],
+            },
+            Exposure::Auto {
+                lock_white_balance: false,
+            },
+        );
+        caps(Model::Ls9000, Adapter::Fh869S)
+            .resolve_prepare(&request)
+            .expect("the FH-869S repositions film");
+        let refusal = caps(Model::Ls9000, Adapter::Fh835S)
+            .resolve_prepare(&request)
+            .expect_err("a fixed 35 mm carrier does not");
+        assert_eq!(refusal.feature, Feature::StripFilmOffset);
+    }
+
+    /// A zero offset asks for nothing, so it must not be refused anywhere
+    #[test]
+    fn a_zero_offset_is_not_a_request_to_move_anything() {
+        let request = prepare(
+            Placement::Pitch {
+                frames: Some(3),
+                pitch_mm: None,
+                offsets_mm: vec![0.0, 0.0],
+            },
+            Exposure::Auto {
+                lock_white_balance: false,
+            },
+        );
+        caps(Model::Ls9000, Adapter::Fh835S)
+            .resolve_prepare(&request)
+            .expect("asking for no shift is not asking to shift");
     }
 
     /// A caller cannot build one of these, which is what makes the check impossible to skip

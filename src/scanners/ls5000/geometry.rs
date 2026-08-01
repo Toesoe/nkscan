@@ -193,6 +193,20 @@ impl ScanSettings {
     }
 }
 
+/// Where frame `index` starts relative to an even pitch, in this scanner's dots
+///
+/// The last value repeats, so one offset shifts the whole strip and a list of them corrects
+/// gap drift along it. An empty list shifts nothing.
+///
+/// The same shape as the LS-50's. Kept separate because the two scanners' dot pitches are their
+/// own; see `nikon::divergence` before merging them.
+pub fn frame_offset(offsets: &[f32], index: u32) -> u32 {
+    match offsets.len().checked_sub(1) {
+        Some(last) => native_dots(offsets[(index as usize).min(last)]),
+        None => 0,
+    }
+}
+
 /// A millimeter figure in this scanner's dots
 pub fn native_dots(millimeters: f32) -> u32 {
     crate::scanners::nikon::native_dots(millimeters, DOTS_PER_INCH)
