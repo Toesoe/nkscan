@@ -3,9 +3,12 @@
 //! Frames are found by an 83-DPI overview pass unless the caller placed them, exposure is metered
 //! host-side on every frame, and the holder has to be in before anything moves.
 
-use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
+use super::{Driver, Error, FocusMode};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
+use crate::capability::resolve::{
+    ResolvedExposure, ResolvedFrame, ResolvedPlacement, ResolvedPrepare,
+};
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
@@ -153,34 +156,29 @@ impl Driver for Ls9000Driver {
         ))
     }
 
-    fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
-        self.dpi(settings.dpi)?;
-        multisample(settings.multisample)?;
-        if let Placement::Sensed { .. } = prepare.placement {
-            return Err(Unsupported::not_on_model(Feature::FramePlacement, Model::Ls9000).into());
-        }
-        super::reject_window(settings)
-    }
-
     fn media_loaded(&mut self) -> Result<bool, Error> {
         Ok(self.scanner.adapter()? != Adapter::None)
     }
 
     fn prepare(
         &mut self,
-        prepare: &Prepare,
+        prepare: &ResolvedPrepare,
         progress: &mut ProgressFn<'_>,
     ) -> Result<usize, Error> {
-        self.wait_for_holder(prepare.wait_for_media, progress)?;
+        self.wait_for_holder(prepare.wait_for_media(), progress)?;
 
         // The session preamble, which gates the first scan
         self.scanner.calibrate(DEFAULT_GAIN)?;
 
-        match prepare.exposure {
-            Exposure::Auto { lock_white_balance } => self.lock_white_balance = lock_white_balance,
-            Exposure::Fixed { .. } => {}
+        match prepare.exposure() {
+            ResolvedExposure::HostMetered { lock_white_balance } => {
+                self.lock_white_balance = lock_white_balance
+            }
+            // This model meters host-side, so resolution never hands it the firmware variant
+            ResolvedExposure::FirmwareMetered => self.lock_white_balance = false,
+            ResolvedExposure::Fixed { .. } => {}
         }
-        if let Exposure::Fixed { visible, ir } = prepare.exposure {
+        if let ResolvedExposure::Fixed { visible, ir } = prepare.exposure() {
             self.gain = ChannelExposures {
                 red: visible[0],
                 green: visible[1],
@@ -191,14 +189,14 @@ impl Driver for Ls9000Driver {
             self.fixed = true;
         }
 
-        self.frames = match &prepare.placement {
-            Placement::Detect { frames } => self.search(*frames, progress)?,
-            Placement::Pitch {
+        self.frames = match prepare.placement() {
+            ResolvedPlacement::Detect { frames } => self.search(*frames, progress)?,
+            ResolvedPlacement::Pitch {
                 frames,
                 pitch_mm,
                 offsets_mm,
             } => self.place_by_hand(*frames, *pitch_mm, offsets_mm),
-            Placement::Sensed { .. } => {
+            ResolvedPlacement::Sensed { .. } => {
                 return Err(
                     Unsupported::not_on_model(Feature::FramePlacement, Model::Ls9000).into(),
                 );
@@ -215,11 +213,11 @@ impl Driver for Ls9000Driver {
     fn scan_frame(
         &mut self,
         index: usize,
-        settings: &FrameSettings,
+        settings: &ResolvedFrame,
         progress: &mut ProgressFn<'_>,
     ) -> Result<Image, Error> {
         let rect = self.frames.0[index];
-        match settings.focus {
+        match settings.focus() {
             FocusMode::Auto => {
                 info!("Frame {index}: autofocusing");
                 self.scanner.autofocus(rect.center())?;
@@ -228,7 +226,7 @@ impl Driver for Ls9000Driver {
             FocusMode::At(setpoint) => self.scanner.set_focus(setpoint)?,
         }
 
-        let base = ScanSettings::autoexposure(rect.scan_area(), settings.ir);
+        let base = ScanSettings::autoexposure(rect.scan_area(), settings.ir());
 
         // Host-side and per frame, since it meters the frame's own content
         if !self.fixed {
@@ -246,11 +244,11 @@ impl Driver for Ls9000Driver {
         }
 
         let pass = ScanSettings {
-            dpi: self.dpi(settings.dpi)?,
+            dpi: self.dpi(settings.dpi())?,
             quality: BaseQuality::Scan,
-            ir: settings.ir,
-            multisample: multisample(settings.multisample)?,
-            ccd_mode: if settings.single_line {
+            ir: settings.ir(),
+            multisample: multisample(settings.multisample())?,
+            ccd_mode: if settings.single_line() {
                 CcdMode::SingleLine
             } else {
                 CcdMode::ThreeLine
