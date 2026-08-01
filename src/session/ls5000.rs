@@ -6,6 +6,7 @@
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
+use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
 use crate::scanners::{
@@ -87,24 +88,24 @@ impl Driver for Ls5000Driver {
     fn check(&self, prepare: &Prepare, settings: &FrameSettings) -> Result<(), Error> {
         self.dpi(settings.dpi)?;
         if settings.single_line {
-            return Err(Error::Unsupported(
-                "the single-line CCD is an LS-9000 option".into(),
-            ));
+            return Err(Unsupported::not_on_model(Feature::CcdMode, Model::Ls5000).into());
         }
         // Armed correctly but never decoded: a multi-sampled pass streams every sample rather
         // than one averaged image, and that readout is not implemented
         if settings.multisample != 1 {
-            return Err(Error::Unsupported(
-                "multisampling is not implemented on this model: the scanner streams every \
-                 sample rather than averaging them, and that readout has not been written"
-                    .into(),
-            ));
+            return Err(Unsupported::not_implemented(
+                Feature::Multisample,
+                "the scanner streams every sample rather than averaging them, and that readout \
+                 has not been written",
+            )
+            .into());
         }
         if let Placement::Detect { .. } = prepare.placement {
-            return Err(Error::Unsupported(
-                "this model has no overview pass; place the frames or let the feeder sense them"
-                    .into(),
-            ));
+            return Err(Unsupported::not_implemented(
+                Feature::Overview,
+                "no overview pass is written for this model",
+            )
+            .into());
         }
         super::reject_window(settings)
     }
@@ -137,7 +138,11 @@ impl Driver for Ls5000Driver {
 
         let mut frames = match &prepare.placement {
             Placement::Detect { .. } => {
-                return Err(Error::Unsupported("this model has no overview pass".into()));
+                return Err(Unsupported::not_implemented(
+                    Feature::Overview,
+                    "no overview pass is written for this model",
+                )
+                .into());
             }
             Placement::Pitch {
                 frames, pitch_mm, ..
@@ -229,16 +234,22 @@ impl Driver for Ls5000Driver {
     fn abort(&mut self) -> Result<(), Error> {
         // No vendor abort is characterized here, so a pass left half-read needs the handle
         // reopening rather than clearing in place
-        Err(Error::Unsupported(
-            "this model has no abort; drop the session to clear a pending pass".into(),
-        ))
+        Err(Unsupported::not_implemented(
+            Feature::Abort,
+            "no vendor abort is characterized here; drop the session to clear a pending pass",
+        )
+        .into())
     }
 }
 
 /// The repeat count as this model's window descriptor carries it
 fn samples(count: u8) -> Result<Samples, Error> {
     Samples::new(count).ok_or_else(|| {
-        let legal: Vec<String> = Samples::ALL.iter().map(u8::to_string).collect();
-        Error::Unsupported(format!("multisample must be one of {}", legal.join(", ")))
+        Unsupported::not_one_of(
+            Feature::Multisample,
+            u32::from(count),
+            Samples::ALL.iter().map(|&n| u32::from(n)),
+        )
+        .into()
     })
 }

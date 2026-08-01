@@ -17,6 +17,7 @@ use crate::model::{Interface, Model};
 use crate::scanners::nikon::limits::DeviceLimits;
 
 pub mod table;
+pub mod unsupported;
 
 /// What a scanner can do, for one model with one adapter loaded
 #[derive(Debug, Clone, PartialEq)]
