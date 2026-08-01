@@ -5,6 +5,7 @@
 //! the film where it is.
 
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
+use crate::adapter::Adapter;
 use crate::decode::Image;
 use crate::devices::{DeviceCapabilities, Model};
 use crate::scanners::{
@@ -14,7 +15,6 @@ use crate::scanners::{
         boundaries::FrameBoundaries,
         calibration::DEFAULT_GAIN,
         geometry::{Dpi, ScanSettings, native_dots},
-        holder::Holder,
     },
     nikon::ChannelExposures,
 };
@@ -33,7 +33,7 @@ impl Ls50Driver {
     pub(super) fn open(transport: Box<dyn Transport + Send>, model: Model) -> Result<Self, Error> {
         let mut scanner = Ls50::new(transport)?;
         super::confirm_model(scanner.identify()?, model)?;
-        debug!(holder = ?scanner.holder()?, adapter = ?scanner.adapter_name(), "Adapter");
+        debug!(adapter = %scanner.adapter()?, name = ?scanner.adapter_name(), "Adapter");
         Ok(Self {
             scanner,
             frames: FrameBoundaries(Vec::new()),
@@ -113,7 +113,7 @@ impl Driver for Ls50Driver {
     }
 
     fn media_loaded(&mut self) -> Result<bool, Error> {
-        Ok(self.scanner.holder()? != Holder::None)
+        Ok(self.scanner.adapter()? != Adapter::None)
     }
 
     fn prepare(

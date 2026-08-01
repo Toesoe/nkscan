@@ -6,6 +6,7 @@
 //! Nothing here has been run against a real unit. See `docs/LS5000_HARDWARE_CHECKLIST.md`.
 
 use crate::{
+    adapter::Adapter,
     decode::{Image, StreamDecoder},
     scanners::{
         FilmHolder, Flow, Focus, Scanner,
@@ -25,7 +26,6 @@ use cdbs::vendor_read_write::{VendorPayload, VendorRead};
 use decode::{DecodeError, frame_decoder};
 use dtc::Dtc;
 use geometry::ScanSettings;
-use holder::Holder;
 use status::Status;
 use std::{
     thread::sleep,
@@ -34,6 +34,7 @@ use std::{
 use tracing::*;
 use window::WindowParams;
 
+pub mod adapter;
 pub mod boundaries;
 pub mod calibration;
 pub mod capabilities;
@@ -41,7 +42,6 @@ pub mod cdbs;
 pub mod decode;
 pub mod dtc;
 pub mod geometry;
-pub mod holder;
 pub mod status;
 pub mod window;
 
@@ -273,17 +273,6 @@ where
     }
 }
 
-impl<T> FilmHolder for Ls5000<T>
-where
-    T: Transport,
-{
-    type Holder = Holder;
-
-    fn holder(&mut self) -> Result<Holder, scsi::Error> {
-        self.transport.vpd()
-    }
-}
-
 impl<T> Focus for Ls5000<T>
 where
     T: Transport,
@@ -324,7 +313,10 @@ where
         if self.wait_settled()? == Status::NoFilm {
             return Err(scsi::Error::InvalidResponse("no film loaded"));
         }
-        let feeder = self.holder().map(Holder::is_roll).unwrap_or(false);
+        // The motion below pushes film back out of anything holding it under power, which is
+        // every adapter but the mounted-slide one. The SA-21 is a feeder despite the name it
+        // reads under, so it has to be on this side of the test.
+        let feeder = self.adapter().map(Adapter::is_powered).unwrap_or(false);
         self.tolerate_busy(&ReserveUnit::default())?;
         self.probe_adapter_pages();
         if !feeder {

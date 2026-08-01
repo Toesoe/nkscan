@@ -98,6 +98,21 @@ impl Adapter {
         }
     }
 
+    /// Whether the body drives film through this adapter under power
+    ///
+    /// The distinction that matters before the carriage moves: a powered adapter is holding film
+    /// in its transport, and a self-test or a lamp warm-up will push that film back out. A
+    /// mounted slide sits still and is safe.
+    ///
+    /// The SA-21 is one of these. It is a strip *feeder* — it takes a cut strip and advances it —
+    /// so reading it as an inert holder is what made a warm-up eject the strip.
+    pub fn is_powered(self) -> bool {
+        matches!(
+            self,
+            Adapter::StripFilm | Adapter::RollFilm | Adapter::SlideFeeder | Adapter::Ix240
+        )
+    }
+
     /// Nikon's part number for this adapter on this body
     ///
     /// `None` where the adapter does not fit the body, or where there is no object to name.

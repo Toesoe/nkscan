@@ -1,4 +1,5 @@
 use crate::{
+    adapter::Adapter,
     decode::{Image, StreamDecoder},
     scanners::{
         FilmHolder, Flow, Focus, Scanner,
@@ -18,7 +19,6 @@ use cdbs::vendor_read_write::{VendorPayload, VendorRead};
 use decode::{DecodeError, frame_decoder};
 use dtc::Dtc;
 use geometry::ScanSettings;
-use holder::Holder;
 use status::Status;
 use std::{
     thread::sleep,
@@ -27,6 +27,7 @@ use std::{
 use tracing::*;
 use window::{ScanMode, WindowParams};
 
+pub mod adapter;
 pub mod boundaries;
 pub mod calibration;
 pub mod capabilities;
@@ -34,7 +35,6 @@ pub mod cdbs;
 pub mod decode;
 pub mod dtc;
 pub mod geometry;
-pub mod holder;
 pub mod status;
 pub mod window;
 
@@ -266,17 +266,6 @@ where
     }
 }
 
-impl<T> FilmHolder for Ls50<T>
-where
-    T: Transport,
-{
-    type Holder = Holder;
-
-    fn holder(&mut self) -> Result<Holder, scsi::Error> {
-        self.transport.vpd()
-    }
-}
-
 impl<T> Focus for Ls50<T>
 where
     T: Transport,
@@ -316,7 +305,10 @@ where
         if self.wait_settled()? == Status::NoFilm {
             return Err(scsi::Error::InvalidResponse("no film loaded"));
         }
-        let feeder = self.holder().map(Holder::is_roll).unwrap_or(false);
+        // The motion below pushes film back out of anything holding it under power, which is
+        // every adapter but the mounted-slide one. The SA-21 is a feeder despite the name it
+        // reads under, so it has to be on this side of the test.
+        let feeder = self.adapter().map(Adapter::is_powered).unwrap_or(false);
         self.tolerate_busy(&ReserveUnit::default())?;
         self.probe_adapter_pages();
         if !feeder {
@@ -605,6 +597,57 @@ mod tests {
     /// Answers the capability read that opening starts with
     fn mock() -> crate::scsi::mock::MockTransport {
         crate::scsi::mock::MockTransport::new().with_page(0xC1, capabilities::fixture::raw_page())
+    }
+
+    /// A mock that also answers page 0x00 with `codes`, which is how an adapter is recognized
+    fn mock_with_pages(codes: &[u8]) -> crate::scsi::mock::MockTransport {
+        let mut raw = vec![0x06, 0x00];
+        raw.extend_from_slice(&(codes.len() as u16).to_be_bytes());
+        raw.extend_from_slice(codes);
+        mock().with_page(0x00, raw)
+    }
+
+    /// SEND DIAGNOSTIC, the self-test that moves the carriage
+    const SELF_TEST: u8 = 0x1D;
+
+    /// Warming up a powered adapter must not move the carriage or strike the lamp
+    ///
+    /// Both push film back out of whatever is holding it. This is the page 0x00 list a real
+    /// LS-50 answers with a genuine SA-21 loaded: it advertises 0x46 and 0xE2, and reading that
+    /// as an inert mounted-slide adapter is what made a warm-up eject the strip.
+    #[test]
+    fn a_strip_feeder_is_not_warmed_up_with_the_carriage() {
+        let transport = mock_with_pages(&[
+            0x00, 0x01, 0x40, 0x41, 0x46, 0x50, 0x51, 0x60, 0x61, 0xC1, 0xD1, 0xE1, 0xF0, 0xF8,
+            0xE2, 0xFB, 0xFC,
+        ]);
+        let mut scanner = Ls50::new(transport.clone()).expect("opens");
+
+        assert_eq!(
+            scanner.adapter().expect("reads the adapter"),
+            Adapter::StripFilm
+        );
+        scanner.warm_up().expect("warms up");
+
+        assert_eq!(
+            transport.count(SELF_TEST),
+            0,
+            "ran the self-test on a feeder"
+        );
+        assert_eq!(transport.count(0xC1), 0, "triggered the lamp on a feeder");
+    }
+
+    /// The counterpart: nothing is holding film, so the motion is what has to happen
+    #[test]
+    fn a_body_with_no_adapter_does_get_warmed_up() {
+        let transport = mock_with_pages(&[0x00, 0x01, 0x40, 0x41, 0xF8, 0xFA, 0xFB, 0xFC]);
+        let mut scanner = Ls50::new(transport.clone()).expect("opens");
+
+        assert_eq!(scanner.adapter().expect("reads the adapter"), Adapter::None);
+        scanner.warm_up().expect("warms up");
+
+        assert_eq!(transport.count(SELF_TEST), 1);
+        assert_eq!(transport.count(0xC1), 1);
     }
 
     /// Scripts a whole pass: SET WINDOW checks the mode byte and exposure, SCAN answers GOOD,

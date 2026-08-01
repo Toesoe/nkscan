@@ -4,6 +4,7 @@
 //! host-side on every frame, and the holder has to be in before anything moves.
 
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
+use crate::adapter::Adapter;
 use crate::decode::Image;
 use crate::devices::{DeviceCapabilities, Model};
 use crate::scanners::{
@@ -13,7 +14,6 @@ use crate::scanners::{
         boundaries::{FrameBoundaries, FrameRect},
         calibration::{DEFAULT_GAIN, Metering},
         geometry::{CcdMode, Dpi, Multisample, ScanSettings, native_dots},
-        holder::Holder,
         window::BaseQuality,
     },
     nikon::ChannelExposures,
@@ -69,8 +69,8 @@ impl Ls9000Driver {
         progress: &mut ProgressFn<'_>,
     ) -> Result<(), Error> {
         let deadline = Instant::now() + timeout;
-        let mut holder = self.scanner.holder()?;
-        while holder == Holder::None {
+        let mut holder = self.scanner.adapter()?;
+        while holder == Adapter::None {
             if Instant::now() >= deadline {
                 return Err(Error::Media("no film holder is loaded".into()));
             }
@@ -78,11 +78,11 @@ impl Ls9000Driver {
                 return Err(Error::Cancelled);
             }
             std::thread::sleep(HOLDER_POLL);
-            holder = self.scanner.holder()?;
+            holder = self.scanner.adapter()?;
         }
         self.scanner.drain_unit_attentions()?;
         self.scanner.wait_until_ready()?;
-        info!("Holder loaded: {holder:?}");
+        info!("Holder loaded: {holder}");
         Ok(())
     }
 
@@ -132,7 +132,7 @@ impl Ls9000Driver {
         if let ReadError::Cancelled = error {
             return Error::Cancelled;
         }
-        if matches!(self.scanner.holder(), Ok(Holder::None)) {
+        if matches!(self.scanner.adapter(), Ok(Adapter::None)) {
             return Error::Media("the film holder was removed mid-pass".into());
         }
         error.into()
@@ -161,7 +161,7 @@ impl Driver for Ls9000Driver {
     }
 
     fn media_loaded(&mut self) -> Result<bool, Error> {
-        Ok(self.scanner.holder()? != Holder::None)
+        Ok(self.scanner.adapter()? != Adapter::None)
     }
 
     fn prepare(
