@@ -5,6 +5,7 @@
 //! even when it shares a name here, because the wire formats disagree in ways that would be
 //! silent if merged.
 
+pub mod adapter;
 pub mod cdbs;
 pub mod decode;
 pub mod dtc;

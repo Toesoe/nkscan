@@ -255,16 +255,15 @@ pub trait Scanner {
 
 /// A scanner with removable film holders
 pub trait FilmHolder: Scanner {
-    /// What holders this scanner recognizes
-    type Holder: scsi::cdbs::VendorPage;
-
-    /// Which holder, if any, is currently loaded
+    /// Which adapter, if any, is loaded right now
     ///
-    /// A VPD inquiry, which SPC exempts from being blocked by a pending unit attention, so
-    /// this keeps answering across the holder change that loading one raises.
-    fn holder(&mut self) -> Result<Self::Holder, scsi::Error> {
-        self.transport().vpd()
-    }
+    /// A VPD inquiry, which SPC exempts from being blocked by a pending unit attention, so this
+    /// keeps answering across the holder change that loading one raises.
+    ///
+    /// The two families read different pages to work this out — see
+    /// [`nikon::adapter`] — but both answer in the one
+    /// [`Adapter`](crate::adapter::Adapter) vocabulary, so a caller never has to know which.
+    fn adapter(&mut self) -> Result<crate::adapter::Adapter, scsi::Error>;
 }
 
 /// A scanner with a movable focus mechanism

@@ -4,6 +4,7 @@
 //! [`Placement::Sensed`] is the accurate way to place them and an even pitch is the fallback.
 
 use super::{Driver, Error, Exposure, FocusMode, FrameSettings, Placement, Prepare};
+use crate::adapter::Adapter;
 use crate::decode::Image;
 use crate::devices::{DeviceCapabilities, Model};
 use crate::scanners::{
@@ -32,7 +33,7 @@ impl Ls5000Driver {
     pub(super) fn open(transport: Box<dyn Transport + Send>, model: Model) -> Result<Self, Error> {
         let mut scanner = Ls5000::new(transport)?;
         super::confirm_model(scanner.identify()?, model)?;
-        debug!(holder = ?scanner.holder()?, adapter = ?scanner.adapter_name(), "Adapter");
+        debug!(adapter = %scanner.adapter()?, name = ?scanner.adapter_name(), "Adapter");
         Ok(Self {
             scanner,
             frames: FrameBoundaries(Vec::new()),
@@ -106,7 +107,7 @@ impl Driver for Ls5000Driver {
     }
 
     fn media_loaded(&mut self) -> Result<bool, Error> {
-        Ok(self.scanner.holder()? != crate::scanners::ls5000::holder::Holder::None)
+        Ok(self.scanner.adapter()? != Adapter::None)
     }
 
     fn prepare(

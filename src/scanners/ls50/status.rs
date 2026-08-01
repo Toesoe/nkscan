@@ -18,7 +18,7 @@ pub enum Status {
     /// [`warm_up`](super::Ls50::warm_up) to run the self-test.
     NeedsInit,
     /// 02 3A/00. The adapter is still reported by
-    /// [`holder`](crate::scanners::FilmHolder::holder).
+    /// [`adapter`](crate::scanners::FilmHolder::adapter).
     NoFilm,
     /// 02 05/00
     Ejecting,

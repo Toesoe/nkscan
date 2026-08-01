@@ -2,7 +2,7 @@ use crate::decode::{Image, Rgb16};
 use crate::{
     decode::StreamDecoder,
     scanners::{
-        FilmHolder, Flow, Focus, ReadError, ScanArea, Scanner,
+        Flow, Focus, ReadError, ScanArea, Scanner,
         nikon::{
             Channel, ChannelExposures,
             cdbs::{Subcode, VendorTrigger, VendorWrite},
@@ -22,7 +22,6 @@ use cdbs::{
 };
 use dtc::Dtc;
 use geometry::{CcdMode, Multisample, ScanSettings};
-use holder::Holder;
 use status::Status;
 use std::{
     thread::sleep,
@@ -31,6 +30,7 @@ use std::{
 use tracing::*;
 use window::{BaseQuality, WindowKind, WindowParams};
 
+pub mod adapter;
 pub mod boundaries;
 pub mod calibration;
 pub mod capabilities;
@@ -38,7 +38,6 @@ pub mod cdbs;
 pub mod decode;
 pub mod dtc;
 pub mod geometry;
-pub mod holder;
 pub mod status;
 pub mod window;
 
@@ -355,17 +354,6 @@ where
     }
 }
 
-impl<T> FilmHolder for Ls9000<T>
-where
-    T: Transport,
-{
-    type Holder = Holder;
-
-    fn holder(&mut self) -> Result<Holder, scsi::Error> {
-        self.transport.vpd()
-    }
-}
-
 impl<T> Focus for Ls9000<T>
 where
     T: Transport,
@@ -669,7 +657,11 @@ mod tests {
         let mut scanner = Ls9000::new(mock_with_holder()).expect("opens");
         let (frames, settings) = one_frame();
 
-        assert_eq!(scanner.holder().expect("reads the holder"), Holder::Strip);
+        let reading = scanner.holder_reading().expect("reads the holder");
+        assert_eq!(
+            reading.class,
+            Some(crate::scanners::nikon::adapter::HolderClass::Strip)
+        );
         let _: Status = scanner.drain_unit_attentions().expect("drains");
         scanner.wait_until_ready().expect("settles");
         scanner
