@@ -12,21 +12,25 @@ Please reach out if you have a scanner we can test! Even just dumps of USB/SCSI 
 
 Our goal is to support all the scanners supported by Nikon Scan, which are enumerated here
 
+- ✅ Supported
+- ⚠️ Untested but theoretically should work
+- ❌ Not started
+
 ### Medium Format Scanners
 
-|                  | Status        |
-|------------------|---------------|
-| Coolscan 9000    | ✅ Supported     |
-| Coolscan 8000    | ❌ Not started   |
+| Scanner \ Holder | 835M | 835S | 869S  | 869G  | 869GR  | 869M | 816 | 8G1 |
+|------------------|:----:|:----:|:-----:|:-----:|:------:|:----:|:---:|:---:|
+| 9000             | ❌   | ❌   | ✅    | ⚠️   | ⚠️     | ❌  | ❌  | ❌ |
+| 8000             | ❌   | ❌   | ❌    | ❌   | ❌     | ❌  | ❌  | ❌ |
 
 ### 35mm Scanners
 
-|               | Status      |
-|---------------|-------------|
-| Coolscan 5000 | ⚠️ Untested    |
-| Coolscan 4000 | ❌ Not started |
-| Coolscan V    | ✅ Supported   |
-| Coolscan IV   | ❌ Not started |
+| Scanner \ Holder | SA-21  | IA-20/21  | MA-20/21   | SA-30  | SF-210/200  |
+|------------------|:------:|:---------:|:----------:|:------:|:-----------:|
+| 5000             | ⚠️     | ❌        | ⚠️         | ⚠️     | ❌         |
+| 4000             | ❌     | ❌        | ❌         | ❌     | ❌         |
+| V                | ✅     | ❌        | ⚠️         | ✅     | ❌         |
+| IV               | ❌     | ❌        | ❌         | ❌     | ❌         |
 
 MacOS Firewire support is planned, but just stubbed out for the moment. It should work for USB scanners, like the Coolscan V.
 
