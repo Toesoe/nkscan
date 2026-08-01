@@ -143,3 +143,5 @@ as above, without any additional terms or conditions.
 - [Coolscan RE](https://github.com/kevihiiin/Nikon-Coolscan-RE)
 - [coolscan-mods](https://github.com/kosma/coolscan-mods)
 - [sane-coolscan3](http://sane-project.org/man/sane-coolscan3.5.html)
+- [openICE](https://github.com/a6o/openICE)
+- [digital fauxice](https://github.com/rohanpandula/digital-fauxice)
