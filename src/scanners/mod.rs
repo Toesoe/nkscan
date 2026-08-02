@@ -238,6 +238,16 @@ pub trait Scanner {
             let want = u64::from(chunk).min(expected - received) as u32;
             let bytes = self.read_chunk(want)?;
             if bytes.is_empty() {
+                // The numbers are the whole diagnosis when a pass comes up short: how far it got
+                // against what the geometry declared says whether the shortfall is a whole line,
+                // and the error type cannot carry them
+                tracing::warn!(
+                    received,
+                    expected,
+                    short_by = expected - received,
+                    want,
+                    "Image read stopped early"
+                );
                 return Err(scsi::Error::InvalidResponse(
                     "image read returned nothing before the expected length",
                 )
