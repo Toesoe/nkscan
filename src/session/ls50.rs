@@ -194,7 +194,7 @@ impl Driver for Ls50Driver {
             window: ScanArea {
                 x_pos: 0,
                 y_pos: 0,
-                x_size: capabilities.max_x(), // 3946
+                x_size: capabilities.max_x(),               // 3946
                 y_size: capabilities.preview_roll_length(), // 250,278
             },
             capabilities,
