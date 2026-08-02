@@ -42,7 +42,7 @@ pub enum Dpi {
     _800,
     _500,
     _250,
-    _97,
+    _125,
 }
 
 impl Dpi {
@@ -59,7 +59,7 @@ impl Dpi {
             Dpi::_800 => 5,
             Dpi::_500 => 8,
             Dpi::_250 => 16,
-            Dpi::_97 => 41, // full roll preview resolution
+            Dpi::_125 => 32, // full roll preview resolution
         }
     }
 
@@ -80,7 +80,7 @@ impl Dpi {
         Dpi::_800,
         Dpi::_500,
         Dpi::_250,
-        Dpi::_97,
+        Dpi::_125,
     ];
 }
 
@@ -102,6 +102,11 @@ impl ScanSettings {
     /// Native dots per output pixel
     pub fn pitch(&self) -> u32 {
         self.dpi.divisor()
+    }
+
+    /// Millimeters per output pixel. Used to calculate feed offsets for framing
+    pub fn mm_per_pixel(&self) -> f32 {
+        25.4 / f32::from(self.res())
     }
 
     /// The sensor's own resolution, which is what the firmware divides down

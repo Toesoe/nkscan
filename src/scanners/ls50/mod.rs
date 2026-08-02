@@ -386,8 +386,8 @@ where
 
             if mode == ScanMode::Preview {
                 // override descriptor vars
-                desc.x_resolution = 97;
-                desc.y_resolution = 97;
+                desc.x_resolution = 125;
+                desc.y_resolution = 125;
                 desc.width = self.capabilities.max_x();
                 desc.length = self.capabilities.preview_roll_length()
             }

@@ -12,7 +12,6 @@ use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
 use crate::scanners::ScanArea;
-use crate::scanners::ls50::geometry;
 use crate::scanners::nikon::usb::UsbCoolscan;
 use crate::scanners::{
     FilmHolder, Focus, ProgressFn, Scanner,
@@ -186,7 +185,7 @@ impl Driver for Ls50Driver {
 
     fn overview(&mut self, progress: &mut ProgressFn<'_>) -> Result<(Image, u16), Error> {
         let capabilities = self.scanner.capabilities();
-        let target_dpi = self.dpi(97)?;
+        let target_dpi = self.dpi(125)?;
 
         let settings = ScanSettings {
             dpi: target_dpi,
