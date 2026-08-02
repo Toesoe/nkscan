@@ -7,7 +7,7 @@ use super::{Driver, Error, FocusMode, Placement};
 use crate::adapter::Adapter;
 use crate::capability::Capabilities;
 use crate::capability::resolve::{ResolvedExposure, ResolvedFrame, ResolvedPrepare};
-use crate::capability::unsupported::{Feature, Unsupported};
+use crate::capability::unsupported::{Allowed, Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
 use crate::scanners::{
@@ -136,6 +136,43 @@ impl Driver for Ls9000Driver {
         prepare: &ResolvedPrepare,
         progress: &mut ProgressFn<'_>,
     ) -> Result<usize, Error> {
+        // A frame longer than the boundary the unit reports stalls the stage, and the window
+        // check that also refuses it fires per pass — once the mechanism is already travelling.
+        //
+        // Placing by pitch is arithmetic, so it can be refused before anything moves, and it is
+        // where the hazard is: asking for one frame without a pitch spreads it over the whole
+        // strip, which is over twice the boundary. Detect cannot be checked this early because
+        // its frames come out of the overview pass, and they are bounded by it.
+        if let Placement::Pitch {
+            frames,
+            pitch_mm,
+            offsets_mm,
+        } = prepare.placement()
+        {
+            let boundary = self.scanner.capabilities().boundary_y;
+            let placed = self.place_by_hand(*frames, *pitch_mm, offsets_mm);
+            if let Some(long) = placed
+                .0
+                .iter()
+                .find(|frame| frame.scan_area().y_size > boundary)
+            {
+                let asked = long.scan_area().y_size;
+                warn!(
+                    asked,
+                    boundary, "Refusing a frame past the reported boundary"
+                );
+                return Err(Unsupported::out_of_range(
+                    Feature::FramePlacement,
+                    asked,
+                    Allowed::Range {
+                        min: 1,
+                        max: boundary,
+                    },
+                )
+                .into());
+            }
+        }
+
         // The session preamble, which gates the first scan
         self.scanner.calibrate(DEFAULT_GAIN)?;
 
