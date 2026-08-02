@@ -287,14 +287,9 @@ where
             return Err(scsi::Error::Unsupported("Window too narrow").into());
         }
 
-        // --- STEP 1: INITIALIZE MECHANICAL SWEEP ---
-        // Fire the direct VendorWrite 0xE0 to subcode 0xB4, then commit via VendorTrigger.
-        // This reprograms the H8 logic arrays out of step-and-pause state loops.
         self.set_extended_config_e0()?;
         debug!("Roll Preview: Continuous streaming mode initialized via Vendor 0xE0.");
 
-        // --- STEP 2: GEOMETRY CONFIGURATION ---
-        // Arm the standard tracking channels.
         self.arm(settings, ChannelExposures::preview_gain(), ScanMode::Preview)?;
 
         self.scan(channels(settings))?; 
@@ -381,16 +376,18 @@ where
                 exposure: gain.get(channel),
             };
 
+            let mut desc = params.descriptor(settings, channel);
+
             if mode == ScanMode::Preview
             {
                 // override descriptor vars
-                let mut desc = params.descriptor(settings, channel);
                 desc.x_resolution = 97;
                 desc.y_resolution = 97;
                 desc.width = self.capabilities.max_x();
                 desc.length = 250_278; // full roll length in native steps
             }
-            // self.set_window(channel, desc)?;
+
+            self.set_window(channel, desc)?;
             debug!(?channel, "Arm: window set");
         }
 
