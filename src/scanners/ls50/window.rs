@@ -10,6 +10,8 @@ pub enum ScanMode {
     Normal,
     /// Measures exposure and streams nothing (SANE's pre-pass)
     AutoExposure,
+    /// Nikon streaming preview pass
+    Preview,
     /// Only 1 works: anything higher arms a multi-pass scan that never streams
     Samples(u8),
 }
@@ -18,6 +20,7 @@ impl ScanMode {
     fn to_byte(self) -> u8 {
         match self {
             ScanMode::Normal => 0x01,
+            ScanMode::Preview => 0x02,
             ScanMode::AutoExposure => 0x20,
             ScanMode::Samples(n) => n.max(1),
         }

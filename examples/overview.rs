@@ -2,7 +2,20 @@
 //!
 //! `cargo run --example overview -- /tmp/overview.tiff`
 
+fn init_logging() {
+    let subscriber = tracing_subscriber::fmt().with_writer(std::io::stderr);
+    match tracing_subscriber::EnvFilter::try_from_default_env() {
+        Ok(filter) => subscriber.with_env_filter(filter).init(),
+        Err(_) => subscriber
+            .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+            .without_time()
+            .with_target(false)
+            .init(),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_logging();
     let out = std::env::args().nth(1).unwrap_or("overview.tiff".into());
     let device = nkscan::devices::list()
         .into_iter()

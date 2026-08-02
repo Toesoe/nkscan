@@ -98,6 +98,16 @@ impl ChannelExposures {
         }
     }
 
+    /// extracted from USB dump, might need tuning
+    pub fn preview_gain() -> Self {
+        Self {
+            red: 70_232,
+            green: 133_261,
+            blue: 129_811,
+            ir: 65_536,
+        }
+    }
+
     /// The gain staged for one channel
     ///
     /// The composite window has none of its own, so it reports the red one the scanners lead

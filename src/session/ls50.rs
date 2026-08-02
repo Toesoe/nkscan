@@ -11,6 +11,7 @@ use crate::capability::resolve::{ResolvedExposure, ResolvedFrame, ResolvedPrepar
 use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
+use crate::scanners::ScanArea;
 use crate::scanners::nikon::usb::UsbCoolscan;
 use crate::scanners::{
     FilmHolder, Focus, ProgressFn, Scanner,
@@ -180,6 +181,33 @@ impl Driver for Ls50Driver {
 
     fn gain(&self) -> ChannelExposures {
         self.gain
+    }
+
+    fn overview(&mut self, progress: &mut ProgressFn<'_>) -> Result<(Image, u16), Error> {
+        let capabilities = self.scanner.capabilities();
+        let target_dpi = self.dpi(97)?; 
+
+        // 5984 pitch * 40 frames + runway pad offset = exactly 250,278 steps
+        let total_roll_native_steps = 250_278;
+
+        let settings = ScanSettings {
+            dpi: target_dpi,
+            ir: false,
+            samples: 1,
+            window: ScanArea {
+                x_pos: 0,
+                y_pos: 0,
+                x_size: capabilities.max_x(), // 3946
+                y_size: total_roll_native_steps,
+            },
+            capabilities,
+        };
+        
+        let image = self.scanner
+            .preview_roll(&settings, progress)
+            .map_err(|e| Error::from(e))?;
+
+        Ok((image, 0u16))
     }
 
     fn eject(&mut self) -> Result<(), Error> {

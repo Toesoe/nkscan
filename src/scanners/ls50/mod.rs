@@ -163,7 +163,14 @@ where
         // The firmware enforces this itself with InvalidFieldInParameterList: against a
         // boundary of 5959, 5940 dots is taken and 5967 refused. Checked here to fail before
         // the mechanism rather than after.
-        if descriptor.length >= self.capabilities.boundary_y {
+
+        let mut is_preview = false;
+
+        if descriptor.length >= self.capabilities.boundary_y * 2 {
+            debug!(?descriptor, "Setting a window longer than the adapter's reported scan area, assuming a preview pass");
+            is_preview = true;
+        }
+        if !is_preview && descriptor.length > self.capabilities.boundary_y {
             warn!(
                 length = descriptor.length,
                 boundary = self.capabilities.boundary_y,
@@ -269,6 +276,42 @@ where
         self.scan_image_with(settings, gain, |_, _| Flow::Continue)
     }
 
+    /// Performs a high-speed, non-stop physical pass over the entire film roll
+    /// to generate an index sheet layout using raw, hardware-binned 128 KB chunks.
+    pub fn preview_roll<F: FnMut(u64, u64) -> Flow>(
+        &mut self,
+        settings: &ScanSettings,
+        progress: F,
+    ) -> Result<Image, ScanError> {
+        if settings.bytes_per_line() == 0 {
+            return Err(scsi::Error::Unsupported("Window too narrow").into());
+        }
+
+        // --- STEP 1: INITIALIZE MECHANICAL SWEEP ---
+        // Fire the direct VendorWrite 0xE0 to subcode 0xB4, then commit via VendorTrigger.
+        // This reprograms the H8 logic arrays out of step-and-pause state loops.
+        self.set_extended_config_e0()?;
+        debug!("Roll Preview: Continuous streaming mode initialized via Vendor 0xE0.");
+
+        // --- STEP 2: GEOMETRY CONFIGURATION ---
+        // Arm the standard tracking channels.
+        self.arm(settings, ChannelExposures::preview_gain(), ScanMode::Preview)?;
+
+        self.scan(channels(settings))?; 
+
+        let mut decoder = frame_decoder(settings);
+        // The scanner hands back exactly one padded line per read
+        let chunk = settings.bytes_per_line() as u32;
+        self.read_into_with(&mut decoder, chunk, progress)?;
+        let frame = decoder.finish().map_err(ScanError::Decode)?.to_owned();
+        debug!(
+            width = frame.rgb.width(),
+            height = frame.rgb.height(),
+            "Image drained"
+        );
+        Ok(frame)
+    }
+
     /// [`scan_image`](Self::scan_image), reporting (received, expected) bytes as it reads
     pub fn scan_image_with<F: FnMut(u64, u64) -> Flow>(
         &mut self,
@@ -287,7 +330,7 @@ where
         }
 
         self.arm(settings, gain, ScanMode::Normal)?;
-        self.scan(channels(settings))?;
+        self.scan(channels(settings))?; 
 
         let mut decoder = frame_decoder(settings);
         // The scanner hands back exactly one padded line per read
@@ -337,7 +380,17 @@ where
                 mode,
                 exposure: gain.get(channel),
             };
-            self.set_window(channel, params.descriptor(settings, channel))?;
+
+            if mode == ScanMode::Preview
+            {
+                // override descriptor vars
+                let mut desc = params.descriptor(settings, channel);
+                desc.x_resolution = 97;
+                desc.y_resolution = 97;
+                desc.width = self.capabilities.max_x();
+                desc.length = 250_278; // full roll length in native steps
+            }
+            // self.set_window(channel, desc)?;
             debug!(?channel, "Arm: window set");
         }
 
@@ -397,6 +450,24 @@ where
         Err(scsi::Error::InvalidResponse(
             "scanner stopped producing image lines",
         ))
+    }
+
+    /// Stages the low-DPI clock modifications using VendorWrite and commits them 
+    /// via VendorTrigger to successfully modify the mechanical carriage behavior.
+    pub fn set_extended_config_e0(&mut self) -> Result<(), scsi::Error> {
+        // 1. Build the trait-compliant payload object
+        let payload = cdbs::vendor_read_write::ExtendedConfigPayloadPreview;
+
+        // 2. Stage the configuration payload in the scanner's internal registers
+        let vw = VendorWrite::new(payload);
+        self.transport.send(&vw)?;
+        debug!("Roll Preview: VendorWrite 0xE0 sub-0xB4 staged successfully.");
+
+        // 3. Commit the staged values into hardware memory using the explicit trigger
+        self.transport.send(&VendorTrigger)?;
+        debug!("Roll Preview: VendorTrigger committed configuration registers.");
+
+        Ok(())
     }
 }
 

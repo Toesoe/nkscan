@@ -24,6 +24,7 @@ pub enum VendorPayload {
     },
     Lamp,
     Eject,
+    ExtendedConfig(Vec<u8>),
     /// Bytes off an uncharacterized subcode, left for the caller to make sense of
     Raw(Vec<u8>),
 }
@@ -35,6 +36,7 @@ impl VendorRegister for VendorPayload {
             VendorPayload::AutoFocus { .. } => Subcode::AutoFocus,
             VendorPayload::Lamp => Subcode::Lamp,
             VendorPayload::Eject => Subcode::Eject,
+            VendorPayload::ExtendedConfig(_) => Subcode::ExtendedConfig,
             // Nothing to write back, so the subcode has to come from the caller instead
             VendorPayload::Raw(_) => Subcode::Other(0x00),
         }
@@ -56,6 +58,7 @@ impl VendorRegister for VendorPayload {
             }
             VendorPayload::Lamp => Vec::new(),
             VendorPayload::Eject => vec![0u8; 13],
+            VendorPayload::ExtendedConfig(_) => vec![0u8; 9],
             VendorPayload::Raw(_) => Vec::new(),
         }
     }
@@ -112,6 +115,23 @@ impl Command for VendorRead {
                 )),
             _ => Ok(VendorPayload::Raw(data.to_vec())),
         }
+    }
+}
+
+pub struct ExtendedConfigPayloadPreview;
+
+impl VendorRegister for ExtendedConfigPayloadPreview {
+    fn subcode(&self) -> Subcode {
+        Subcode::ExtendedConfig
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        // The precise 9-byte layout validated by the firmware gates
+        vec![
+            0x00, 0x00, 0x00, 0x0E,
+            0x10, 0x00, 0x00, 0x00,
+            0x01,
+        ]
     }
 }
 

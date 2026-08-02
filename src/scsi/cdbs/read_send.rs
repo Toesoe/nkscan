@@ -40,6 +40,7 @@ pub enum DataTypeCode {
     Image,
     HalftoneMask,
     GammaFunction,
+    ScanStatus,
     Vendor(u8),
 }
 
@@ -49,6 +50,7 @@ impl DataTypeCode {
             DataTypeCode::Image => 0x00,
             DataTypeCode::HalftoneMask => 0x02,
             DataTypeCode::GammaFunction => 0x03,
+            DataTypeCode::ScanStatus => 0x87,
             DataTypeCode::Vendor(x) => x,
         }
     }

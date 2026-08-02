@@ -42,6 +42,7 @@ pub enum Dpi {
     _800,
     _500,
     _250,
+    _97,
 }
 
 impl Dpi {
@@ -58,6 +59,7 @@ impl Dpi {
             Dpi::_800 => 5,
             Dpi::_500 => 8,
             Dpi::_250 => 16,
+            Dpi::_97 => 41, // full roll preview resolution
         }
     }
 
@@ -70,7 +72,7 @@ impl Dpi {
     }
 
     /// Every division the firmware offers, lowest divisor first
-    pub const ALL: [Dpi; 7] = [
+    pub const ALL: [Dpi; 8] = [
         Dpi::_4000,
         Dpi::_2000,
         Dpi::_1333,
@@ -78,6 +80,7 @@ impl Dpi {
         Dpi::_800,
         Dpi::_500,
         Dpi::_250,
+        Dpi::_97,
     ];
 }
 
