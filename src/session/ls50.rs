@@ -12,6 +12,7 @@ use crate::capability::unsupported::{Feature, Unsupported};
 use crate::decode::Image;
 use crate::devices::Model;
 use crate::scanners::ScanArea;
+use crate::scanners::ls50::geometry;
 use crate::scanners::nikon::usb::UsbCoolscan;
 use crate::scanners::{
     FilmHolder, Focus, ProgressFn, Scanner,
@@ -187,9 +188,6 @@ impl Driver for Ls50Driver {
         let capabilities = self.scanner.capabilities();
         let target_dpi = self.dpi(97)?;
 
-        // 5984 pitch * 40 frames + runway pad offset = exactly 250,278 steps
-        let total_roll_native_steps = 250_278;
-
         let settings = ScanSettings {
             dpi: target_dpi,
             ir: false,
@@ -198,7 +196,7 @@ impl Driver for Ls50Driver {
                 x_pos: 0,
                 y_pos: 0,
                 x_size: capabilities.max_x(), // 3946
-                y_size: total_roll_native_steps,
+                y_size: capabilities.preview_roll_length(), // 250,278
             },
             capabilities,
         };

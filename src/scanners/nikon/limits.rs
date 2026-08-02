@@ -94,6 +94,10 @@ impl DeviceLimits {
         self.boundary_y - 1
     }
 
+    pub fn preview_roll_length(&self) -> u32 {
+        250_278
+    }
+
     /// Refuse a window resolution the device says it will not divide to
     ///
     /// The firmware answers one with an invalid field in the parameter list, which can land

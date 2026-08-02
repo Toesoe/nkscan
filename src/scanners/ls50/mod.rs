@@ -389,7 +389,7 @@ where
                 desc.x_resolution = 97;
                 desc.y_resolution = 97;
                 desc.width = self.capabilities.max_x();
-                desc.length = 250_278; // full roll length in native steps
+                desc.length = self.capabilities.preview_roll_length()
             }
 
             self.set_window(channel, desc)?;
