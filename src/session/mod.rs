@@ -658,6 +658,53 @@ mod tests {
         );
     }
 
+    /// A frame longer than the reported Y boundary would drive the stage into the endstop once
+    /// its sweep starts, so it is refused before anything moves — no calibration, no window, no
+    /// pass. The scan-time window check below is too late: it fires after the mechanism is
+    /// already travelling.
+    #[test]
+    fn a_frame_longer_than_the_boundary_is_refused_before_the_stage_moves() {
+        let transport = mock_ls9000();
+        let mut session = ls9000_session(transport.clone());
+
+        let prepare = Prepare {
+            // One frame covering the whole 220 mm strip — the default when nothing pins the
+            // pitch, and six times the 84 mm boundary this unit reports.
+            placement: Placement::Pitch {
+                frames: Some(1),
+                pitch_mm: None,
+                offsets_mm: Vec::new(),
+            },
+            exposure: Exposure::Auto {
+                lock_white_balance: false,
+            },
+            wait_for_media: Duration::from_secs(1),
+        };
+        let error = session
+            .prepare(&prepare, &mut |_, _| Flow::Continue)
+            .expect_err("a whole-strip frame is refused");
+        let Error::Unsupported(refusal) = error else {
+            panic!("a frame past the boundary is an unsupported request, got {error}");
+        };
+        assert_eq!(refusal.feature, Feature::FramePlacement);
+        assert!(
+            matches!(
+                refusal.reason,
+                crate::capability::unsupported::Reason::OutOfRange { .. }
+            ),
+            "the length asked for is what makes it unsupported: {:?}",
+            refusal.reason
+        );
+
+        // Calibration (0x24/0x1B metering passes) and the frame-table write (0x88) both move the
+        // mechanism; neither may have run.
+        let seen = transport.opcode_sequence();
+        assert!(
+            seen.iter().all(|&op| op != 0x1B && op != 0x88),
+            "the stage was moved despite the refusal: {seen:?}"
+        );
+    }
+
     fn offered(min: u16) -> ResolutionRange {
         ResolutionRange {
             optical: 4000,
