@@ -161,6 +161,11 @@ fn per_adapter(family: Family, adapter: Adapter) -> AdapterRow {
         },
 
         // --- medium format. Every holder comes out of the body the same way.
+        // Detected alongside no overview reads as a contradiction, and is the least wrong of
+        // the four: the apertures are fixed but nobody has written down how many, and there is
+        // no pass to find them with. Both Detect and Sensed are refused, which leaves placing
+        // by hand -- the right answer, reached awkwardly. A real aperture count would make this
+        // Mechanical and say so directly.
         (_, Adapter::Fh869Gr) => AdapterRow {
             eject: EjectAction::EjectHolder,
             overview: false,
