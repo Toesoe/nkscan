@@ -127,11 +127,7 @@ impl VendorRegister for ExtendedConfigPayloadPreview {
 
     fn to_bytes(&self) -> Vec<u8> {
         // The precise 9-byte layout validated by the firmware gates
-        vec![
-            0x00, 0x00, 0x00, 0x0E,
-            0x10, 0x00, 0x00, 0x00,
-            0x01,
-        ]
+        vec![0x00, 0x00, 0x00, 0x0E, 0x10, 0x00, 0x00, 0x00, 0x01]
     }
 }
 

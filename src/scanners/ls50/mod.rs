@@ -167,7 +167,10 @@ where
         let mut is_preview = false;
 
         if descriptor.length >= self.capabilities.boundary_y * 2 {
-            debug!(?descriptor, "Setting a window longer than the adapter's reported scan area, assuming a preview pass");
+            debug!(
+                ?descriptor,
+                "Setting a window longer than the adapter's reported scan area, assuming a preview pass"
+            );
             is_preview = true;
         }
         if !is_preview && descriptor.length > self.capabilities.boundary_y {
@@ -289,13 +292,17 @@ where
 
         self.set_extended_config_e0()?;
 
-        self.arm(settings, ChannelExposures::preview_gain(), ScanMode::Preview)?;
+        self.arm(
+            settings,
+            ChannelExposures::preview_gain(),
+            ScanMode::Preview,
+        )?;
 
-        self.scan(channels(settings))?; 
+        self.scan(channels(settings))?;
 
         let mut decoder = frame_decoder(settings);
 
-        let chunk = settings.bytes_per_chunk();
+        let chunk = settings.bytes_per_chunk() as u32;
         self.read_into_with(&mut decoder, chunk, progress)?;
         let frame = decoder.finish().map_err(ScanError::Decode)?.to_owned();
         debug!(
@@ -324,7 +331,7 @@ where
         }
 
         self.arm(settings, gain, ScanMode::Normal)?;
-        self.scan(channels(settings))?; 
+        self.scan(channels(settings))?;
 
         let mut decoder = frame_decoder(settings);
         // The scanner hands back exactly one padded line per read
@@ -377,8 +384,7 @@ where
 
             let mut desc = params.descriptor(settings, channel);
 
-            if mode == ScanMode::Preview
-            {
+            if mode == ScanMode::Preview {
                 // override descriptor vars
                 desc.x_resolution = 97;
                 desc.y_resolution = 97;
@@ -448,7 +454,7 @@ where
         ))
     }
 
-    /// Stages the low-DPI clock modifications using VendorWrite and commits them 
+    /// Stages the low-DPI clock modifications using VendorWrite and commits them
     /// via VendorTrigger to successfully modify the mechanical carriage behavior.
     pub fn set_extended_config_e0(&mut self) -> Result<(), scsi::Error> {
         let payload = cdbs::vendor_read_write::ExtendedConfigPayloadPreview;

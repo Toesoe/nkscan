@@ -185,7 +185,7 @@ impl Driver for Ls50Driver {
 
     fn overview(&mut self, progress: &mut ProgressFn<'_>) -> Result<(Image, u16), Error> {
         let capabilities = self.scanner.capabilities();
-        let target_dpi = self.dpi(97)?; 
+        let target_dpi = self.dpi(97)?;
 
         // 5984 pitch * 40 frames + runway pad offset = exactly 250,278 steps
         let total_roll_native_steps = 250_278;
@@ -202,10 +202,8 @@ impl Driver for Ls50Driver {
             },
             capabilities,
         };
-        
-        let image = self.scanner
-            .preview_roll(&settings, progress)
-            .map_err(|e| Error::from(e))?;
+
+        let image = self.scanner.preview_roll(&settings, progress)?;
 
         Ok((image, 0u16))
     }

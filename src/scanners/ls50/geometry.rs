@@ -152,7 +152,7 @@ impl ScanSettings {
 
     /// Nikscan uses 128k chunk reads by default
     pub fn bytes_per_chunk(&self) -> usize {
-        128 * 1024 as usize;
+        128 * 1024_usize
     }
 
     pub fn expected_bytes(&self) -> u64 {
