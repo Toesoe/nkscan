@@ -32,11 +32,16 @@ pub struct Cli {
     #[arg(long)]
     list: bool,
 
-    /// Frames on the loaded strip
+    /// Frames to place, which is not the same as frames to scan
     ///
     /// Every one is declared to the scanner whether or not it gets scanned, since a pass that
-    /// cannot see the whole table leaves the film where it is. Left out, a USB scanner is asked
-    /// how many it can see; a SCSI one needs either this or --pitch.
+    /// cannot see the whole table leaves the film where it is. Use --frame to pick which of them
+    /// come back as files.
+    ///
+    /// Leave this out on an adapter that senses frames itself, like the SA-30: the scanner is
+    /// then asked how many it found, which is the whole point of a roll. Giving a count there
+    /// takes only the first that many of them. On an adapter that senses nothing, this or
+    /// --pitch is how the frames get placed at all.
     #[arg(long)]
     frames: Option<usize>,
 

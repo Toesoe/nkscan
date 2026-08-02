@@ -149,6 +149,23 @@ impl Capabilities {
 
     /// Check a prepare against this unit and the adapter it has loaded
     pub fn resolve_prepare(&self, request: &Prepare) -> Result<ResolvedPrepare, Unsupported> {
+        // Zero frames is never a request anyone means. It reads as "take none of what the
+        // transport sensed", which places nothing and scans nothing, silently.
+        let asked_for_none = match &request.placement {
+            Placement::Detect { frames } => *frames == 0,
+            Placement::Pitch { frames, .. } | Placement::Sensed { frames } => *frames == Some(0),
+        };
+        if asked_for_none {
+            return Err(Unsupported::out_of_range(
+                Feature::FramePlacement,
+                0,
+                Allowed::Range {
+                    min: 1,
+                    max: u32::MAX,
+                },
+            ));
+        }
+
         match &request.placement {
             Placement::Detect { .. } if !self.overview => {
                 return Err(Unsupported::not_present(Feature::Overview, self));
@@ -495,6 +512,47 @@ mod tests {
             .resolve_prepare(&request)
             .expect_err("a fixed 35 mm carrier does not");
         assert_eq!(refusal.feature, Feature::StripFilmOffset);
+    }
+
+    /// Asking for no frames places nothing and scans nothing, which nobody means. It reached
+    /// hardware as `--frames 0` on a roll adapter, where leaving the flag out is what asks the
+    /// scanner how many it sensed.
+    #[test]
+    fn a_frame_count_of_zero_is_refused_rather_than_placing_nothing() {
+        for placement in [
+            Placement::Sensed { frames: Some(0) },
+            Placement::Pitch {
+                frames: Some(0),
+                pitch_mm: None,
+                offsets_mm: Vec::new(),
+            },
+            Placement::Detect { frames: 0 },
+        ] {
+            let request = prepare(
+                placement.clone(),
+                Exposure::Auto {
+                    lock_white_balance: false,
+                },
+            );
+            let refusal = caps(Model::Ls5000, Adapter::RollFilm)
+                .resolve_prepare(&request)
+                .expect_err("zero frames is not a request");
+            assert_eq!(refusal.feature, Feature::FramePlacement);
+        }
+    }
+
+    /// Leaving the count out is how a roll is asked for, so it must stay allowed
+    #[test]
+    fn an_absent_frame_count_is_how_the_scanner_is_asked() {
+        let request = prepare(
+            Placement::Sensed { frames: None },
+            Exposure::Auto {
+                lock_white_balance: false,
+            },
+        );
+        caps(Model::Ls5000, Adapter::RollFilm)
+            .resolve_prepare(&request)
+            .expect("an unset count asks the transport");
     }
 
     /// A zero offset asks for nothing, so it must not be refused anywhere

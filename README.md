@@ -44,6 +44,11 @@ While the 9000 has the best support right now, there are still some gaps in capa
 
 - The Coolscan 9000 workflow assumes a medium format strip film holder. The frame detection algorithm will not work for others, but you can manually place the frames for the time being. If someone has the 35 holder or others, please reach out and we can add the missing logic.
 - The Coolscan V workflow assumes a strip holder, not a full roll holder. I need more dumps of payloads/RE work to understand the typical flow for those (or the other inserts like the bulk slide loader)
+- On a roll adapter, leave `--frames` out. Without it the scanner is asked how many it sensed,
+  which is what you want on a roll; giving a count overrides that. The SA-30's frame *count*
+  works, but the read that reports where those frames actually are is refused, so they are
+  placed at an even pitch rather than where the transport found them. See
+  `docs/OPEN_QUESTIONS.md` section 19.
 - The Coolscan 5000 has now scanned with an SA-21, on Windows. The roll transport, the
   multi-sample readout and the metering path are all still inference, so treat anything past a
   strip scan as unproven.
@@ -79,6 +84,49 @@ Options:
   -h, --help                       Print help (see more with '--help')
   -V, --version                    Print version
 ```
+
+### What the flags do, per adapter
+
+Most of what a scanner will do depends on what is loaded in it, not on which model it is: the
+same body ejects a strip from one adapter and swaps a slide in another. `nkscan` reads the
+adapter on open and prints it, and refuses anything it cannot do rather than doing something
+else quietly.
+
+`--frames` says how many frames to **place**. `--frame` says which of those to **scan**. They are
+easy to confuse and do different things.
+
+| Adapter | Where frames come from | `--frames` | `--pitch` / `--offset` | `--eject` |
+|---|---|---|---|---|
+| SA-21 (strip) | six fixed apertures | optional, caps how many | shifts film within them | pushes the strip out |
+| SA-30 (roll) | the transport senses them | **leave it out**; a count takes only the first that many | shifts film | pushes the film out |
+| MA-21 (mount) | one slide, by hand | ignored, there is one | no | nothing to eject |
+| SF-210 (feeder) | one slide at a time | ignored | no | returns it and feeds the next |
+| IA-20/21 (IX240) | the transport senses them | leave it out | no | rewinds the cartridge |
+| FH-869S / FH-869G | found in an overview pass | how many to look for | shifts film | ejects the holder |
+| FH-869GR | no overview pass, so placed by hand | how many | no | ejects the holder |
+| other FH-8xx holders | found in an overview pass | how many to look for | no | ejects the holder |
+
+Leaving `--frames` out asks the scanner. On an adapter that senses frames that is the right
+answer and the whole point of the adapter; on one that senses nothing you have to give either
+`--frames` or `--pitch`, or there is nothing to place.
+
+These are the settings that depend on the **model** rather than the adapter:
+
+| Flag | Where it applies |
+|---|---|
+| `--multisample` | 8000, 9000, 5000, 4000. The V and IV average nothing in hardware. |
+| `--singleline` | 8000 and 9000 only, the two with a selectable readout |
+| `--lock-wb` | anywhere the host meters. Not the V or the IV, whose firmware meters and gives nothing to hold. |
+| `--dpi` | a division of that model's sensor: 4000 on five of them, 2900 on the IV |
+
+Asking for something a scanner does not have is refused by name, so `--singleline` on a V says so
+rather than being ignored.
+
+**On a medium format body the exact holder cannot yet be identified.** The scanner reports a
+holder *class*, not a part number, so the rows above for FH-869GR in particular are not reachable
+today — capabilities fall back to what every holder in that family can do. See
+`docs/HOLDERS.md`.
+
 
 ## Example Workflow
 
