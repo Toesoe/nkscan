@@ -288,15 +288,14 @@ where
         }
 
         self.set_extended_config_e0()?;
-        debug!("Roll Preview: Continuous streaming mode initialized via Vendor 0xE0.");
 
         self.arm(settings, ChannelExposures::preview_gain(), ScanMode::Preview)?;
 
         self.scan(channels(settings))?; 
 
         let mut decoder = frame_decoder(settings);
-        // The scanner hands back exactly one padded line per read
-        let chunk = settings.bytes_per_line() as u32;
+
+        let chunk = settings.bytes_per_chunk();
         self.read_into_with(&mut decoder, chunk, progress)?;
         let frame = decoder.finish().map_err(ScanError::Decode)?.to_owned();
         debug!(
@@ -452,17 +451,11 @@ where
     /// Stages the low-DPI clock modifications using VendorWrite and commits them 
     /// via VendorTrigger to successfully modify the mechanical carriage behavior.
     pub fn set_extended_config_e0(&mut self) -> Result<(), scsi::Error> {
-        // 1. Build the trait-compliant payload object
         let payload = cdbs::vendor_read_write::ExtendedConfigPayloadPreview;
 
-        // 2. Stage the configuration payload in the scanner's internal registers
         let vw = VendorWrite::new(payload);
         self.transport.send(&vw)?;
-        debug!("Roll Preview: VendorWrite 0xE0 sub-0xB4 staged successfully.");
-
-        // 3. Commit the staged values into hardware memory using the explicit trigger
         self.transport.send(&VendorTrigger)?;
-        debug!("Roll Preview: VendorTrigger committed configuration registers.");
 
         Ok(())
     }

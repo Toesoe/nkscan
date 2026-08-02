@@ -150,6 +150,11 @@ impl ScanSettings {
         (self.n_colors() * even_width * 2).div_ceil(512) * 512
     }
 
+    /// Nikscan uses 128k chunk reads by default
+    pub fn bytes_per_chunk(&self) -> usize {
+        128 * 1024 as usize;
+    }
+
     pub fn expected_bytes(&self) -> u64 {
         let (_, height) = self.output_dims();
         self.bytes_per_line() as u64 * u64::from(height)
