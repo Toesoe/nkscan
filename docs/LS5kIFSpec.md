@@ -17,25 +17,48 @@
 > The composition and the uses of the end points in the USB
 > communication are defined as shown below.
 
-+:------------:+:-----------:+:----------------:+:----------------------:+
-| Name         | Transfer    | Transfer         | Uses                   |
-|              | type        | direction        |                        |
-+--------------+-------------+------------------+------------------------+
-| End point 0  | Control     | Initiator -\>    | Transmission/reception |
-|              | IN/OUT      | This unit/       | of the standard        |
-|              |             |                  | descriptor             |
-|              |             | This unit -\>    |                        |
-|              |             | Initiator        |                        |
-+--------------+-------------+------------------+------------------------+
-| End point 1  | Bulk OUT    | Initiator -\>    | Transmission of the    |
-|              |             | This unit        | data/ command          |
-+--------------+-------------+------------------+------------------------+
-| End point 2  | Bulk IN     | This unit -\>    | Reception of the data/ |
-|              |             | Initiator        | command                |
-+--------------+-------------+------------------+------------------------+
-| End point 3  | Interrupt   | This unit -\>    | Not used in this unit  |
-|              | IN          | Initiator        |                        |
-+--------------+-------------+------------------+------------------------+
+<table>
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 20%" />
+<col style="width: 26%" />
+<col style="width: 31%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Name</td>
+<td style="text-align: center;">Transfer type</td>
+<td style="text-align: center;">Transfer direction</td>
+<td style="text-align: center;">Uses</td>
+</tr>
+<tr>
+<td style="text-align: center;">End point 0</td>
+<td style="text-align: center;">Control IN/OUT</td>
+<td style="text-align: center;"><p>Initiator -&gt; This unit/</p>
+<p>This unit -&gt; Initiator</p></td>
+<td style="text-align: center;">Transmission/reception of the standard
+descriptor</td>
+</tr>
+<tr>
+<td style="text-align: center;">End point 1</td>
+<td style="text-align: center;">Bulk OUT</td>
+<td style="text-align: center;">Initiator -&gt; This unit</td>
+<td style="text-align: center;">Transmission of the data/ command</td>
+</tr>
+<tr>
+<td style="text-align: center;">End point 2</td>
+<td style="text-align: center;">Bulk IN</td>
+<td style="text-align: center;">This unit -&gt; Initiator</td>
+<td style="text-align: center;">Reception of the data/ command</td>
+</tr>
+<tr>
+<td style="text-align: center;">End point 3</td>
+<td style="text-align: center;">Interrupt IN</td>
+<td style="text-align: center;">This unit -&gt; Initiator</td>
+<td style="text-align: center;">Not used in this unit</td>
+</tr>
+</tbody>
+</table>
 
 **1-1-2. Communication phase specifications**
 
@@ -70,24 +93,16 @@
 
 Table 1-1-2-1 Phase codes
 
-  ----------------- ------------ -----------------------------------------
-        Phase           Code                      Status
+|  |  |  |
+|:--:|:--:|:--:|
+| Phase | Code | Status |
+| No phase | 00h | Nothing is received (a command can be transmitted). |
+| STATUS | 01h | Status IN phase |
+| DATA OUT | 02h | Data OUT phase |
+| DATA IN | 03h | Data IN phase |
+| BUSY | 04h | A command is being executed (the processing that is being executed continues). |
 
-      No phase          00h        Nothing is received (a command can be
-                                               transmitted).
-
-       STATUS           01h                   Status IN phase
-
-      DATA OUT          02h                   Data OUT phase
-
-       DATA IN          03h                    Data IN phase
-
-        BUSY            04h          A command is being executed (the
-                                     processing that is being executed
-                                                continues).
-  ----------------- ------------ -----------------------------------------
-
-**\
+**  
 1-1-2-2. Data IN/OUT phase**
 
 > The operation at the data IN/OUT is shown below.
@@ -124,7 +139,7 @@ Table 1-1-2-1 Phase codes
 
 ![](media/image2.wmf)
 
-**\
+**  
 1-1-2-4. Abort processing of the operation activation command**
 
 > The abort processing of the operation activation command is performed
@@ -193,48 +208,179 @@ Table 1-1-2-1 Phase codes
 
 21) The ABORT processing is performed.
 
-**\
+**  
 1-1-3. Commands of this unit**
 
 > The commands that are executed by this unit are shown below.
 
 Table 1-1-3-1 List of the commands of this unit
 
-+:---------------------------:+:---------:+:------:+:----------------:+
-| Command name                | Operation | Type   | Phase transition |
-|                             | code      |        |                  |
-+-----------------------------+-----------+--------+------------------+
-| > TEST UNIT READY           | 00h       | M      | > C - S          |
-+-----------------------------+-----------+--------+------------------+
-| > INQUIRY                   | 12h       | M      | > C - Din - S    |
-+-----------------------------+-----------+--------+------------------+
-| > MODE SELECT (6)           | 15h       | O      | > C - Dout - S   |
-+-----------------------------+-----------+--------+------------------+
-| > MODE SENSE (6)            | 1Ah       | O      | > C - Din - S    |
-+-----------------------------+-----------+--------+------------------+
-| > SCAN                      | 1Bh       | M      | > C - S          |
-+-----------------------------+-----------+--------+------------------+
-| > RECEIVER DIAGNOSTIC       | 1Ch       | M      | > C - S          |
-| > RESULTS                   |           |        |                  |
-+-----------------------------+-----------+--------+------------------+
-| > SEND DIAGNOSTIC           | 1Dh       | M      | > C - S          |
-+-----------------------------+-----------+--------+------------------+
-| > SET WINDOW                | 24h       | M      | > C - Dout - S   |
-+-----------------------------+-----------+--------+------------------+
-| > GET WINDOW                | 25h       | O      | > C - Din - S    |
-+-----------------------------+-----------+--------+------------------+
-| > READ                      | 28h       | M      | > C - Din - S    |
-+-----------------------------+-----------+--------+------------------+
-| > SEND                      | 2Ah       | O      | > C - Dout - S   |
-+-----------------------------+-----------+--------+------------------+
-| > ABORT                     | C0h       | V      | > C - S          |
-+-----------------------------+-----------+--------+------------------+
-| > EXECUTE                   | C1h       | V      | > C - S          |
-+-----------------------------+-----------+--------+------------------+
-| > SET PARAMETER             | E0h       | V      | > C - Dout - S   |
-+-----------------------------+-----------+--------+------------------+
-| > GET PARAMETER             | E1h       | V      | > C - Din - S    |
-+-----------------------------+-----------+--------+------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 42%" />
+<col style="width: 16%" />
+<col style="width: 12%" />
+<col style="width: 27%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Command name</td>
+<td style="text-align: center;">Operation code</td>
+<td style="text-align: center;">Type</td>
+<td style="text-align: center;">Phase transition</td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>TEST UNIT READY</p>
+</blockquote></td>
+<td style="text-align: center;">00h</td>
+<td style="text-align: center;">M</td>
+<td style="text-align: center;"><blockquote>
+<p>C - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>INQUIRY</p>
+</blockquote></td>
+<td style="text-align: center;">12h</td>
+<td style="text-align: center;">M</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Din - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>MODE SELECT (6)</p>
+</blockquote></td>
+<td style="text-align: center;">15h</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Dout - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>MODE SENSE (6)</p>
+</blockquote></td>
+<td style="text-align: center;">1Ah</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Din - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>SCAN</p>
+</blockquote></td>
+<td style="text-align: center;">1Bh</td>
+<td style="text-align: center;">M</td>
+<td style="text-align: center;"><blockquote>
+<p>C - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>RECEIVER DIAGNOSTIC RESULTS</p>
+</blockquote></td>
+<td style="text-align: center;">1Ch</td>
+<td style="text-align: center;">M</td>
+<td style="text-align: center;"><blockquote>
+<p>C - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>SEND DIAGNOSTIC</p>
+</blockquote></td>
+<td style="text-align: center;">1Dh</td>
+<td style="text-align: center;">M</td>
+<td style="text-align: center;"><blockquote>
+<p>C - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>SET WINDOW</p>
+</blockquote></td>
+<td style="text-align: center;">24h</td>
+<td style="text-align: center;">M</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Dout - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>GET WINDOW</p>
+</blockquote></td>
+<td style="text-align: center;">25h</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Din - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>READ</p>
+</blockquote></td>
+<td style="text-align: center;">28h</td>
+<td style="text-align: center;">M</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Din - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>SEND</p>
+</blockquote></td>
+<td style="text-align: center;">2Ah</td>
+<td style="text-align: center;">O</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Dout - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>ABORT</p>
+</blockquote></td>
+<td style="text-align: center;">C0h</td>
+<td style="text-align: center;">V</td>
+<td style="text-align: center;"><blockquote>
+<p>C - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>EXECUTE</p>
+</blockquote></td>
+<td style="text-align: center;">C1h</td>
+<td style="text-align: center;">V</td>
+<td style="text-align: center;"><blockquote>
+<p>C - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>SET PARAMETER</p>
+</blockquote></td>
+<td style="text-align: center;">E0h</td>
+<td style="text-align: center;">V</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Dout - S</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>GET PARAMETER</p>
+</blockquote></td>
+<td style="text-align: center;">E1h</td>
+<td style="text-align: center;">V</td>
+<td style="text-align: center;"><blockquote>
+<p>C - Din - S</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 Remarks
 
@@ -274,17 +420,74 @@ Phase : 1-byte phase code is returned.
 
 Table 1-1-5-1 Status byte code in this unit
 
-+:-----------------------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:------------------------:+:-------------:+:-------------:+
-| Bit of the status byte                                                                                             | Status                                                   |
-+-------------------------+------------+------------+------------+------------+------------+------------+------------+--------------------------+-------------------------------+
-| 7                       | 6          | 5          | 4          | 3          | 2          | 1          | 0          |                          |                               |
-+-------------------------+------------+------------+------------+------------+------------+------------+------------+--------------------------+-------------------------------+
-| R                       | R          | 0          | 0          | 0          | 0          | 0          | R          | > GOOD                   | \[00h\]                       |
-+-------------------------+------------+------------+------------+------------+------------+------------+------------+--------------------------+-------------------------------+
-| R                       | R          | 0          | 0          | 0          | 0          | 1          | R          | > CHECK CONDITION        | \[02h\]                       |
-+-------------------------+------------+------------+------------+------------+------------+------------+------------+--------------------------+---------------+---------------+
-| > Key: R - Reserved bit (set to 0)                                                                                                                            |               |
-+---------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+
+<table>
+<colgroup>
+<col style="width: 3%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 38%" />
+<col style="width: 10%" />
+<col style="width: 3%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="9" style="text-align: center;">Bit of the status byte</td>
+<td colspan="3" style="text-align: center;">Status</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">R</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;"><blockquote>
+<p>GOOD</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[00h]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">R</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;"><blockquote>
+<p>CHECK CONDITION</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[02h]</td>
+</tr>
+<tr>
+<td colspan="11" style="text-align: center;"><blockquote>
+<p>Key: R - Reserved bit (set to 0)</p>
+</blockquote></td>
+<td style="text-align: center;"></td>
+</tr>
+</tbody>
+</table>
 
 **1-1-5-2. Format of the status**
 
@@ -298,29 +501,76 @@ Table 1-1-5-1 Status byte code in this unit
 
 Table 1-1-5-2 Format of the status
 
-+------------:+:-------:+:-------------------:+:-------------------:+:-------------------:+:-------------------:+:--------:+:--------:+:--------:+:--------:+
-| Bit         | 7       | 6                   | 5                   | 4                                         | 3        | 2        | 1        | 0        |
-|             |         |                     |                     |                                           |          |          |          |          |
-| Byte        |         |                     |                     |                                           |          |          |          |          |
-+-------------+---------+---------------------+---------------------+-------------------------------------------+----------+----------+----------+----------+
-| 0           | \[0\]                         | Status                                                                                           | \[0\]    |
-+-------------+-------------------------------+-------------------------------------------+------------------------------------------------------+----------+
-| 1           | \[0\]                                                                     | Sense key                                                       |
-+-------------+---------+-----------------------------------------------------------------+-----------------------------------------------------------------+
-| 2                     | ASC                                                                                                                               |
-+-----------------------+-----------------------------------------------------------------------------------------------------------------------------------+
-| 3                     | ASCQ                                                                                                                              |
-+-----------------------+-----------------------------------------------------------------------------------------------------------------------------------+
-| 4                     | TSC                                                                                                                               |
-+-----------------------+-----------------------------------------------------------------------------------------------------------------------------------+
-| 5                     | Reserved \[00h\]                                                                                                                  |
-+-----------------------+-----------------------------------------------------------------------------------------------------------------------------------+
-| 6                     | Reserved \[00h\]                                                                                                                  |
-+-----------------------+-----------------------------------------------------------------------------------------------------------------------------------+
-| 7                     | Reserved \[00h\]                                                                                                                  |
-+-----------------------+-----------------------------------------------------------------------------------------------------------------------------------+
+<table style="width:73%;">
+<colgroup>
+<col style="width: 6%" />
+<col style="width: 4%" />
+<col style="width: 6%" />
+<col style="width: 5%" />
+<col style="width: 2%" />
+<col style="width: 6%" />
+<col style="width: 2%" />
+<col style="width: 2%" />
+<col style="width: 4%" />
+<col style="width: 0%" />
+<col style="width: 7%" />
+<col style="width: 7%" />
+<col style="width: 7%" />
+<col style="width: 6%" />
+<col style="width: 0%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="2" style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td colspan="2" style="text-align: center;">6</td>
+<td colspan="2" style="text-align: center;">5</td>
+<td colspan="4" style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;">[0]</td>
+<td colspan="9" style="text-align: center;">Status</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">1</td>
+<td colspan="7" style="text-align: center;">[0]</td>
+<td colspan="6" style="text-align: center;">Sense key</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">2</td>
+<td colspan="12" style="text-align: center;">ASC</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">3</td>
+<td colspan="12" style="text-align: center;">ASCQ</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">4</td>
+<td colspan="12" style="text-align: center;">TSC</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">5</td>
+<td colspan="12" style="text-align: center;">Reserved [00h]</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">6</td>
+<td colspan="12" style="text-align: center;">Reserved [00h]</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">7</td>
+<td colspan="12" style="text-align: center;">Reserved [00h]</td>
+</tr>
+</tbody>
+</table>
 
-**\
+**  
 1-1-6. USB-specific additional specifications**
 
 **1-1-6-1. Standard device requests**
@@ -329,64 +579,41 @@ Table 1-1-5-2 Format of the status
 
 Table 1-1-6-1-1 Standard device request
 
-  ------------------------ ------- ------------------------ ---------------
-         ｂRequest          Value          Meaning          Support of this
-                                                                 unit
-
-         GET_STATUS           0       Status acquisition          Yes
-
-       CLEAR_FEATURE          1       Function clearance          Yes
-
-  Reserved for future use     2            Reserved              Stall
-
-        SET_FEATURE           3        Function setting           Yes
-
-  Reserved for future use     4            Reserved              Stall
-
-        SET_ADDRESS           5        Address setting            Yes
-
-       GET_DESCRIPTOR         6     Descriptor acquisition        Yes
-
-       SET_DESCRIPTOR         7       Descriptor setting         Stall
-
-     GET_CONFIGURATION        8         Configuration             Yes
-                                         acquisition        
-
-     SET_CONFIGURATION        9     Configuration setting         Yes
-
-       GET_INTERFACE         10     Interface acquisition         Yes
-
-       SET_INTERFACE         11       Interface setting           Yes
-
-        SYNCH_FRAME          12     Synchronization frame        Stall
-  ------------------------ ------- ------------------------ ---------------
+|  |  |  |  |
+|:--:|:--:|:--:|:--:|
+| ｂRequest | Value | Meaning | Support of this unit |
+| GET_STATUS | 0 | Status acquisition | Yes |
+| CLEAR_FEATURE | 1 | Function clearance | Yes |
+| Reserved for future use | 2 | Reserved | Stall |
+| SET_FEATURE | 3 | Function setting | Yes |
+| Reserved for future use | 4 | Reserved | Stall |
+| SET_ADDRESS | 5 | Address setting | Yes |
+| GET_DESCRIPTOR | 6 | Descriptor acquisition | Yes |
+| SET_DESCRIPTOR | 7 | Descriptor setting | Stall |
+| GET_CONFIGURATION | 8 | Configuration acquisition | Yes |
+| SET_CONFIGURATION | 9 | Configuration setting | Yes |
+| GET_INTERFACE | 10 | Interface acquisition | Yes |
+| SET_INTERFACE | 11 | Interface setting | Yes |
+| SYNCH_FRAME | 12 | Synchronization frame | Stall |
 
 Table 1-1-6-1-2 Descriptor type
 
-  ---------------------- ------------------------------------------------
-           Type                               Value
-
-            1                                 DEVICE
-
-            2                             CONFIGURATION
-
-            3                                 STRING
-
-            4                               INTERFACE
-
-            5                                ENDPOINT
-
-            6                            DEVICE_QUALIFIER
-
-            7                       OTHER_SPEED_CONFIGURATION
-
-            8                            INTERFACE_POWER
-  ---------------------- ------------------------------------------------
+|      |                           |
+|:----:|:-------------------------:|
+| Type |           Value           |
+|  1   |          DEVICE           |
+|  2   |       CONFIGURATION       |
+|  3   |          STRING           |
+|  4   |         INTERFACE         |
+|  5   |         ENDPOINT          |
+|  6   |     DEVICE_QUALIFIER      |
+|  7   | OTHER_SPEED_CONFIGURATION |
+|  8   |      INTERFACE_POWER      |
 
 > Remarks: The upper byte of the value indicates the descriptor type and
 > the lower byte indicates the string descriptor index.
 
-**\
+**  
 1-1-6-2. Device descriptors in this unit**
 
 > The lists of the descriptors for GET_DESCRIPTOR in this unit are shown
@@ -394,244 +621,380 @@ Table 1-1-6-1-2 Descriptor type
 
 Table 1-1-6-2-1 DEVICE descriptor
 
-  ------- ------- -------------------------------------- -------------------
-   Byte    Size                    Item                       Set value
-
-     0       1           Size of this descriptor             12h (fixed)
-
-     1       1          Type of DEVICE descriptor            01h (fixed)
-
-     2       2          Release number of the USB               0200h
-                          specifications (2.00)          
-
-     4       1                  Class code                  FFh (vendor)
-
-     5       1                Sub-class code                     FFh
-
-     6       1                Protocol code                      FFh
-                                                          (vendor-specific)
-
-     7       1      Maximum buffer size of end point 0     40h (64 bytes)
-
-     8       2                  Vendor ID                       04B0h
-
-    10       2                  Product ID                      4002h
-
-    12       2            Device release number                 xxxxh
-
-    14       1    Index to the string descriptor of the          01h
-                               manufacturer              
-
-    15       1        Index to the string descriptor             02h
-                         representing the product        
-
-    16       1        Index to the string descriptor             00h
-                  representing the product number of the 
-                                  device                 
-
-    17       1      The number that can be configured            01h
-  ------- ------- -------------------------------------- -------------------
+|  |  |  |  |
+|:--:|:--:|:--:|:--:|
+| Byte | Size | Item | Set value |
+| 0 | 1 | Size of this descriptor | 12h (fixed) |
+| 1 | 1 | Type of DEVICE descriptor | 01h (fixed) |
+| 2 | 2 | Release number of the USB specifications (2.00) | 0200h |
+| 4 | 1 | Class code | FFh (vendor) |
+| 5 | 1 | Sub-class code | FFh |
+| 6 | 1 | Protocol code | FFh (vendor-specific) |
+| 7 | 1 | Maximum buffer size of end point 0 | 40h (64 bytes) |
+| 8 | 2 | Vendor ID | 04B0h |
+| 10 | 2 | Product ID | 4002h |
+| 12 | 2 | Device release number | xxxxh |
+| 14 | 1 | Index to the string descriptor of the manufacturer | 01h |
+| 15 | 1 | Index to the string descriptor representing the product | 02h |
+| 16 | 1 | Index to the string descriptor representing the product number of the device | 00h |
+| 17 | 1 | The number that can be configured | 01h |
 
 Table 1-1-6-2-2 CONFIGURATION descriptor
 
-  ------- ------- -------------------------------------- -----------------
-   Byte    Size                    Item                      Set value
-
-     0       1           Size of this descriptor            09h (fixed)
-
-     1       1               Descriptor type                02h (fixed)
-
-     2       2      Length of the entire configuration         0020h
-
-     4       1       The number of interfaces of the            01h
-                              configuration              
-
-     5       1     Configuration selection argument in          01h
-                                SetConfig                
-
-     6       1    Configuration string descriptor index         00h
-
-     7       1        Configuration characteristics       C0h (self power
-                                                           supply only)
-
-     8       1      Maximum bus power consumption (in       01h (2 mA)
-                              units of 2 mA)             
-  ------- ------- -------------------------------------- -----------------
+|  |  |  |  |
+|:--:|:--:|:--:|:--:|
+| Byte | Size | Item | Set value |
+| 0 | 1 | Size of this descriptor | 09h (fixed) |
+| 1 | 1 | Descriptor type | 02h (fixed) |
+| 2 | 2 | Length of the entire configuration | 0020h |
+| 4 | 1 | The number of interfaces of the configuration | 01h |
+| 5 | 1 | Configuration selection argument in SetConfig | 01h |
+| 6 | 1 | Configuration string descriptor index | 00h |
+| 7 | 1 | Configuration characteristics | C0h (self power supply only) |
+| 8 | 1 | Maximum bus power consumption (in units of 2 mA) | 01h (2 mA) |
 
 Table 1-1-6-2-3 INTERFACE descriptor
 
-+:-----:+:----:+:-----------------------------------:+:-----------------:+
-| Byte  | Size | Item                                | Set value         |
-+-------+------+-------------------------------------+-------------------+
-| 0     | 1    | Size of this descriptor             | 09h (fixed)       |
-+-------+------+-------------------------------------+-------------------+
-| 1     | 1    | Descriptor type                     | 04h (fixed)       |
-+-------+------+-------------------------------------+-------------------+
-| 2     | 1    | Number of this interface in the     | 00h               |
-|       |      | configuration                       |                   |
-+-------+------+-------------------------------------+-------------------+
-| 3     | 1    | Substitute selection argument for   | 00h               |
-|       |      | SetInterface                        |                   |
-+-------+------+-------------------------------------+-------------------+
-| 4     | 1    | The number of end points of the     | 02h               |
-|       |      | interface                           |                   |
-|       |      |                                     |                   |
-|       |      | (End point 0 is not included.)      |                   |
-+-------+------+-------------------------------------+-------------------+
-| 5     | 1    | Class code                          | FFh (vendor)      |
-+-------+------+-------------------------------------+-------------------+
-| 6     | 1    | Sub-class code                      | FFh               |
-+-------+------+-------------------------------------+-------------------+
-| 7     | 1    | Protocol code                       | FFh               |
-|       |      |                                     | (vendor-specific) |
-+-------+------+-------------------------------------+-------------------+
-| 8     | 1    | Index to the string descriptor of   | 00h               |
-|       |      | this interface                      |                   |
-+-------+------+-------------------------------------+-------------------+
+<table>
+<colgroup>
+<col style="width: 11%" />
+<col style="width: 9%" />
+<col style="width: 54%" />
+<col style="width: 24%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Size</td>
+<td style="text-align: center;">Item</td>
+<td style="text-align: center;">Set value</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Size of this descriptor</td>
+<td style="text-align: center;">09h (fixed)</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Descriptor type</td>
+<td style="text-align: center;">04h (fixed)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Number of this interface in the
+configuration</td>
+<td style="text-align: center;">00h</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Substitute selection argument for
+SetInterface</td>
+<td style="text-align: center;">00h</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;"><p>The number of end points of the
+interface</p>
+<p>(End point 0 is not included.)</p></td>
+<td style="text-align: center;">02h</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Class code</td>
+<td style="text-align: center;">FFh (vendor)</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Sub-class code</td>
+<td style="text-align: center;">FFh</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Protocol code</td>
+<td style="text-align: center;">FFh (vendor-specific)</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Index to the string descriptor of this
+interface</td>
+<td style="text-align: center;">00h</td>
+</tr>
+</tbody>
+</table>
 
 Table 1-1-6-2-4 ENDPOINT descriptor
 
-+:-----:+:----:+:----:+:-----------------------:+:------------:+:------------:+
-| End   | Byte | Size | Item                    | Set value                   |
-|       |      |      |                         |                             |
-| point |      |      |                         |                             |
-|       |      |      |                         +--------------+--------------+
-|       |      |      |                         | 2.0          | 1.1          |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 0    | 1    | Size of this descriptor | 07h (fixed)  | 07h (fixed)  |
-+-------+------+------+-------------------------+--------------+--------------+
-| 1     | 1    | 1    | Descriptor type         | 05h (fixed)  | 05h (fixed)  |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 2    | 1    | End point               | 01h (OUT)    | 01h (OUT)    |
-|       |      |      | address/direction       |              |              |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 3    | 1    | Attribute (transfer     | 02h (bulk)   | 02h (bulk)   |
-|       |      |      | type)                   |              |              |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 4    | 2    | Maximum packet size     | 0200h        | 0040h (64    |
-|       |      |      |                         |              | bytes)       |
-|       |      |      |                         | (512 bytes)  |              |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 6    | 1    | Polling interval (in    | 00h          | 00h          |
-|       |      |      | units of ms)            |              |              |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 0    | 1    | Size of this descriptor | 07h (fixed)  | 07h (fixed)  |
-+-------+------+------+-------------------------+--------------+--------------+
-| 2     | 1    | 1    | Descriptor type         | 05h (fixed)  | 05h (fixed)  |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 2    | 1    | End point               | 82h (IN)     | 82h (IN)     |
-|       |      |      | address/direction       |              |              |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 3    | 1    | Attribute (transfer     | 02h (bulk)   | 02h (bulk)   |
-|       |      |      | type)                   |              |              |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 4    | 2    | Maximum packet size     | 0200h        | 0040h (64    |
-|       |      |      |                         |              | bytes)       |
-|       |      |      |                         | (512 bytes)  |              |
-+-------+------+------+-------------------------+--------------+--------------+
-|       | 6    | 1    | Polling interval (in    | 00h          | 00h          |
-|       |      |      | units of ms)            |              |              |
-+-------+------+------+-------------------------+--------------+--------------+
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 8%" />
+<col style="width: 8%" />
+<col style="width: 36%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+</colgroup>
+<tbody>
+<tr>
+<td rowspan="2" style="text-align: center;"><p>End</p>
+<p>point</p></td>
+<td rowspan="2" style="text-align: center;">Byte</td>
+<td rowspan="2" style="text-align: center;">Size</td>
+<td rowspan="2" style="text-align: center;">Item</td>
+<td colspan="2" style="text-align: center;">Set value</td>
+</tr>
+<tr>
+<td style="text-align: center;">2.0</td>
+<td style="text-align: center;">1.1</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Size of this descriptor</td>
+<td style="text-align: center;">07h (fixed)</td>
+<td style="text-align: center;">07h (fixed)</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Descriptor type</td>
+<td style="text-align: center;">05h (fixed)</td>
+<td style="text-align: center;">05h (fixed)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">End point address/direction</td>
+<td style="text-align: center;">01h (OUT)</td>
+<td style="text-align: center;">01h (OUT)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Attribute (transfer type)</td>
+<td style="text-align: center;">02h (bulk)</td>
+<td style="text-align: center;">02h (bulk)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">Maximum packet size</td>
+<td style="text-align: center;"><p>0200h</p>
+<p>(512 bytes)</p></td>
+<td style="text-align: center;">0040h (64 bytes)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Polling interval (in units of ms)</td>
+<td style="text-align: center;">00h</td>
+<td style="text-align: center;">00h</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Size of this descriptor</td>
+<td style="text-align: center;">07h (fixed)</td>
+<td style="text-align: center;">07h (fixed)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Descriptor type</td>
+<td style="text-align: center;">05h (fixed)</td>
+<td style="text-align: center;">05h (fixed)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">End point address/direction</td>
+<td style="text-align: center;">82h (IN)</td>
+<td style="text-align: center;">82h (IN)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Attribute (transfer type)</td>
+<td style="text-align: center;">02h (bulk)</td>
+<td style="text-align: center;">02h (bulk)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">Maximum packet size</td>
+<td style="text-align: center;"><p>0200h</p>
+<p>(512 bytes)</p></td>
+<td style="text-align: center;">0040h (64 bytes)</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Polling interval (in units of ms)</td>
+<td style="text-align: center;">00h</td>
+<td style="text-align: center;">00h</td>
+</tr>
+</tbody>
+</table>
 
 Table 1-1-6-2-5 Example of the STRING descriptor
 
-+:---------------------:+:---------:+:---------:+:----------:+:---------------------------:+:-----------------------:+
-| Request command from the host                 | Response from the device                                           |
-+-----------------------+-----------+-----------+------------+-----------------------------+-------------------------+
-| Value                 | Index/    | Requested size         | Contents                    | Remarks                 |
-|                       |           |                        |                             |                         |
-|                       | LANGID    | (N+2)                  | (hex)                       |                         |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
-| 0300h                 | 0000h     | 04h                    | \[04 03 09 04\]             | LANGID=0409h            |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
-| 0301h                 | 0409h     | 04h                    | > "N"                       | First character of      |
-|                       |           |                        |                             | Nikon                   |
-|                       |           |                        | \[0C 03 4E 00\]             |                         |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
-| 0301h                 | 0409h     | 0Ch                    | > "Nikon"                   | Manufacturer            |
-|                       |           |                        |                             |                         |
-|                       |           |                        | \[0C 03 4E 00 69 00 6B 00   |                         |
-|                       |           |                        | 6F 00 6E 00\]               |                         |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
-| 0302h                 | 0409h     | 04h                    | > "L"                       | Product name            |
-|                       |           |                        |                             |                         |
-|                       |           |                        | \[16 03 4C 00\]             | First character of the  |
-|                       |           |                        |                             | model name              |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
-| 0302h                 | 0409h     | 10h                    | > "LS-5000 ED"              | Model name              |
-|                       |           |                        |                             |                         |
-|                       |           |                        | \[16 03 4C 00 53 00 2D 00   |                         |
-|                       |           |                        | 35 00 30 00                 |                         |
-|                       |           |                        |                             |                         |
-|                       |           |                        | 30 00 30 00 20 00 45 00 44  |                         |
-|                       |           |                        | 00\]                        |                         |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
-| 0303h                 | 0409h     | 04h                    | > "x"                       | First character of the  |
-|                       |           |                        |                             | version                 |
-|                       |           |                        |                             |                         |
-|                       |           |                        |                             | (Only when the serial   |
-|                       |           |                        |                             | No. is written)         |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
-| 0303h                 | 0409h     | 12h                    | > "xxxxxxxx"                | Version of the model    |
-|                       |           |                        |                             |                         |
-|                       |           |                        |                             | Product number of the   |
-|                       |           |                        |                             | device                  |
-|                       |           |                        |                             |                         |
-|                       |           |                        |                             | (Only when the serial   |
-|                       |           |                        |                             | No. is written)         |
-+-----------------------+-----------+------------------------+-----------------------------+-------------------------+
+<table style="width:91%;">
+<colgroup>
+<col style="width: 8%" />
+<col style="width: 0%" />
+<col style="width: 10%" />
+<col style="width: 0%" />
+<col style="width: 11%" />
+<col style="width: 0%" />
+<col style="width: 2%" />
+<col style="width: 8%" />
+<col style="width: 0%" />
+<col style="width: 36%" />
+<col style="width: 0%" />
+<col style="width: 12%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="7" style="text-align: center;">Request command from the
+host</td>
+<td colspan="5" style="text-align: center;">Response from the
+device</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">Value</td>
+<td colspan="2" style="text-align: center;"><p>Index/</p>
+<p>LANGID</p></td>
+<td colspan="3" style="text-align: center;"><p>Requested size</p>
+<p>(N+2)</p></td>
+<td colspan="2" style="text-align: center;"><p>Contents</p>
+<p>(hex)</p></td>
+<td colspan="2" style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">0300h</td>
+<td colspan="2" style="text-align: center;">0000h</td>
+<td colspan="3" style="text-align: center;">04h</td>
+<td colspan="2" style="text-align: center;">[04 03 09 04]</td>
+<td colspan="2" style="text-align: center;">LANGID=0409h</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">0301h</td>
+<td colspan="2" style="text-align: center;">0409h</td>
+<td colspan="3" style="text-align: center;">04h</td>
+<td colspan="2" style="text-align: center;"><blockquote>
+<p>“N”</p>
+</blockquote>
+<p>[0C 03 4E 00]</p></td>
+<td colspan="2" style="text-align: center;">First character of
+Nikon</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">0301h</td>
+<td colspan="2" style="text-align: center;">0409h</td>
+<td colspan="3" style="text-align: center;">0Ch</td>
+<td colspan="2" style="text-align: center;"><blockquote>
+<p>“Nikon”</p>
+</blockquote>
+<p>[0C 03 4E 00 69 00 6B 00 6F 00 6E 00]</p></td>
+<td colspan="2" style="text-align: center;">Manufacturer</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">0302h</td>
+<td colspan="2" style="text-align: center;">0409h</td>
+<td colspan="3" style="text-align: center;">04h</td>
+<td colspan="2" style="text-align: center;"><blockquote>
+<p>“L”</p>
+</blockquote>
+<p>[16 03 4C 00]</p></td>
+<td colspan="2" style="text-align: center;"><p>Product name</p>
+<p>First character of the model name</p></td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">0302h</td>
+<td colspan="2" style="text-align: center;">0409h</td>
+<td colspan="3" style="text-align: center;">10h</td>
+<td colspan="2" style="text-align: center;"><blockquote>
+<p>“LS-5000 ED”</p>
+</blockquote>
+<p>[16 03 4C 00 53 00 2D 00 35 00 30 00</p>
+<p>30 00 30 00 20 00 45 00 44 00]</p></td>
+<td colspan="2" style="text-align: center;">Model name</td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">0303h</td>
+<td colspan="2" style="text-align: center;">0409h</td>
+<td colspan="3" style="text-align: center;">04h</td>
+<td colspan="2" style="text-align: center;"><blockquote>
+<p>“x”</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;"><p>First character of the
+version</p>
+<p>(Only when the serial No. is written)</p></td>
+</tr>
+<tr>
+<td colspan="3" style="text-align: center;">0303h</td>
+<td colspan="2" style="text-align: center;">0409h</td>
+<td colspan="3" style="text-align: center;">12h</td>
+<td colspan="2" style="text-align: center;"><blockquote>
+<p>“xxxxxxxx”</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;"><p>Version of the model</p>
+<p>Product number of the device</p>
+<p>(Only when the serial No. is written)</p></td>
+</tr>
+</tbody>
+</table>
 
 Table 1-1-6-2-6 DEVICE_QUALIFIER descriptor
 
-  -------- ------- -------------------------------------- -----------------
-    Byte    Size                    Item                      Set value
-
-     0        1           Size of this descriptor                0Ah
-
-     1        1               Descriptor type                    06h
-
-     2        2          Release number of the USB              0200h
-                            specifications (2.0)          
-
-     4        1                  Class code                      FFh
-
-     5        1                Sub-class code                    FFh
-
-     6        1                Protocol code                     FFh
-
-     7        1          Maximum packet size of EP0              40h
-
-     8        1      The number that can be configured           01h
-
-     9        1                   Reserved                       00h
-  -------- ------- -------------------------------------- -----------------
+|      |      |                                                |           |
+|:----:|:----:|:----------------------------------------------:|:---------:|
+| Byte | Size |                      Item                      | Set value |
+|  0   |  1   |            Size of this descriptor             |    0Ah    |
+|  1   |  1   |                Descriptor type                 |    06h    |
+|  2   |  2   | Release number of the USB specifications (2.0) |   0200h   |
+|  4   |  1   |                   Class code                   |    FFh    |
+|  5   |  1   |                 Sub-class code                 |    FFh    |
+|  6   |  1   |                 Protocol code                  |    FFh    |
+|  7   |  1   |           Maximum packet size of EP0           |    40h    |
+|  8   |  1   |       The number that can be configured        |    01h    |
+|  9   |  1   |                    Reserved                    |    00h    |
 
 Table 1-1-6-2-7 OTHER_SPEED_CONFIGURATION descriptor
 
-  ------- ------- -------------------------------------- -----------------
-   Byte    Size                    Item                      Set value
+|  |  |  |  |
+|:--:|:--:|:--:|:--:|
+| Byte | Size | Item | Set value |
+| 0 | 1 | Size of this descriptor | 09h |
+| 1 | 1 | Descriptor type | 02h |
+| 2 | 2 | Length of the entire configuration | 0020h |
+| 4 | 1 | The number of interfaces of the configuration | 01h |
+| 5 | 1 | Argument for selecting this configuration | 01h |
+| 6 | 1 | Index to the string descriptor | 00h |
+| 7 | 1 | Specification of each characteristic (self power supply/remote wake-up) | C0h |
+| 8 | 1 | Maximum bus power consumption | 01h |
 
-     0       1           Size of this descriptor                09h
-
-     1       1               Descriptor type                    02h
-
-     2       2      Length of the entire configuration         0020h
-
-     4       1       The number of interfaces of the            01h
-                              configuration              
-
-     5       1         Argument for selecting this              01h
-                              configuration              
-
-     6       1        Index to the string descriptor            00h
-
-     7       1     Specification of each characteristic         C0h
-                    (self power supply/remote wake-up)   
-
-     8       1        Maximum bus power consumption             01h
-  ------- ------- -------------------------------------- -----------------
-
-**\
+**  
 2. COMMAND EXPLANATIONS**
 
 Each command is explained below.
@@ -639,24 +1002,36 @@ Each command is explained below.
 In the explanations, the common error responses are as shown in the
 table below.
 
-+:------------:+:-----------------------------:+:---------------------:+
-| Common error | Sense data                    | Remarks               |
-+--------------+-------------------------------+-----------------------+
-| 1            | INVALID FIELD IN CDB          | Terminates with CHECK |
-|              |                               | CONDITION status.     |
-|              | (Some illegal data exists in  |                       |
-|              | the CDB.)                     |                       |
-|              |                               |                       |
-|              | 05h-24h-00h-00h               |                       |
-+--------------+-------------------------------+-----------------------+
-| 2            | INVALID FIELD IN PARAMETER    | Terminates with CHECK |
-|              | LIST                          | CONDITION status.     |
-|              |                               |                       |
-|              | (Some illegal data exists in  |                       |
-|              | the parameter.)               |                       |
-|              |                               |                       |
-|              | 05h-26h-00h-00h               |                       |
-+--------------+-------------------------------+-----------------------+
+<table>
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 44%" />
+<col style="width: 34%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Common error</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;"><p>INVALID FIELD IN CDB</p>
+<p>(Some illegal data exists in the CDB.)</p>
+<p>05h-24h-00h-00h</p></td>
+<td style="text-align: center;">Terminates with CHECK CONDITION
+status.</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;"><p>INVALID FIELD IN PARAMETER LIST</p>
+<p>(Some illegal data exists in the parameter.)</p>
+<p>05h-26h-00h-00h</p></td>
+<td style="text-align: center;">Terminates with CHECK CONDITION
+status.</td>
+</tr>
+</tbody>
+</table>
 
 Other error responses are explained individually in the explanations
 below.
@@ -670,21 +1045,52 @@ response data.
 
 Table 2-1-1 TEST UNIT READY command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[00h\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2 to 4 | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [00h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 4</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The TEST UNIT READY command provides a means to check if the logical
 unit is ready.
@@ -695,137 +1101,200 @@ example) may be made.
 
 Table 2-1-2 Preferred Test Unit Ready Responses
 
-+:----------:+:-------------------------------------------------------:+
-| Status     | Sense code                                              |
-+------------+---------------------------------------------------------+
-| GOOD       | No Additional Sense Information                         |
-|            |                                                         |
-|            | 00h-00h-00h-00h (Common: No error)                      |
-+------------+---------------------------------------------------------+
-| Check      | Logical Unit Not Supported                              |
-| Condition  |                                                         |
-|            | > 05h-25h-00h-00h (Common: An LUN other than 0 was      |
-|            | > specified.)                                           |
-+------------+---------------------------------------------------------+
-| Check      | Logical Unit Is In Process Of Becoming Ready            |
-| Condition  |                                                         |
-|            | > 02h-04h-01h-00h (Common: During the execution of the  |
-|            | > operation activation command)                         |
-|            | >                                                       |
-|            | > 02h-04h-01h-01h (MA-21: During the adapter            |
-|            | > initialization operation)                             |
-|            | >                                                       |
-|            | > (Other than MA-21: During the adapter initialization  |
-|            | > operation or during loading/ejection of the object to |
-|            | > be scanned)                                           |
-|            | >                                                       |
-|            | > 02h-04h-01h-02h (Common: During the measurement of    |
-|            | > the correction data)                                  |
-|            | >                                                       |
-|            | > 02h-04h-01h-03h (MA-21: During the execution of       |
-|            | > operation for loading the object to be scanned)       |
-|            | >                                                       |
-|            | > 02h-04h-01h-04h (Common: During the execution of      |
-|            | > automatic shading or white balance measurement)       |
-+------------+---------------------------------------------------------+
-| Check      | Logical Unit Not Ready, Cause Not Reportable            |
-| Condition  |                                                         |
-|            | > 02h-04h-02h-00h (Common: The internal mechanical      |
-|            | > error occurred.)                                      |
-+------------+---------------------------------------------------------+
-| Check      | Logical Unit Not Ready, Initializing Command Required   |
-| Condition  |                                                         |
-|            | > 02h-04h-00h-00h (The initialization is not complete   |
-|            | > because an object is inserted at the time of power    |
-|            | > ON.)                                                  |
-+------------+---------------------------------------------------------+
-| Check      | Logical Unit Not Ready, Manual Intervention Required    |
-| Condition  |                                                         |
-|            | 02h-04h-03h-00h (Common: The adapter is ejected.)       |
-|            |                                                         |
-|            | > 02h-04h-03h-01h (IA-20: The LL door is not completely |
-|            | > opened when the 240 adapter is attached.)             |
-|            | >                                                       |
-|            | > 02h-04h-03h-02h (Common: Undefined adapter)           |
-|            | >                                                       |
-|            | > 02h-04h-03h-03h (SA-30: The film of 6 frames or more  |
-|            | > is loaded with the film gate closed)                  |
-|            | >                                                       |
-|            | > 02h-04h-03h-04h (SA-21/SA-30: The adapter is pulled   |
-|            | > out a little in the locked status.)                   |
-+------------+---------------------------------------------------------+
-| Check      | Logical Unit Does Not Respond To Selection              |
-| Condition  |                                                         |
-|            | > 02h-05h-00h-00h (Common: The operation is possible,   |
-|            | > but the initialization operation in the unit is not   |
-|            | > completed because the power is just turned ON.)       |
-+------------+---------------------------------------------------------+
-| Check      | Medium Not Present                                      |
-| Condition  |                                                         |
-|            | > 02h-3Ah-00h-00h (SF-210: The loading command is sent  |
-|            | > without an object to be scanned.)                     |
-|            | >                                                       |
-|            | > 02h-3Ah-00h-01h (MA-21: (a) only) (IA-20: (a), (b),   |
-|            | > (c), or (d))                                          |
-|            | >                                                       |
-|            | > (Other: (a), (b), or (c))                             |
-|            |                                                         |
-|            | (a) A medium is not supplied to the adapter.            |
-|            |                                                         |
-|            | (b) The film is ejected when the power supply is turned |
-|            |     ON or the adapter is exchanged.                     |
-|            |                                                         |
-|            | (c) The medium is ejected by the eject command.         |
-|            |                                                         |
-|            | (d) The LL door is opened, but the loading switch is    |
-|            |     not ON.                                             |
-|            |                                                         |
-|            | > 02h-3Ah-00h-03h (SA-21/SA-30: Reading cannot be       |
-|            | > performed because a film that is out of standard is   |
-|            | > inserted.)                                            |
-|            | >                                                       |
-|            | > 02h-3Ah-00h-04h (The frame position of a larger       |
-|            | > number than the number of frames in the inserted film |
-|            | > is specified.)                                        |
-+------------+---------------------------------------------------------+
-| Check      | 06h-xxh-xxh-xxh                                         |
-| Condition  |                                                         |
-|            | > Unit Attention                                        |
-+------------+---------------------------------------------------------+
-| Check      | Data Phase Error                                        |
-| Condition  |                                                         |
-|            | > 0Bh-4Bh-00h-00h (Common: Unexpected error during Data |
-|            | > Phase)                                                |
-+------------+---------------------------------------------------------+
-| Check      | Overlapped Commands Attempted                           |
-| Condition  |                                                         |
-|            | > 0Bh-4Eh-00h-00h (Common: The unit is selected by the  |
-|            | > same initiator while disconnecting.)                  |
-+------------+---------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 81%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense code</td>
+</tr>
+<tr>
+<td style="text-align: center;">GOOD</td>
+<td style="text-align: center;"><p>No Additional Sense Information</p>
+<p>00h-00h-00h-00h (Common: No error)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: center;"><p>Logical Unit Not Supported</p>
+<blockquote>
+<p>05h-25h-00h-00h (Common: An LUN other than 0 was specified.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Logical Unit Is In Process Of Becoming
+Ready</p>
+<blockquote>
+<p>02h-04h-01h-00h (Common: During the execution of the operation
+activation command)</p>
+<p>02h-04h-01h-01h (MA-21: During the adapter initialization
+operation)</p>
+<p>(Other than MA-21: During the adapter initialization operation or
+during loading/ejection of the object to be scanned)</p>
+<p>02h-04h-01h-02h (Common: During the measurement of the correction
+data)</p>
+<p>02h-04h-01h-03h (MA-21: During the execution of operation for loading
+the object to be scanned)</p>
+<p>02h-04h-01h-04h (Common: During the execution of automatic shading or
+white balance measurement)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Logical Unit Not Ready, Cause Not
+Reportable</p>
+<blockquote>
+<p>02h-04h-02h-00h (Common: The internal mechanical error occurred.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Logical Unit Not Ready, Initializing
+Command Required</p>
+<blockquote>
+<p>02h-04h-00h-00h (The initialization is not complete because an object
+is inserted at the time of power ON.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Logical Unit Not Ready, Manual
+Intervention Required</p>
+<p>02h-04h-03h-00h (Common: The adapter is ejected.)</p>
+<blockquote>
+<p>02h-04h-03h-01h (IA-20: The LL door is not completely opened when the
+240 adapter is attached.)</p>
+<p>02h-04h-03h-02h (Common: Undefined adapter)</p>
+<p>02h-04h-03h-03h (SA-30: The film of 6 frames or more is loaded with
+the film gate closed)</p>
+<p>02h-04h-03h-04h (SA-21/SA-30: The adapter is pulled out a little in
+the locked status.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Logical Unit Does Not Respond To
+Selection</p>
+<blockquote>
+<p>02h-05h-00h-00h (Common: The operation is possible, but the
+initialization operation in the unit is not completed because the power
+is just turned ON.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Medium Not Present</p>
+<blockquote>
+<p>02h-3Ah-00h-00h (SF-210: The loading command is sent without an
+object to be scanned.)</p>
+<p>02h-3Ah-00h-01h (MA-21: (a) only) (IA-20: (a), (b), (c), or (d))</p>
+<p>(Other: (a), (b), or (c))</p>
+</blockquote>
+<ol type="a">
+<li><p>A medium is not supplied to the adapter.</p></li>
+<li><p>The film is ejected when the power supply is turned ON or the
+adapter is exchanged.</p></li>
+<li><p>The medium is ejected by the eject command.</p></li>
+<li><p>The LL door is opened, but the loading switch is not ON.</p></li>
+</ol>
+<blockquote>
+<p>02h-3Ah-00h-03h (SA-21/SA-30: Reading cannot be performed because a
+film that is out of standard is inserted.)</p>
+<p>02h-3Ah-00h-04h (The frame position of a larger number than the
+number of frames in the inserted film is specified.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>06h-xxh-xxh-xxh</p>
+<blockquote>
+<p>Unit Attention</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Data Phase Error</p>
+<blockquote>
+<p>0Bh-4Bh-00h-00h (Common: Unexpected error during Data Phase)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Check Condition</td>
+<td style="text-align: left;"><p>Overlapped Commands Attempted</p>
+<blockquote>
+<p>0Bh-4Eh-00h-00h (Common: The unit is selected by the same initiator
+while disconnecting.)</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 **2-2. INQUIRY Command**
 
 Table 2-2-1-1 INQUIRY command
 
-+-------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit    | 7           | 6           | 5                         | 4           | 3           | 2           | 1           | 0           |
-|        |             |             |                           |             |             |             |             |             |
-| Byte   |             |             |                           |             |             |             |             |             |
-+--------+-------------+-------------+---------------------------+-------------+-------------+-------------+-------------+-------------+
-| 0      | Operation code \[12h\]                                                                                                      |
-+--------+-------------------------------------------------------+-------------------------------------------------------+-------------+
-| 1      | Logical unit number                                   | Reserved                                              | EVPD        |
-|        |                                                       |                                                       |             |
-|        | \[0\]                                                 | \[0\]                                                 | \[0, 1\]    |
-+--------+-------------------------------------------------------+-------------------------------------------------------+-------------+
-| 2      | Page code \[0\]                                                                                                             |
-+--------+-----------------------------------------------------------------------------------------------------------------------------+
-| 3      | Reserved \[0\]                                                                                                              |
-+--------+-----------------------------------------------------------------------------------------------------------------------------+
-| 4      | Allocation length \[Recommended value 36d\]                                                                                 |
-+--------+-----------------------------------------+-----------------------------------------------------------------------------------+
-| 5      | Reserved \[0\]                          | Control byte \[0\]                                                                |
-+--------+-----------------------------------------+-----------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 0%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td colspan="2" style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="9" style="text-align: center;">Operation code [12h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="4" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="4" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>EVPD</p>
+<p>[0, 1]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="9" style="text-align: center;">Page code [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="9" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="9" style="text-align: center;">Allocation length
+[Recommended value 36d]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="3" style="text-align: center;">Reserved [0]</td>
+<td colspan="6" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 1)  The INQUIRY command sends information regarding parameters of this
     unit and its attached logical units to the initiator.
@@ -851,79 +1320,161 @@ Table 2-2-1-1 INQUIRY command
 
 > Table 2-2-1-2 Page code field list
 
-+:---:+:-------------:+:-----------------:+:------------:+:-----------:+:-------------------:+
-| VPD | Page code                                        | Sub-section | Attached adapter    |
-|     |                                                  |             | (\*1)               |
-+-----+-----------------------------------+--------------+-------------+---------------------+
-| 0   | Standard INQUIRY data             | 00h (\*2)    | 2-2-1       | MA-21, SA-21,       |
-|     |                                   |              |             | SA-30, IA-20,       |
-|     |                                   |              |             | SF-210, Non         |
-+-----+---------------+-------------------+--------------+-------------+---------------------+
-| 1   | VPD           | Page code list    | 00h          | 2-2-2-1     | MA-21, SA-21,       |
-|     | informa-tion  |                   |              |             | SA-30, IA-20,       |
-|     |               |                   |              |             | SF-210, Non         |
-|     |               +-------------------+--------------+-------------+---------------------+
-|     |               | FRU ASCII         | 01h          | 2-2-2-2     | MA-21, SA-21,       |
-|     |               | information       |              |             | SA-30, IA-20,       |
-|     |               |                   |              |             | SF-210              |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 10h          |             | MA-21               |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 40h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 41h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 43h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 44h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 45h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 46h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 47h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 50h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 51h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 60h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 61h (unused) |             | \-                  |
-|     |               |                   +--------------+             +---------------------+
-|     |               |                   | 62h (unused) |             | \-                  |
-|     |               +-------------------+--------------+-------------+---------------------+
-|     |               | Address           | C1h          | 2-2-2-3     | MA-21, SA-21,       |
-|     |               | information       |              |             | SA-30, IA-20,       |
-|     |               |                   |              |             | SF-210, Non         |
-|     |               +-------------------+--------------+-------------+---------------------+
-|     |               | SET WINDOW        | D1h          | 2-2-2-4     | MA-21, SA-21,       |
-|     |               | function          |              |             | SA-30, IA-20,       |
-|     |               |                   |              |             | SF-210              |
-|     |               +-------------------+--------------+-------------+---------------------+
-|     |               | Other information | E1h          | 2-2-2-5     | MA-21, SA-21,       |
-|     |               |                   |              |             | SA-30, IA-20,       |
-|     |               |                   |              |             | SF-210              |
-|     |               +-------------------+--------------+-------------+---------------------+
-|     |               | Operation code    | E2h          | 2-2-2-6     | SA-21, SA-30, IA-20 |
-|     |               | setting page      |              |             |                     |
-|     |               +-------------------+--------------+-------------+---------------------+
-|     |               | CCD measurement   | E3h          | 2-2-2-7     | MA-21, SA-21,       |
-|     |               | setting page      |              |             | SA-30, IA-20,       |
-|     |               |                   |              |             | SF-210              |
-|     |               +-------------------+--------------+-------------+---------------------+
-|     |               | Unused page       | F0h          | \-          | \-                  |
-|     |               |                   +--------------+-------------+---------------------+
-|     |               |                   | F1h          | \-          | \-                  |
-|     |               |                   +--------------+-------------+---------------------+
-|     |               |                   | F8h          | \-          | \-                  |
-|     |               |                   +--------------+-------------+---------------------+
-|     |               |                   | FAh          | \-          | \-                  |
-|     |               |                   +--------------+-------------+---------------------+
-|     |               |                   | FBh          | \-          | \-                  |
-|     |               |                   +--------------+-------------+---------------------+
-|     |               |                   | FCh          | \-          | \-                  |
-+-----+---------------+-------------------+--------------+-------------+---------------------+
+<table>
+<colgroup>
+<col style="width: 7%" />
+<col style="width: 10%" />
+<col style="width: 28%" />
+<col style="width: 13%" />
+<col style="width: 8%" />
+<col style="width: 31%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">VPD</td>
+<td colspan="3" style="text-align: center;">Page code</td>
+<td style="text-align: center;">Sub-section</td>
+<td style="text-align: center;">Attached adapter (*1)</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">Standard INQUIRY data</td>
+<td style="text-align: center;">00h (*2)</td>
+<td style="text-align: center;">2-2-1</td>
+<td style="text-align: center;">MA-21, SA-21, SA-30, IA-20, SF-210,
+Non</td>
+</tr>
+<tr>
+<td rowspan="26" style="text-align: center;">1</td>
+<td rowspan="26" style="text-align: center;">VPD informa-tion</td>
+<td style="text-align: center;">Page code list</td>
+<td style="text-align: center;">00h</td>
+<td style="text-align: center;">2-2-2-1</td>
+<td style="text-align: center;">MA-21, SA-21, SA-30, IA-20, SF-210,
+Non</td>
+</tr>
+<tr>
+<td rowspan="14" style="text-align: center;">FRU ASCII information</td>
+<td style="text-align: center;">01h</td>
+<td rowspan="14" style="text-align: center;">2-2-2-2</td>
+<td style="text-align: center;">MA-21, SA-21, SA-30, IA-20, SF-210</td>
+</tr>
+<tr>
+<td style="text-align: center;">10h</td>
+<td style="text-align: center;">MA-21</td>
+</tr>
+<tr>
+<td style="text-align: center;">40h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">41h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">43h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">44h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">45h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">46h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">47h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">50h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">51h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">60h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">61h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">62h (unused)</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">Address information</td>
+<td style="text-align: center;">C1h</td>
+<td style="text-align: center;">2-2-2-3</td>
+<td style="text-align: center;">MA-21, SA-21, SA-30, IA-20, SF-210,
+Non</td>
+</tr>
+<tr>
+<td style="text-align: center;">SET WINDOW function</td>
+<td style="text-align: center;">D1h</td>
+<td style="text-align: center;">2-2-2-4</td>
+<td style="text-align: center;">MA-21, SA-21, SA-30, IA-20, SF-210</td>
+</tr>
+<tr>
+<td style="text-align: center;">Other information</td>
+<td style="text-align: center;">E1h</td>
+<td style="text-align: center;">2-2-2-5</td>
+<td style="text-align: center;">MA-21, SA-21, SA-30, IA-20, SF-210</td>
+</tr>
+<tr>
+<td style="text-align: center;">Operation code setting page</td>
+<td style="text-align: center;">E2h</td>
+<td style="text-align: center;">2-2-2-6</td>
+<td style="text-align: center;">SA-21, SA-30, IA-20</td>
+</tr>
+<tr>
+<td style="text-align: center;">CCD measurement setting page</td>
+<td style="text-align: center;">E3h</td>
+<td style="text-align: center;">2-2-2-7</td>
+<td style="text-align: center;">MA-21, SA-21, SA-30, IA-20, SF-210</td>
+</tr>
+<tr>
+<td rowspan="6" style="text-align: center;">Unused page</td>
+<td style="text-align: center;">F0h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">F1h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">F8h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">FAh</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">FBh</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">FCh</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+</tbody>
+</table>
 
 \*1 The correspondence between the model names in the above table and
 the adapter names is shown below.
@@ -943,51 +1494,116 @@ length only.
 
 Table 2-2-2 Standard INQUIRY data format of this unit
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Peripheral Qualifier                 | Peripheral Device Type                                         |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[6=00110b\]                                                   |
-|        |                                      |                                                                |
-|        | \[011b\](\*1)                        | \[1Fh=11111b\](\*1)                                            |
-+--------+------------+-------------------------+----------------------------------------------------------------+
-| 1      | RMB        | Device-Type Modifier                                                                     |
-|        |            |                                                                                          |
-|        | \[1\]      | \[0\]                                                                                    |
-+--------+------------+------------+--------------------------------------+--------------------------------------+
-| 2      | ISO Version             | ECMA Version                         | ANSI-Approved Version                |
-|        |                         |                                      |                                      |
-|        | \[0\]                   | \[0\]                                | \[2=010b\]                           |
-+--------+------------+------------+-------------------------+------------+--------------------------------------+
-| 3      | AENC       | TrmIOP     | Reserved                | Response Data Format                              |
-|        |            |            |                         |                                                   |
-|        | \[0\]      | \[0\]      | \[0\]                   | \[2=0010b\]                                       |
-+--------+------------+------------+-------------------------+---------------------------------------------------+
-| 4      | Additional Length (n-4)                                                                               |
-|        |                                                                                                       |
-|        | \[1Fh=31d\]                                                                                           |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5, 6   | Reserved \[0\]                                                                                        |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 7      | RelAdr     | WBus32     | WBus16     | Sync       | Linked     | Reserved   | CmdQue     | SftRe      |
-|        |            |            |            |            |            |            |            |            |
-|        | \[0\]      | \[0\]      | \[0\]      | \[0\]      | \[0\]      | \[0\]      | \[0\]      | \[0\]      |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 8 to   | Vendor Identification                                                                                 |
-| 15     |                                                                                                       |
-|        | \[Nikon\]                                                                                             |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 16 to  | Product Identification                                                                                |
-| 31     |                                                                                                       |
-|        | \[ \]                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 32 to  | Product Revision Level                                                                                |
-| 35     |                                                                                                       |
-|        | Example: \[0.01\]                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 11%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;"><p>RMB</p>
+<p>[1]</p></td>
+<td colspan="7" style="text-align: center;"><p>Device-Type Modifier</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="2" style="text-align: center;"><p>ISO Version</p>
+<p>[0]</p></td>
+<td colspan="3" style="text-align: center;"><p>ECMA Version</p>
+<p>[0]</p></td>
+<td colspan="3" style="text-align: center;"><p>ANSI-Approved Version</p>
+<p>[2=010b]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;"><p>AENC</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>TrmIOP</p>
+<p>[0]</p></td>
+<td colspan="2" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td colspan="4" style="text-align: center;"><p>Response Data Format</p>
+<p>[2=0010b]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;"><p>Additional Length
+(n-4)</p>
+<p>[1Fh=31d]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">5, 6</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;"><p>RelAdr</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>WBus32</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>WBus16</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Sync</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Linked</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>CmdQue</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>SftRe</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">8 to 15</td>
+<td colspan="8" style="text-align: center;"><p>Vendor Identification</p>
+<p>[Nikon]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">16 to 31</td>
+<td colspan="8" style="text-align: center;"><p>Product
+Identification</p>
+<p>[ ]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">32 to 35</td>
+<td colspan="8" style="text-align: center;"><p>Product Revision
+Level</p>
+<p>Example: [0.01]</p></td>
+</tr>
+</tbody>
+</table>
 
 > \*1 When an invalid logical unit selection is performed
 
@@ -1006,7 +1622,7 @@ The Product Revision Level field contains four bytes of ASCII data
 defined by the vendor. In this field, the data shall be left aligned and
 unused bytes shall be filled with space characters (20h).
 
-**\
+**  
 2-2-2. VPD information**
 
 > When the EVPD (Enable Vital Product Data) bit is set to one, this unit
@@ -1044,26 +1660,59 @@ data.
 
 **2-2-2-1. Page code list page**
 
-+------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit   | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|       |             |             |             |             |             |             |             |             |
-| Byte  |             |             |             |             |             |             |             |             |
-+-------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| 0     | Peripheral Qualifier                    | Peripheral Device Type                                              |
-|       |                                         |                                                                     |
-|       | \[0\]                                   | \[6=00110b\]                                                        |
-|       |                                         |                                                                     |
-|       | \[011b\](\*1)                           | \[1Fh=11111b\](\*1)                                                 |
-+-------+-----------------------------------------+---------------------------------------------------------------------+
-| 1     | Page code \[00h\]                                                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 2     | Reserved \[0\]                                                                                                |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 3     | Page length \[m-3\]                                                                                           |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 4 to  | Page code list \[m-4\]                                                                                        |
-| m     |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Page code [00h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Page length [m-3]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4 to m</td>
+<td colspan="8" style="text-align: center;">Page code list [m-4]</td>
+</tr>
+</tbody>
+</table>
 
 > \*1 When an invalid logical unit selection is performed
 
@@ -1076,54 +1725,111 @@ Byte 4 Page code list
 > unit are shown in units of one byte length in order starting from page
 > code 00h.
 
-+:---------------------------:+:--------------------------------------:+
-| Attached adapter            | Supported page (hex)                   |
-+-----------------------------+----------------------------------------+
-| Common to all adapters      | 00, 01, 40, 41, 50, 51, 60, 61, 62,    |
-|                             | C1, D1, E1, E3, F0, F8, FB, FC         |
-+-----------------------------+----------------------------------------+
-| Mount adapter               | Common to all adapters + 10            |
-|                             |                                        |
-| (when a holder is attached) |                                        |
-+-----------------------------+----------------------------------------+
-| 6-frame strip adapter       | Common to all adapters + 46, E2        |
-+-----------------------------+----------------------------------------+
-| 36-frame strip adapter      | Common to all adapters + 47, E2        |
-+-----------------------------+----------------------------------------+
-| 240 adapter                 | Common to all adapters + 43, E2        |
-+-----------------------------+----------------------------------------+
-| Slide feeder                | Common to all adapters + 45, F1        |
-+-----------------------------+----------------------------------------+
-| None/Undefined              | 00, C1, FB, FC                         |
-+-----------------------------+----------------------------------------+
+<table>
+<colgroup>
+<col style="width: 42%" />
+<col style="width: 57%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Attached adapter</td>
+<td style="text-align: center;">Supported page (hex)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Common to all adapters</td>
+<td style="text-align: center;">00, 01, 40, 41, 50, 51, 60, 61, 62, C1,
+D1, E1, E3, F0, F8, FB, FC</td>
+</tr>
+<tr>
+<td style="text-align: center;"><p>Mount adapter</p>
+<p>(when a holder is attached)</p></td>
+<td style="text-align: center;">Common to all adapters + 10</td>
+</tr>
+<tr>
+<td style="text-align: center;">6-frame strip adapter</td>
+<td style="text-align: center;">Common to all adapters + 46, E2</td>
+</tr>
+<tr>
+<td style="text-align: center;">36-frame strip adapter</td>
+<td style="text-align: center;">Common to all adapters + 47, E2</td>
+</tr>
+<tr>
+<td style="text-align: center;">240 adapter</td>
+<td style="text-align: center;">Common to all adapters + 43, E2</td>
+</tr>
+<tr>
+<td style="text-align: center;">Slide feeder</td>
+<td style="text-align: center;">Common to all adapters + 45, F1</td>
+</tr>
+<tr>
+<td style="text-align: center;">None/Undefined</td>
+<td style="text-align: center;">00, C1, FB, FC</td>
+</tr>
+</tbody>
+</table>
 
 Note) On the above supported pages, 40, 41, 43, 45, 46, 47, 50, 51, 60,
 61, 62, F0, F1, F8, FA, FB, and FC are not used.
 
 **2-2-2-2. FRU ASCII information page**
 
-+------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit   | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|       |             |             |             |             |             |             |             |             |
-| Byte  |             |             |             |             |             |             |             |             |
-+-------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| 0     | Peripheral Qualifier                    | Peripheral Device Type                                              |
-|       |                                         |                                                                     |
-|       | \[0\]                                   | \[6=00110b\]                                                        |
-|       |                                         |                                                                     |
-|       | \[011b\](\*1)                           | \[1Fh=11111b\](\*1)                                                 |
-+-------+-----------------------------------------+---------------------------------------------------------------------+
-| 1     | Page code \[01 to 7Fh\]                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 2     | Reserved \[0\]                                                                                                |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 3     | Page length \[m-3\]                                                                                           |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 4     | ASCII data length \[m-4\]                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 5 to  | ASCII information                                                                                             |
-| m     |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Page code [01 to 7Fh]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Page length [m-3]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;">ASCII data length [m-4]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5 to m</td>
+<td colspan="8" style="text-align: center;">ASCII information</td>
+</tr>
+</tbody>
+</table>
 
 > \*1 When an invalid logical unit selection is performed
 >
@@ -1151,254 +1857,416 @@ Byte 5 and after ASCII information
 
 Table 2-2-2-2-1 Adapter ID, adapter name, holder ID, and holder name
 
-+:-----------:+:------------------:+:-----------:+:--------------------:+
-| Page code   | Attached adapter   | ASCII       | Descriptions         |
-| (ID)        |                    | information |                      |
-+-------------+--------------------+-------------+----------------------+
-| 01h         | Mount adapter      | Mount       | Mount adapter        |
-|             +--------------------+-------------+----------------------+
-|             | 6-frame strip      | 6Strip      | 6-frame strip        |
-|             | adapter            |             | adapter              |
-|             +--------------------+-------------+----------------------+
-|             | 36-frame strip     | 36Strip     | 36-frame strip       |
-|             | adapter            |             | adapter              |
-|             +--------------------+-------------+----------------------+
-|             | 240 adapter        | 240         | 240 adapter          |
-|             +--------------------+-------------+----------------------+
-|             | Slide feeder       | Feeder      | Slide feeder         |
-+-------------+--------------------+-------------+----------------------+
-| 10h         | Mount adapter      | FH3         | 6-frame strip holder |
-|             |                    +-------------+----------------------+
-|             |                    | FHG1        | Praparat holder      |
-|             |                    +-------------+----------------------+
-|             |                    | FHA1        | APS holder           |
-+-------------+--------------------+-------------+----------------------+
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 29%" />
+<col style="width: 18%" />
+<col style="width: 32%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Page code (ID)</td>
+<td style="text-align: center;">Attached adapter</td>
+<td style="text-align: center;">ASCII information</td>
+<td style="text-align: center;">Descriptions</td>
+</tr>
+<tr>
+<td rowspan="5" style="text-align: center;">01h</td>
+<td style="text-align: center;">Mount adapter</td>
+<td style="text-align: center;">Mount</td>
+<td style="text-align: center;">Mount adapter</td>
+</tr>
+<tr>
+<td style="text-align: center;">6-frame strip adapter</td>
+<td style="text-align: center;">6Strip</td>
+<td style="text-align: center;">6-frame strip adapter</td>
+</tr>
+<tr>
+<td style="text-align: center;">36-frame strip adapter</td>
+<td style="text-align: center;">36Strip</td>
+<td style="text-align: center;">36-frame strip adapter</td>
+</tr>
+<tr>
+<td style="text-align: center;">240 adapter</td>
+<td style="text-align: center;">240</td>
+<td style="text-align: center;">240 adapter</td>
+</tr>
+<tr>
+<td style="text-align: center;">Slide feeder</td>
+<td style="text-align: center;">Feeder</td>
+<td style="text-align: center;">Slide feeder</td>
+</tr>
+<tr>
+<td rowspan="3" style="text-align: center;">10h</td>
+<td rowspan="3" style="text-align: center;">Mount adapter</td>
+<td style="text-align: center;">FH3</td>
+<td style="text-align: center;">6-frame strip holder</td>
+</tr>
+<tr>
+<td style="text-align: center;">FHG1</td>
+<td style="text-align: center;">Praparat holder</td>
+</tr>
+<tr>
+<td style="text-align: center;">FHA1</td>
+<td style="text-align: center;">APS holder</td>
+</tr>
+</tbody>
+</table>
 
-**\
+**  
 2-2-2-3. Address information page**
 
 Address information page
 
-+-----:+:------------:+:------------:+:------------:+:------------:+:------------:+:------------:+:------------:+:------------:+
-| Bit  | 7            | 6            | 5            | 4            | 3            | 2            | 1            | 0            |
-|      |              |              |              |              |              |              |              |              |
-| Byte |              |              |              |              |              |              |              |              |
-+------+--------------+--------------+--------------+--------------+--------------+--------------+--------------+--------------+
-| 0    | Peripheral Qualifier                       | Peripheral Device Type                                                   |
-|      |                                            |                                                                          |
-|      | \[0\]                                      | \[6=00110b\]                                                             |
-|      |                                            |                                                                          |
-|      | \[011b\](\*1)                              | \[1Fh=11111b\](\*1)                                                      |
-+------+--------------------------------------------+--------------------------------------------------------------------------+
-| 1    | Page code \[C1h\]                                                                                                     |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 2    | Reserved \[0\]                                                                                                        |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 3    | Page length \[83d=53h\]                                                                                               |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 4    | > SCSI function support (SCSI data transfer function)                                                                 |
-|      | >                                                                                                                     |
-|      | > \[03h\] (Adapters other than the IA-20 adapter)                                                                     |
-|      | >                                                                                                                     |
-|      | > \[0Bh\] (IA-20 adapter)                                                                                             |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 5, 6 | > Window descriptor block length \[61=003Dh\]                                                                         |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 7, 8 | > Set parameter descriptor block length                                                                               |
-|      | >                                                                                                                     |
-|      | > (Length of the SET PARAMETER command parameter in bytes)                                                            |
-|      | >                                                                                                                     |
-|      | > \[15=000Fh\]                                                                                                        |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 9,   | > General SCSI Buffer Size (SCSI data transfer buffer size. Unit: byte) \[0\]                                         |
-| 10   |                                                                                                                       |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 11,  | > Image Buffer Size (Unit: KB) \[256=0100h\]                                                                          |
-| 12   |                                                                                                                       |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 13   | > Number of equipped Unit (the number of units that can be attached simultaneously) \[1\]                             |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 14   | > Unit Name ID (ID numbers of the attached adapter and the attached holder)                                           |
-|      | >                                                                                                                     |
-|      | > \[01h\] (When an adapter is attached)                                                                               |
-|      | >                                                                                                                     |
-|      | > \[0\] (When an adapter is not attached or an undefined adapter is attached)                                         |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 15   | > Current Holder Name ID (the current holder name)                                                                    |
-|      | >                                                                                                                     |
-|      | > \[10h\] (When a holder is attached)                                                                                 |
-|      | >                                                                                                                     |
-|      | > \[0\] (When a holder is not attached or an undefined holder is attached)                                            |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 16   | > Coordinate base information (resolution type and scanning that are supported)                                       |
-|      | >                                                                                                                     |
-|      | > \[0Fh\] (The FH3 holder is inserted reversely.)                                                                     |
-|      | >                                                                                                                     |
-|      | > \[13h\] (IA-20)                                                                                                     |
-|      | >                                                                                                                     |
-|      | > \[03h\] (Adapter and holder other than the above)                                                                   |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 17   | > Addressing Kind (addressing type that is supported)                                                                 |
-|      | >                                                                                                                     |
-|      | > \[31h\] (SA-21/SA-30)                                                                                               |
-|      | >                                                                                                                     |
-|      | > \[35h\] (IA-20)                                                                                                     |
-|      |                                                                                                                       |
-|      | \[32h\] (SF-210)                                                                                                      |
-|      |                                                                                                                       |
-|      | \[22h\] (Adapter and holder other than the above)                                                                     |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 18,  | > X-Optical Resolution (Unit: dpi)                                                                                    |
-| 19   | >                                                                                                                     |
-|      | > \[4000=0FA0h\]                                                                                                      |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 20,  | > X-Maximum Resolution (Unit: dpi)                                                                                    |
-| 21   | >                                                                                                                     |
-|      | > \[4000=0FA0h\]                                                                                                      |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 22,  | > X-Minimum Resolution (Unit: dpi)                                                                                    |
-| 23   | >                                                                                                                     |
-|      | > \[90=005Ah\]                                                                                                        |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 24   | > X-Maximum Set Window Address                                                                                        |
-| to   | >                                                                                                                     |
-| 27   | > (Window descriptor X-axis offset address maximum value)                                                             |
-|      | >                                                                                                                     |
-|      | > \[0\]                                                                                                               |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 28   | > X-Minimum Set Window Address                                                                                        |
-| to   | >                                                                                                                     |
-| 31   | > (Window descriptor X-axis offset address minimum value)                                                             |
-|      | >                                                                                                                     |
-|      | > \[0\]                                                                                                               |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 32   | > X-Offset for first image's address (X-axis scanning start position offset address)                                  |
-| to   | >                                                                                                                     |
-| 35   | > \[0\]                                                                                                               |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 36   | > X-Set Window boundary                                                                                               |
-| to   | >                                                                                                                     |
-| 39   | > (Maximum window width value of the X-axis window descriptor)                                                        |
-|      | >                                                                                                                     |
-|      | > \[2916=00000B64h\] (IA-20)                                                                                          |
-|      | >                                                                                                                     |
-|      | > \[3946=00000F6Ah\] (Adapter and holder other than the above)                                                        |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 40,  | > Y-Optical Resolution (Unit: dpi)                                                                                    |
-| 41   | >                                                                                                                     |
-|      | > \[4000=0FA0h\]                                                                                                      |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 42,  | > Y-Maximum Resolution (Unit: dpi)                                                                                    |
-| 43   | >                                                                                                                     |
-|      | > \[4000=0FA0h\]                                                                                                      |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 44,  | > Y-Minimum Resolution (Unit: dpi)                                                                                    |
-| 45   | >                                                                                                                     |
-|      | > \[90=005Ah\]                                                                                                        |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 46   | > Y-Maximum Set Window Address                                                                                        |
-| to   | >                                                                                                                     |
-| 49   | > (Window descriptor Y-axis offset address maximum value)                                                             |
-|      | >                                                                                                                     |
-|      | > \[\*2\] (SA-21/SA-30)                                                                                               |
-|      | >                                                                                                                     |
-|      | > \[\*3\] (IA-20)                                                                                                     |
-|      | >                                                                                                                     |
-|      | > \[5781=00001695h\] (Adapter and holder other than the above)                                                        |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 50   | > Y-Minimum Set Window Address                                                                                        |
-| to   | >                                                                                                                     |
-| 53   | > (Window descriptor Y-axis offset address minimum value) \[0\]                                                       |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 54   | > Y-Offset for first image's address (Y-axis scanning start position offset address)                                  |
-| to   | >                                                                                                                     |
-| 57   | > \[0\]                                                                                                               |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 58   | > Y-Set Window boundary                                                                                               |
-| to   | >                                                                                                                     |
-| 61   | > (Maximum window width value of the Y-axis window descriptor)                                                        |
-|      | >                                                                                                                     |
-|      | > \[5959=00001747h\] (SA-21/SA-30)                                                                                    |
-|      | >                                                                                                                     |
-|      | > \[4453=00001165h\] (IA-20)                                                                                          |
-|      | >                                                                                                                     |
-|      | > \[5782=00001696h\] (Adapter and holder other than the above)                                                        |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 62   | > Y-Another world maximum Address                                                                                     |
-| to   | >                                                                                                                     |
-| 65   | > (Maximum address in the sub-scanning direction outside the specified address)                                       |
-|      | >                                                                                                                     |
-|      | > \[5959=00001747h\] (SA-21/SA-30 adapter)                                                                            |
-|      | >                                                                                                                     |
-|      | > \[5782=00001696h\] (IA-20)                                                                                          |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 66   | > Y-Another world minimum Address                                                                                     |
-| to   | >                                                                                                                     |
-| 69   | > (Minimum address in the sub-scanning direction outside the specified address)                                       |
-|      | >                                                                                                                     |
-|      | > \[0\] (SA-21/SA-30/IA-20)                                                                                           |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 70,  | > Maximum Thumbnail Resolution                                                                                        |
-| 71   | >                                                                                                                     |
-|      | > (Maximum resolution in thumbnail scanning. Unit: dpi)                                                               |
-|      | >                                                                                                                     |
-|      | > \[97=0061h\] (SA-21/SA-30)                                                                                          |
-|      | >                                                                                                                     |
-|      | > \[90=005Ah\] (IA-20)                                                                                                |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 72,  | > Minimum Thumbnail Resolution                                                                                        |
-| 73   | >                                                                                                                     |
-|      | > (Minimum resolution in thumbnail scanning. Unit: dpi)                                                               |
-|      | >                                                                                                                     |
-|      | > \[97=0061h\] (SA-21/SA-30)                                                                                          |
-|      | >                                                                                                                     |
-|      | > \[90=005Ah\] (IA-20)                                                                                                |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 74   | > Maximum Image count (maximum number of frames that can be scanned)                                                  |
-|      | >                                                                                                                     |
-|      | > \[6\] (SA-21)                                                                                                       |
-|      | >                                                                                                                     |
-|      | > \[40=28h\] (SA-30/IA-20)                                                                                            |
-|      | >                                                                                                                     |
-|      | > \[1\] (Adapter and holder other than the above)                                                                     |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 75   | Actual including image count (the number of medium frames that are currently set)                                     |
-|      |                                                                                                                       |
-|      | > \[\*4\] (SA-21/SA-30)                                                                                               |
-|      | >                                                                                                                     |
-|      | > \[1 to 40d\] (IA-20)                                                                                                |
-|      | >                                                                                                                     |
-|      | > \[6\] (When the number of frames is not known in SA-21. Ex.: When the initialization of SA-21 is performed before   |
-|      | > the number of frames is detected)                                                                                   |
-|      | >                                                                                                                     |
-|      | > \[0\] (When a medium is not inserted in SA-21/SA-30/IA-20)                                                          |
-|      | >                                                                                                                     |
-|      | > \[40=28h\] (When the number of frames is not known in SA-30/IA-20)                                                  |
-|      | >                                                                                                                     |
-|      | > \[1\] (Adapter and holder other than the above)                                                                     |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 76,  | Minimum Focusing Address (minimum address of the focus position) \[0\]                                                |
-| 77   |                                                                                                                       |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 78,  | > Maximum Focusing Address (maximum address of the focus position) \[323=0143h\]                                      |
-| 79   |                                                                                                                       |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 80,  | > Lamp warm-up maximum time (maximum time for lamp warming-up) \[0\]                                                  |
-| 81   |                                                                                                                       |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 82   | > A/D bit depth (depth of bits for an A/D converter) \[16=10h\]                                                       |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 83,  | > CCD Pixel Number                                                                                                    |
-| 84   | >                                                                                                                     |
-|      | > (The number of effective pixels in the CCD. For the CCD in which the number of effective pixels differs in each     |
-|      | > color, the maximum value is set.)                                                                                   |
-|      | >                                                                                                                     |
-|      | > \[3946=0F6Ah\]                                                                                                      |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 85   | > Line Gap Count (the number of gaps between lines) \[01h\]                                                           |
-+------+-----------------------------------------------------------------------------------------------------------------------+
-| 86   | > CCD Line Number (the number of lines in the CCD) \[02h\]                                                            |
-+------+-----------------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 12%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Page code [C1h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Page length [83d=53h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>SCSI function support (SCSI data transfer function)</p>
+<p>[03h] (Adapters other than the IA-20 adapter)</p>
+<p>[0Bh] (IA-20 adapter)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">5, 6</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Window descriptor block length [61=003Dh]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">7, 8</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Set parameter descriptor block length</p>
+<p>(Length of the SET PARAMETER command parameter in bytes)</p>
+<p>[15=000Fh]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">9, 10</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>General SCSI Buffer Size (SCSI data transfer buffer size. Unit: byte)
+[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">11, 12</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Image Buffer Size (Unit: KB) [256=0100h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">13</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Number of equipped Unit (the number of units that can be attached
+simultaneously) [1]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">14</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Unit Name ID (ID numbers of the attached adapter and the attached
+holder)</p>
+<p>[01h] (When an adapter is attached)</p>
+<p>[0] (When an adapter is not attached or an undefined adapter is
+attached)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">15</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Current Holder Name ID (the current holder name)</p>
+<p>[10h] (When a holder is attached)</p>
+<p>[0] (When a holder is not attached or an undefined holder is
+attached)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">16</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Coordinate base information (resolution type and scanning that are
+supported)</p>
+<p>[0Fh] (The FH3 holder is inserted reversely.)</p>
+<p>[13h] (IA-20)</p>
+<p>[03h] (Adapter and holder other than the above)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">17</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Addressing Kind (addressing type that is supported)</p>
+<p>[31h] (SA-21/SA-30)</p>
+<p>[35h] (IA-20)</p>
+</blockquote>
+<p>[32h] (SF-210)</p>
+<p>[22h] (Adapter and holder other than the above)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">18, 19</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X-Optical Resolution (Unit: dpi)</p>
+<p>[4000=0FA0h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">20, 21</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X-Maximum Resolution (Unit: dpi)</p>
+<p>[4000=0FA0h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">22, 23</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X-Minimum Resolution (Unit: dpi)</p>
+<p>[90=005Ah]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">24 to 27</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X-Maximum Set Window Address</p>
+<p>(Window descriptor X-axis offset address maximum value)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">28 to 31</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X-Minimum Set Window Address</p>
+<p>(Window descriptor X-axis offset address minimum value)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">32 to 35</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X-Offset for first image’s address (X-axis scanning start position
+offset address)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">36 to 39</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X-Set Window boundary</p>
+<p>(Maximum window width value of the X-axis window descriptor)</p>
+<p>[2916=00000B64h] (IA-20)</p>
+<p>[3946=00000F6Ah] (Adapter and holder other than the above)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">40, 41</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Optical Resolution (Unit: dpi)</p>
+<p>[4000=0FA0h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">42, 43</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Maximum Resolution (Unit: dpi)</p>
+<p>[4000=0FA0h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">44, 45</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Minimum Resolution (Unit: dpi)</p>
+<p>[90=005Ah]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">46 to 49</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Maximum Set Window Address</p>
+<p>(Window descriptor Y-axis offset address maximum value)</p>
+<p>[*2] (SA-21/SA-30)</p>
+<p>[*3] (IA-20)</p>
+<p>[5781=00001695h] (Adapter and holder other than the above)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">50 to 53</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Minimum Set Window Address</p>
+<p>(Window descriptor Y-axis offset address minimum value) [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">54 to 57</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Offset for first image’s address (Y-axis scanning start position
+offset address)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">58 to 61</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Set Window boundary</p>
+<p>(Maximum window width value of the Y-axis window descriptor)</p>
+<p>[5959=00001747h] (SA-21/SA-30)</p>
+<p>[4453=00001165h] (IA-20)</p>
+<p>[5782=00001696h] (Adapter and holder other than the above)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">62 to 65</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Another world maximum Address</p>
+<p>(Maximum address in the sub-scanning direction outside the specified
+address)</p>
+<p>[5959=00001747h] (SA-21/SA-30 adapter)</p>
+<p>[5782=00001696h] (IA-20)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">66 to 69</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y-Another world minimum Address</p>
+<p>(Minimum address in the sub-scanning direction outside the specified
+address)</p>
+<p>[0] (SA-21/SA-30/IA-20)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">70, 71</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Maximum Thumbnail Resolution</p>
+<p>(Maximum resolution in thumbnail scanning. Unit: dpi)</p>
+<p>[97=0061h] (SA-21/SA-30)</p>
+<p>[90=005Ah] (IA-20)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">72, 73</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Minimum Thumbnail Resolution</p>
+<p>(Minimum resolution in thumbnail scanning. Unit: dpi)</p>
+<p>[97=0061h] (SA-21/SA-30)</p>
+<p>[90=005Ah] (IA-20)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">74</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Maximum Image count (maximum number of frames that can be
+scanned)</p>
+<p>[6] (SA-21)</p>
+<p>[40=28h] (SA-30/IA-20)</p>
+<p>[1] (Adapter and holder other than the above)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">75</td>
+<td colspan="8" style="text-align: center;"><p>Actual including image
+count (the number of medium frames that are currently set)</p>
+<blockquote>
+<p>[*4] (SA-21/SA-30)</p>
+<p>[1 to 40d] (IA-20)</p>
+<p>[6] (When the number of frames is not known in SA-21. Ex.: When the
+initialization of SA-21 is performed before the number of frames is
+detected)</p>
+<p>[0] (When a medium is not inserted in SA-21/SA-30/IA-20)</p>
+<p>[40=28h] (When the number of frames is not known in SA-30/IA-20)</p>
+<p>[1] (Adapter and holder other than the above)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">76, 77</td>
+<td colspan="8" style="text-align: center;">Minimum Focusing Address
+(minimum address of the focus position) [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">78, 79</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Maximum Focusing Address (maximum address of the focus position)
+[323=0143h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">80, 81</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Lamp warm-up maximum time (maximum time for lamp warming-up) [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">82</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>A/D bit depth (depth of bits for an A/D converter) [16=10h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">83, 84</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>CCD Pixel Number</p>
+<p>(The number of effective pixels in the CCD. For the CCD in which the
+number of effective pixels differs in each color, the maximum value is
+set.)</p>
+<p>[3946=0F6Ah]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">85</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Line Gap Count (the number of gaps between lines) [01h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">86</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>CCD Line Number (the number of lines in the CCD) [02h]</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 \*1 When an invalid logical unit selection is performed
 
@@ -1418,33 +2286,76 @@ Byte 4 SCSI function support
 > is supported by this unit. In this unit, this field is set to 0Bh for
 > the IA-20, and 03h for the adapters other than the IA-20.
 
-+:----:+:--------------------------------------:+:----------:+:----------:+
-| Bit  |                                        | Support of this unit    |
-|      |                                        +------------+------------+
-|      |                                        | Adapter    | IA-20      |
-|      |                                        | other than |            |
-|      |                                        | IA-20      |            |
-+------+----------------------------------------+------------+------------+
-| 0    | > Microcode downloading function       | 1          | 1          |
-+------+----------------------------------------+------------+------------+
-| 1    | > Image reading (READ command) must be | 1          | 1          |
-|      | > performed in units of \[Data of one  |            |            |
-|      | > line in bytes \* number of colors\]. |            |            |
-+------+----------------------------------------+------------+------------+
-| 2    | > Image reading (READ command) must be | 0          | 0          |
-|      | > performed in units of \[Data of one  |            |            |
-|      | > line in bytes\].                     |            |            |
-+------+----------------------------------------+------------+------------+
-| 3    | > Thumbnail reading (READ command)     | 0          | 1          |
-|      | > must be performed in units of \[The  |            |            |
-|      | > number of bytes in one frame\*       |            |            |
-|      | > number of colors\].                  |            |            |
-+------+----------------------------------------+------------+------------+
-| 4 to | > Reserved                             | 0          | 0          |
-| 6    |                                        |            |            |
-+------+----------------------------------------+------------+------------+
-| 7    | > Extend bit                           | 0          | 0          |
-+------+----------------------------------------+------------+------------+
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 57%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
+</colgroup>
+<tbody>
+<tr>
+<td rowspan="2" style="text-align: center;">Bit</td>
+<td rowspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">Support of this unit</td>
+</tr>
+<tr>
+<td style="text-align: center;">Adapter other than IA-20</td>
+<td style="text-align: center;">IA-20</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;"><blockquote>
+<p>Microcode downloading function</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;"><blockquote>
+<p>Image reading (READ command) must be performed in units of [Data of
+one line in bytes * number of colors].</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: left;"><blockquote>
+<p>Image reading (READ command) must be performed in units of [Data of
+one line in bytes].</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: left;"><blockquote>
+<p>Thumbnail reading (READ command) must be performed in units of [The
+number of bytes in one frame* number of colors].</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">4 to 6</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td style="text-align: left;"><blockquote>
+<p>Extend bit</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+</tbody>
+</table>
 
 Byte 5, 6 Window descriptor block length
 
@@ -1490,54 +2401,76 @@ Byte 16 Coordinate base information
 > Each bit in this field specifies the resolution type and the reading
 > method that are supported.
 
-+:-----:+-------------------------+:--------------------------------------+
-| Bit0, | Resolution type \[3\]   | Setting this bit to 0 indicates that  |
-| 1     |                         | reading can be performed in           |
-|       |                         | continuous resolution.                |
-|       |                         |                                       |
-|       |                         | Setting this bit to 1 indicates that  |
-|       |                         | reading can be performed only in the  |
-|       |                         | resolution of each pitch.             |
-|       |                         |                                       |
-|       |                         | Setting this bit to 2 indicates that  |
-|       |                         | reading can be performed only in the  |
-|       |                         | resolution of the pitch which is the  |
-|       |                         | measure of the maximum pitch. (\*1)   |
-|       |                         |                                       |
-|       |                         | Setting this bit to 3 indicates that  |
-|       |                         | reading can be performed only in the  |
-|       |                         | resolution of pitch 1 and an even     |
-|       |                         | pitch. (\*2)                          |
-+-------+-------------------------+---------------------------------------+
-| Bit2  | X Origin Reversed       | Setting this bit to 1 indicates that  |
-|       |                         | the main-scanning direction origin is |
-|       | > \[FH3 reverse         | reversed (at the right end of the     |
-|       | > direction=1/          | medium).                              |
-|       | >                       |                                       |
-|       | > Other=0\]             |                                       |
-+-------+-------------------------+---------------------------------------+
-| Bit3  | Y Origin Reversed       | Setting this bit to 1 indicates that  |
-|       |                         | the sub-scanning direction origin is  |
-|       | > \[FH3 reverse         | reversed (at the bottom end of the    |
-|       | > direction=1/          | medium).                              |
-|       | >                       |                                       |
-|       | > Other=0\]             |                                       |
-+-------+-------------------------+---------------------------------------+
-| Bit4  | Thumbnail Order         | Setting this bit to 0 indicates that  |
-|       | Reversed                | the thumbnail image is stored in the  |
-|       |                         | normal direction (first frame-\>last  |
-|       | > \[IA-20=1/SA-21,      | frame). Setting this bit to 1         |
-|       | > SA-30=0\]             | indicates that the thumbnail image is |
-|       |                         | stored in the reversed direction      |
-|       |                         | (last frame-\>first frame).           |
-+-------+-------------------------+---------------------------------------+
-| Bit5  | Reserved \[0\]          | This bit is set to 0 in this unit.    |
-+-------+-------------------------+---------------------------------------+
-| Bit6  | Additional Coordinate   | This bit is set to 0 in this unit.    |
-|       | Information \[0\]       |                                       |
-+-------+-------------------------+---------------------------------------+
-| Bit7  | Extend bit \[0\]        | This bit is set to 0 in this unit.    |
-+-------+-------------------------+---------------------------------------+
+<table>
+<colgroup>
+<col style="width: 6%" />
+<col style="width: 37%" />
+<col style="width: 56%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0, 1</td>
+<td>Resolution type [3]</td>
+<td style="text-align: left;"><p>Setting this bit to 0 indicates that
+reading can be performed in continuous resolution.</p>
+<p>Setting this bit to 1 indicates that reading can be performed only in
+the resolution of each pitch.</p>
+<p>Setting this bit to 2 indicates that reading can be performed only in
+the resolution of the pitch which is the measure of the maximum pitch.
+(*1)</p>
+<p>Setting this bit to 3 indicates that reading can be performed only in
+the resolution of pitch 1 and an even pitch. (*2)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit2</td>
+<td><p>X Origin Reversed</p>
+<blockquote>
+<p>[FH3 reverse direction=1/</p>
+<p>Other=0]</p>
+</blockquote></td>
+<td style="text-align: left;">Setting this bit to 1 indicates that the
+main-scanning direction origin is reversed (at the right end of the
+medium).</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit3</td>
+<td><p>Y Origin Reversed</p>
+<blockquote>
+<p>[FH3 reverse direction=1/</p>
+<p>Other=0]</p>
+</blockquote></td>
+<td style="text-align: left;">Setting this bit to 1 indicates that the
+sub-scanning direction origin is reversed (at the bottom end of the
+medium).</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4</td>
+<td><p>Thumbnail Order Reversed</p>
+<blockquote>
+<p>[IA-20=1/SA-21, SA-30=0]</p>
+</blockquote></td>
+<td style="text-align: left;">Setting this bit to 0 indicates that the
+thumbnail image is stored in the normal direction (first frame-&gt;last
+frame). Setting this bit to 1 indicates that the thumbnail image is
+stored in the reversed direction (last frame-&gt;first frame).</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit5</td>
+<td>Reserved [0]</td>
+<td style="text-align: left;">This bit is set to 0 in this unit.</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit6</td>
+<td>Additional Coordinate Information [0]</td>
+<td style="text-align: left;">This bit is set to 0 in this unit.</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit7</td>
+<td>Extend bit [0]</td>
+<td style="text-align: left;">This bit is set to 0 in this unit.</td>
+</tr>
+</tbody>
+</table>
 
 > \*1: When the maximum pitch is 12, the pitches in which reading can be
 > performed are 1, 2, 3, 4, 6, and 12.
@@ -1551,32 +2484,127 @@ Byte 17 Addressing Kind
 > This field specifies the addressing type that is supported. The
 > addressing of the bit to which 1 is set is supported.
 
-+:---:+:---------------------------------------:+:------:+:---------------:+:------:+:------:+:------:+
-| Bit | Descriptions                            | Adapter                                             |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-|     |                                         | MA-21  | SA-21           | SA-30  | IA-20  | SF-210 |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 0   | > The Set Window address is the same as | 0      | 1               | 1      | 1      | 0      |
-|     | > the medium position address.          |        |                 |        |        |        |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 1   | > The Set Window address is the same as | 1      | 0               | 0      | 0      | 1      |
-|     | > the address of the mechanical block.  |        |                 |        |        |        |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 2   | > Specifying the scanning range over    | 0      | 0               | 0      | 1      | 0      |
-|     | > two or more frames is prohibited.     |        |                 |        |        |        |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 3   | > Reserved                              | 0      | 0               | 0      | 0      | 0      |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 4   | > The position of the medium can be     | 0      | 1               | 1      | 1      | 1      |
-|     | > operated.                             |        |                 |        |        |        |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 5   | > The mechanical block position can be  | 1      | 1               | 1      | 1      | 1      |
-|     | > operated.                             |        |                 |        |        |        |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 6   | > Reserved                              | 0      | 0               | 0      | 0      | 0      |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
-| 7   | > Extension bit                         | 0      | 0               | 0      | 0      | 0      |
-+-----+-----------------------------------------+--------+-----------------+--------+--------+--------+
+<table style="width:90%;">
+<colgroup>
+<col style="width: 6%" />
+<col style="width: 3%" />
+<col style="width: 6%" />
+<col style="width: 38%" />
+<col style="width: 6%" />
+<col style="width: 3%" />
+<col style="width: 3%" />
+<col style="width: 6%" />
+<col style="width: 6%" />
+<col style="width: 6%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit</td>
+<td colspan="3" style="text-align: center;">Descriptions</td>
+<td colspan="6" style="text-align: center;">Adapter</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td colspan="3" style="text-align: center;"></td>
+<td style="text-align: center;">MA-21</td>
+<td colspan="2" style="text-align: center;">SA-21</td>
+<td style="text-align: center;">SA-30</td>
+<td style="text-align: center;">IA-20</td>
+<td style="text-align: center;">SF-210</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>The Set Window address is the same as the medium position
+address.</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>The Set Window address is the same as the address of the mechanical
+block.</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td colspan="2" style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>Specifying the scanning range over two or more frames is
+prohibited.</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>The position of the medium can be operated.</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>The mechanical block position can be operated.</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td colspan="2" style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="3" style="text-align: left;"><blockquote>
+<p>Extension bit</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+</tbody>
+</table>
 
 MA-21: Mount adapter (including each holder), SA-21: 6-frame strip
 adapter,
@@ -1636,7 +2664,7 @@ Byte 75 Actual including image count
 Byte 86 CCD Line Number
 
 > This field specifies the number of lines in the CCD. When 0 is set or
-> no value is sent to this field, '3 lines' is set.
+> no value is sent to this field, ‘3 lines’ is set.
 
 Note) If this page is requested when the adapter is not attached or an
 undefined adapter is attached, the data up to byte 14 (allocation length
@@ -1644,74 +2672,151 @@ undefined adapter is attached, the data up to byte 14 (allocation length
 
 Address information page set value
 
-+:----:+----------------------+:---------:+:---------:+:---------:+:---------:+:---------:+:---------:+
-| Byte |                      | Set value                                                             |
-|      |                      +-----------+-----------+-----------+-----------+-----------------------+
-|      |                      | MA-21     | SA-21     | SA-30     | SF-210    | IA-20                 |
-|      |                      | (\*3)     |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 18,  | X-Optical Resolution | 4000                                                                  |
-| 19   |                      |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
-| 20,  | X-Maximum Resolution | 4000                                                                  |
-| 21   |                      |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
-| 22,  | X-Minimum Resolution | 90                                                                    |
-| 23   |                      |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
-| 24   | X-Maximum Set Window | 0                                                                     |
-| to   | Address              |                                                                       |
-| 27   |                      |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
-| 28   | X-Minimum Set Window | 0                                                                     |
-| to   | Address              |                                                                       |
-| 31   |                      |                                                                       |
-+------+----------------------+-----------------------------------------------------------+-----------+
-| 36   | X-Set Window         | 3946                                                      | 2916      |
-| to   | boundary             |                                                           |           |
-| 39   |                      |                                                           |           |
-+------+----------------------+-----------------------------------------------------------+-----------+
-| 40,  | Y-Optical Resolution | 4000                                                                  |
-| 41   |                      |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
-| 42,  | Y-Maximum Resolution | 4000                                                                  |
-| 43   |                      |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
-| 44,  | Y-Minimum Resolution | 90                                                                    |
-| 45   |                      |                                                                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 46   | Y-Maximum Set Window | 5781      | (\*1)     | (\*1)     | 5781      | (\*2)                 |
-| to   | Address              |           |           |           |           |                       |
-| 49   |                      |           |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 50   | Y-Minimum Set Window | 0         | 0         | 0         | 0         | 0                     |
-| to   | Address              |           |           |           |           |                       |
-| 53   |                      |           |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 58   | Y-Set Window         | 5782      | 5959      | 5959      | 5782      | 4453                  |
-| to   | boundary             |           |           |           |           |                       |
-| 61   |                      |           |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 62   | Y-Another world      | \-        | 5959      | 5959      | \-        | 5782                  |
-| to   | maximum Address      |           |           |           |           |                       |
-| 65   |                      |           |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 66   | Y-Another world      | \-        | 0         | 0         | \-        | 0                     |
-| to   | minimum Address      |           |           |           |           |                       |
-| 69   |                      |           |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 70,  | Maximum Thumbnail    | \-        | 97        | 97        | \-        | 90                    |
-| 71   | Resolution           |           |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 72,  | Minimum Thumbnail    | \-        | 97        | 97        | \-        | 90                    |
-| 73   | Resolution           |           |           |           |           |                       |
-+------+----------------------+-----------+-----------+-----------+-----------+-----------------------+
-| 76,  | Minimum Focusing     | 0                                                                     |
-| 77   | Address              |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
-| 78,  | Maximum Focusing     | 323                                                                   |
-| 79   | Address              |                                                                       |
-+------+----------------------+-----------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 32%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 0%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td rowspan="2" style="text-align: center;">Byte</td>
+<td rowspan="2"></td>
+<td colspan="6" style="text-align: center;">Set value</td>
+</tr>
+<tr>
+<td style="text-align: center;">MA-21 (*3)</td>
+<td style="text-align: center;">SA-21</td>
+<td style="text-align: center;">SA-30</td>
+<td style="text-align: center;">SF-210</td>
+<td colspan="2" style="text-align: center;">IA-20</td>
+</tr>
+<tr>
+<td style="text-align: center;">18, 19</td>
+<td>X-Optical Resolution</td>
+<td colspan="6" style="text-align: center;">4000</td>
+</tr>
+<tr>
+<td style="text-align: center;">20, 21</td>
+<td>X-Maximum Resolution</td>
+<td colspan="6" style="text-align: center;">4000</td>
+</tr>
+<tr>
+<td style="text-align: center;">22, 23</td>
+<td>X-Minimum Resolution</td>
+<td colspan="6" style="text-align: center;">90</td>
+</tr>
+<tr>
+<td style="text-align: center;">24 to 27</td>
+<td>X-Maximum Set Window Address</td>
+<td colspan="6" style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">28 to 31</td>
+<td>X-Minimum Set Window Address</td>
+<td colspan="6" style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">36 to 39</td>
+<td>X-Set Window boundary</td>
+<td colspan="5" style="text-align: center;">3946</td>
+<td style="text-align: center;">2916</td>
+</tr>
+<tr>
+<td style="text-align: center;">40, 41</td>
+<td>Y-Optical Resolution</td>
+<td colspan="6" style="text-align: center;">4000</td>
+</tr>
+<tr>
+<td style="text-align: center;">42, 43</td>
+<td>Y-Maximum Resolution</td>
+<td colspan="6" style="text-align: center;">4000</td>
+</tr>
+<tr>
+<td style="text-align: center;">44, 45</td>
+<td>Y-Minimum Resolution</td>
+<td colspan="6" style="text-align: center;">90</td>
+</tr>
+<tr>
+<td style="text-align: center;">46 to 49</td>
+<td>Y-Maximum Set Window Address</td>
+<td style="text-align: center;">5781</td>
+<td style="text-align: center;">(*1)</td>
+<td style="text-align: center;">(*1)</td>
+<td style="text-align: center;">5781</td>
+<td colspan="2" style="text-align: center;">(*2)</td>
+</tr>
+<tr>
+<td style="text-align: center;">50 to 53</td>
+<td>Y-Minimum Set Window Address</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td colspan="2" style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">58 to 61</td>
+<td>Y-Set Window boundary</td>
+<td style="text-align: center;">5782</td>
+<td style="text-align: center;">5959</td>
+<td style="text-align: center;">5959</td>
+<td style="text-align: center;">5782</td>
+<td colspan="2" style="text-align: center;">4453</td>
+</tr>
+<tr>
+<td style="text-align: center;">62 to 65</td>
+<td>Y-Another world maximum Address</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">5959</td>
+<td style="text-align: center;">5959</td>
+<td style="text-align: center;">-</td>
+<td colspan="2" style="text-align: center;">5782</td>
+</tr>
+<tr>
+<td style="text-align: center;">66 to 69</td>
+<td>Y-Another world minimum Address</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">-</td>
+<td colspan="2" style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">70, 71</td>
+<td>Maximum Thumbnail Resolution</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">97</td>
+<td style="text-align: center;">97</td>
+<td style="text-align: center;">-</td>
+<td colspan="2" style="text-align: center;">90</td>
+</tr>
+<tr>
+<td style="text-align: center;">72, 73</td>
+<td>Minimum Thumbnail Resolution</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">97</td>
+<td style="text-align: center;">97</td>
+<td style="text-align: center;">-</td>
+<td colspan="2" style="text-align: center;">90</td>
+</tr>
+<tr>
+<td style="text-align: center;">76, 77</td>
+<td>Minimum Focusing Address</td>
+<td colspan="6" style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">78, 79</td>
+<td>Maximum Focusing Address</td>
+<td colspan="6" style="text-align: center;">323</td>
+</tr>
+</tbody>
+</table>
 
 \*1 Y-Maximum Set Window Address=(Actual Including Image Count+2)\*5959
 
@@ -1723,99 +2828,175 @@ Address information page set value
 
 SET WINDOW function page
 
-+------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit   | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|       |             |             |             |             |             |             |             |             |
-| Byte  |             |             |             |             |             |             |             |             |
-+-------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| 0     | Peripheral Qualifier                    | Peripheral Device Type                                              |
-|       |                                         |                                                                     |
-|       | \[0\]                                   | \[6=00110b\]                                                        |
-|       |                                         |                                                                     |
-|       | \[011b\](\*1)                           | \[1Fh=11111b\](\*1)                                                 |
-+-------+-----------------------------------------+---------------------------------------------------------------------+
-| 1     | Page code \[D1h\]                                                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 2     | Reserved \[0\]                                                                                                |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 3     | Page length \[24d=18h\]                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 4     | > Scanning Kind Support                                                                                       |
-|       |                                                                                                               |
-|       | \[03h\] (SA-21/SA-30/IA-20)                                                                                   |
-|       |                                                                                                               |
-|       | \[01h\] (Adapter and holder other than the above)                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 5     | > Scan Mode Support                                                                                           |
-|       | >                                                                                                             |
-|       | > \[52h\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 6     | > Color Interleaving Support (color order for data transfer)                                                  |
-|       | >                                                                                                             |
-|       | > \[42h\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 7     | > Color Component                                                                                             |
-|       | >                                                                                                             |
-|       | > \[06h\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 8     | > Color Ordering1                                                                                             |
-|       | >                                                                                                             |
-|       | > \[20h\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 9     | > Color Ordering2                                                                                             |
-|       | >                                                                                                             |
-|       | > \[43h\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 10    | > Output Bit Depth/Dot a Color Support (the number of bits in one-color data)                                 |
-|       | >                                                                                                             |
-|       | > \[20h\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 11    | > Number of Setup Mode                                                                                        |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 12    | > Digital Image Control Support                                                                               |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 13    | > Additional length for Digital Control Information                                                           |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 14    | > Analog Control Support                                                                                      |
-|       | >                                                                                                             |
-|       | > \[40h\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 15    | > Additional length for Analog Control Information                                                            |
-|       | >                                                                                                             |
-|       | > \[9\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 16 to | > for the First Supported Control (exposure value control parameter)                                          |
-| 24    | >                                                                                                             |
-|       | > Byte 16 Bytes a Value for the control (parameter length in bytes)                                           |
-|       | >                                                                                                             |
-|       | > \[4\]                                                                                                       |
-|       | >                                                                                                             |
-|       | > Byte 17 to 20 Minimum Value for the First Control                                                           |
-|       | >                                                                                                             |
-|       | > \[00000001h\]                                                                                               |
-|       | >                                                                                                             |
-|       | > Byte 21 to 24 Maximum Value for the First Control                                                           |
-|       | >                                                                                                             |
-|       | > \[03FFFFFFh\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 25    | > Filter Support                                                                                              |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 26    | > Matrix Support                                                                                              |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 27    | > Halftone Support                                                                                            |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Page code [D1h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Page length [24d=18h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Scanning Kind Support</p>
+</blockquote>
+<p>[03h] (SA-21/SA-30/IA-20)</p>
+<p>[01h] (Adapter and holder other than the above)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Scan Mode Support</p>
+<p>[52h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Color Interleaving Support (color order for data transfer)</p>
+<p>[42h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Color Component</p>
+<p>[06h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Color Ordering1</p>
+<p>[20h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Color Ordering2</p>
+<p>[43h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">10</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Output Bit Depth/Dot a Color Support (the number of bits in one-color
+data)</p>
+<p>[20h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">11</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Number of Setup Mode</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">12</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Digital Image Control Support</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">13</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Additional length for Digital Control Information</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">14</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Analog Control Support</p>
+<p>[40h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">15</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Additional length for Analog Control Information</p>
+<p>[9]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">16 to 24</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>for the First Supported Control (exposure value control
+parameter)</p>
+<p>Byte 16 Bytes a Value for the control (parameter length in bytes)</p>
+<p>[4]</p>
+<p>Byte 17 to 20 Minimum Value for the First Control</p>
+<p>[00000001h]</p>
+<p>Byte 21 to 24 Maximum Value for the First Control</p>
+<p>[03FFFFFFh]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">25</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Filter Support</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">26</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Matrix Support</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">27</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Halftone Support</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 \*1 When an invalid logical unit selection is performed
 
@@ -1827,53 +3008,92 @@ Byte 4 Scanning Kind Support
 > strip adapter (6SA), 36-frame strip adapter (36SA), and 240 adapter
 > support Thumbnail Scanning in addition.
 
-+:---:+:--------------:+:-------------------------------:+:------------------+:---------+
-| Bit | Type           | Explanations of operation       | IA-20/SA-21/SA-30 | Other    |
-|     |                |                                 |                   | adapters |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 0   | Image Scanning | Normal image scanning           | 1                 | 1        |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 1   | Thumbnail      | Thumbnail image scanning        | 1                 | 0        |
-|     | Scanning       |                                 |                   |          |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 2   | Set up         | Prescan                         | 0                 | 0        |
-|     | Scanning       |                                 |                   |          |
-|     |                | Scanning for deciding the       |                   |          |
-|     |                | optimal integral time and gain, |                   |          |
-|     |                | etc.                            |                   |          |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 3   | Set up         | Prescan                         | 0                 | 0        |
-|     | Scanning2      |                                 |                   |          |
-|     |                | Scanning for deciding the       |                   |          |
-|     |                | optimal integral time and gain, |                   |          |
-|     |                | etc. The                        |                   |          |
-|     |                | low-density/high-density limit  |                   |          |
-|     |                | values are used instead of the  |                   |          |
-|     |                | maximum value and the minimum   |                   |          |
-|     |                | value. When the bit is 1, Setup |                   |          |
-|     |                | Mode in the window descriptor   |                   |          |
-|     |                | of SET WINDOW is supported. For |                   |          |
-|     |                | the number of supports, refer   |                   |          |
-|     |                | to 'Number of Setup mode'       |                   |          |
-|     |                | field.                          |                   |          |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 4   | Histogram      | Scanning for creating the image | 0                 | 0        |
-|     | Scanning       | data histogram                  |                   |          |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 5   | Auto Exposure  | Scanning for deciding the       | 0                 | 0        |
-|     | Scanning       | integral time at which the      |                   |          |
-|     |                | output value becomes the AE     |                   |          |
-|     |                | Value that is set in each color |                   |          |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 6   | AE with WB     | Scanning for deciding the       | 0                 | 0        |
-|     | Scanning       | integral time at which the      |                   |          |
-|     |                | maximum value of the output     |                   |          |
-|     |                | values in each color becomes    |                   |          |
-|     |                | the AE Value that is set with   |                   |          |
-|     |                | the white balance maintained    |                   |          |
-+-----+----------------+---------------------------------+-------------------+----------+
-| 7   | Extend bit     | Extension bit \[0\]             | 0                 | 0        |
-+-----+----------------+---------------------------------+-------------------+----------+
+<table>
+<colgroup>
+<col style="width: 6%" />
+<col style="width: 23%" />
+<col style="width: 47%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit</td>
+<td style="text-align: center;">Type</td>
+<td style="text-align: center;">Explanations of operation</td>
+<td style="text-align: left;">IA-20/SA-21/SA-30</td>
+<td style="text-align: left;">Other adapters</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;">Image Scanning</td>
+<td style="text-align: left;">Normal image scanning</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">Thumbnail Scanning</td>
+<td style="text-align: left;">Thumbnail image scanning</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td style="text-align: left;">Set up Scanning</td>
+<td style="text-align: left;"><p>Prescan</p>
+<p>Scanning for deciding the optimal integral time and gain,
+etc.</p></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td style="text-align: left;">Set up Scanning2</td>
+<td style="text-align: left;"><p>Prescan</p>
+<p>Scanning for deciding the optimal integral time and gain, etc. The
+low-density/high-density limit values are used instead of the maximum
+value and the minimum value. When the bit is 1, Setup Mode in the window
+descriptor of SET WINDOW is supported. For the number of supports, refer
+to ‘Number of Setup mode’ field.</p></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td style="text-align: left;">Histogram Scanning</td>
+<td style="text-align: left;">Scanning for creating the image data
+histogram</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td style="text-align: left;">Auto Exposure Scanning</td>
+<td style="text-align: left;">Scanning for deciding the integral time at
+which the output value becomes the AE Value that is set in each
+color</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td style="text-align: left;">AE with WB Scanning</td>
+<td style="text-align: left;">Scanning for deciding the integral time at
+which the maximum value of the output values in each color becomes the
+AE Value that is set with the white balance maintained</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td style="text-align: left;">Extend bit</td>
+<td style="text-align: center;">Extension bit [0]</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+</tbody>
+</table>
 
 \[03h\] \[01h\]
 
@@ -1884,71 +3104,215 @@ Byte 5 Scan Mode Support
 > Normal Quality Scan, Multiple Reading Scan, and Reverse direction
 > Scanning Supported are supported.
 
-+:-----:+-----------------------------------------------------+:-----:+
-| Bit0  | > High Quality Scan                                 | \[0\] |
-+-------+-----------------------------------------------------+-------+
-| Bit1  | > Normal Quality Scan                               | \[1\] |
-+-------+-----------------------------------------------------+-------+
-| Bit2  | > High Speed Scan                                   | \[0\] |
-+-------+-----------------------------------------------------+-------+
-| Bit3  | > Reserved                                          | \[0\] |
-+-------+-----------------------------------------------------+-------+
-| Bit4  | > Multiple Reading Scan                             | \[1\] |
-+-------+-----------------------------------------------------+-------+
-| Bit5  | > Reserved                                          | \[0\] |
-+-------+-----------------------------------------------------+-------+
-| Bit6  | > Reverse direction Scanning Supported              | \[1\] |
-+-------+-----------------------------------------------------+-------+
-| Bit7  | > Extend bit                                        | \[0\] |
-+-------+-----------------------------------------------------+-------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 75%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0</td>
+<td><blockquote>
+<p>High Quality Scan</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit1</td>
+<td><blockquote>
+<p>Normal Quality Scan</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit2</td>
+<td><blockquote>
+<p>High Speed Scan</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit3</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4</td>
+<td><blockquote>
+<p>Multiple Reading Scan</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit5</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit6</td>
+<td><blockquote>
+<p>Reverse direction Scanning Supported</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit7</td>
+<td><blockquote>
+<p>Extend bit</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 6 Color Interleaving Support
 
 > This field specifies the color order for data transfer.
 >
-> This unit supports 'Line without CCD distance' and 'Multi line
-> Simultaneous reading'.
+> This unit supports ‘Line without CCD distance’ and ‘Multi line
+> Simultaneous reading’.
 
-+:------:+----------------------------------------------------+:-----:+
-| Bit0   | > Pixel without CCD distance                       | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit1   | > Line without CCD distance                        | \[1\] |
-+--------+----------------------------------------------------+-------+
-| Bit2   | > Plane                                            | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit3   | > Reserved                                         | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit4   | > Pixel with CCD distance                          | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit5   | > Line with CCD distance                           | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit6   | > Multi line Simultaneous reading                  | \[1\] |
-+--------+----------------------------------------------------+-------+
-| Bit7   | > Reserved                                         | \[0\] |
-+--------+----------------------------------------------------+-------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 74%" />
+<col style="width: 12%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0</td>
+<td><blockquote>
+<p>Pixel without CCD distance</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit1</td>
+<td><blockquote>
+<p>Line without CCD distance</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit2</td>
+<td><blockquote>
+<p>Plane</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit3</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4</td>
+<td><blockquote>
+<p>Pixel with CCD distance</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit5</td>
+<td><blockquote>
+<p>Line with CCD distance</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit6</td>
+<td><blockquote>
+<p>Multi line Simultaneous reading</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit7</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 7 Color Component
 
 > This field specifies the color composition to be scanned. Dropout
 > Color and R-G-B are supported.
 
-+:------:+---------------------------------------------------+:-------:+
-| Bit0   | > Neutral Gray Scale                              | \[0\]   |
-+--------+---------------------------------------------------+---------+
-| Bit1   | > Dropout Color                                   | \[1\]   |
-+--------+---------------------------------------------------+---------+
-| Bit2   | > R-G-B                                           | \[1\]   |
-+--------+---------------------------------------------------+---------+
-| Bit3   | > C-M-Y                                           | \[0\]   |
-+--------+---------------------------------------------------+---------+
-| Bit4   | > Reserved                                        | \[0\]   |
-+--------+---------------------------------------------------+---------+
-| Bit5   | > Reserved                                        | \[0\]   |
-+--------+---------------------------------------------------+---------+
-| Bit6   | > Reserved                                        | \[0\]   |
-+--------+---------------------------------------------------+---------+
-| Bit7   | > Extend bit                                      | \[0\]   |
-+--------+---------------------------------------------------+---------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 72%" />
+<col style="width: 14%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0</td>
+<td><blockquote>
+<p>Neutral Gray Scale</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit1</td>
+<td><blockquote>
+<p>Dropout Color</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit2</td>
+<td><blockquote>
+<p>R-G-B</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit3</td>
+<td><blockquote>
+<p>C-M-Y</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit5</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit6</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit7</td>
+<td><blockquote>
+<p>Extend bit</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 8 Color Ordering1
 
@@ -1965,11 +3329,26 @@ Byte 8 Color Ordering1
 > Bit 4 to 7 specify the color that can be scanned as the second color.
 > This field is set to 2 in this unit.
 
-+:------:+-------------------------------------------------------------+
-| Bit0-3 | > First component color                                     |
-+--------+-------------------------------------------------------------+
-| Bit4-7 | > Second component color                                    |
-+--------+-------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 86%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0-3</td>
+<td><blockquote>
+<p>First component color</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4-7</td>
+<td><blockquote>
+<p>Second component color</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 Byte 9 Color Ordering2
 
@@ -1986,34 +3365,97 @@ Byte 9 Color Ordering2
 > Bit 4 to 7 specify the color that can be scanned as the fourth color.
 > This field is set to 4 in this unit.
 
-+:------:+-------------------------------------------------------------+
-| Bit0-3 | > Third component color                                     |
-+--------+-------------------------------------------------------------+
-| Bit4-7 | > Fourth component color                                    |
-+--------+-------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 86%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0-3</td>
+<td><blockquote>
+<p>Third component color</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4-7</td>
+<td><blockquote>
+<p>Fourth component color</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 Byte 10 Output Bit Depth / Dot a Color Support
 
 > This field specifies the number of bits of a single color data. This
 > unit supports 16bit.
 
-+:------:+----------------------------------------------------+:-----:+
-| Bit0   | > 1bit a color                                     | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit1   | > 8bit a color                                     | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit2   | > 10bit a color                                    | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit3   | > 12bit a color                                    | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit4   | > 14bit a color                                    | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit5   | > 16bit a color                                    | \[1\] |
-+--------+----------------------------------------------------+-------+
-| Bit6   | > Reserved                                         | \[0\] |
-+--------+----------------------------------------------------+-------+
-| Bit7   | > Extend bit                                       | \[0\] |
-+--------+----------------------------------------------------+-------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 74%" />
+<col style="width: 12%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0</td>
+<td><blockquote>
+<p>1bit a color</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit1</td>
+<td><blockquote>
+<p>8bit a color</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit2</td>
+<td><blockquote>
+<p>10bit a color</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit3</td>
+<td><blockquote>
+<p>12bit a color</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4</td>
+<td><blockquote>
+<p>14bit a color</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit5</td>
+<td><blockquote>
+<p>16bit a color</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit6</td>
+<td><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit7</td>
+<td><blockquote>
+<p>Extend bit</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 11 Number of Setup Mode
 
@@ -2045,23 +3487,71 @@ Byte 14 Analog Control Support
 >
 > This unit supports the exposure value.
 
-+:-------:+---------------------------------------------------+:-----:+
-| Bit0    | > Analog Gamma                                    | \[0\] |
-+---------+---------------------------------------------------+-------+
-| Bit1    | > Exposure Time                                   | \[0\] |
-+---------+---------------------------------------------------+-------+
-| Bit2    | > Analog Gain                                     | \[0\] |
-+---------+---------------------------------------------------+-------+
-| Bit3    | > Digital Gain                                    | \[0\] |
-+---------+---------------------------------------------------+-------+
-| Bit4    | > Analog Shift                                    | \[0\] |
-+---------+---------------------------------------------------+-------+
-| Bit5    | > Analog Offset                                   | \[0\] |
-+---------+---------------------------------------------------+-------+
-| Bit6    | > Exposure Value                                  | \[1\] |
-+---------+---------------------------------------------------+-------+
-| Bit7    | > Extend bit                                      | \[0\] |
-+---------+---------------------------------------------------+-------+
+<table>
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 73%" />
+<col style="width: 12%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Bit0</td>
+<td><blockquote>
+<p>Analog Gamma</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit1</td>
+<td><blockquote>
+<p>Exposure Time</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit2</td>
+<td><blockquote>
+<p>Analog Gain</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit3</td>
+<td><blockquote>
+<p>Digital Gain</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit4</td>
+<td><blockquote>
+<p>Analog Shift</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit5</td>
+<td><blockquote>
+<p>Analog Offset</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit6</td>
+<td><blockquote>
+<p>Exposure Value</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">Bit7</td>
+<td><blockquote>
+<p>Extend bit</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 15 Additional length for Analog Control Information
 
@@ -2108,184 +3598,255 @@ Byte 27 Halftone Support
 >
 > This unit does not support the halftone.
 
-**\**
+**  **
 **2-2-2-5. Other information page**
 
 Other information page
 
-+------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit   | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|       |             |             |             |             |             |             |             |             |
-| Byte  |             |             |             |             |             |             |             |             |
-+-------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| 0     | Peripheral Qualifier                    | Peripheral Device Type                                              |
-|       |                                         |                                                                     |
-|       | \[0\]                                   | \[6=00110b\]                                                        |
-|       |                                         |                                                                     |
-|       | \[011b\](\*1)                           | \[1Fh=11111b\](\*1)                                                 |
-+-------+-----------------------------------------+---------------------------------------------------------------------+
-| 1     | Page code \[E1h\]                                                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 2     | Reserved \[0\]                                                                                                |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 3     | Page length \[35d=23h\]                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 4, 5  | > Host cooperation function (initiator cooperation execution processing)                                      |
-|       | >                                                                                                             |
-|       | > Byte 4 \[83h\] (SA-21/SA-30)                                                                                |
-|       | >                                                                                                             |
-|       | > \[82h\] (Adapter and holder other than the above)                                                           |
-|       | >                                                                                                             |
-|       | > Byte 5 \[0Ch\]                                                                                              |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 6 to  | > Send/Read supported information (SEND/READ command support data transfer)                                   |
-| 10    | >                                                                                                             |
-|       | > Byte 6 \[80h\]                                                                                              |
-|       | >                                                                                                             |
-|       | > Byte 7 \[B0h\]                                                                                              |
-|       | >                                                                                                             |
-|       | > Byte 8 \[90h\]                                                                                              |
-|       | >                                                                                                             |
-|       | > Byte 9 \[DAh\] (SA-21/SA-30)                                                                                |
-|       |                                                                                                               |
-|       | \[9Ah\] (Adapter and holder other than the above)                                                             |
-|       |                                                                                                               |
-|       | Byte 10 \[7Bh\] (SA-21/SA-30)                                                                                 |
-|       |                                                                                                               |
-|       | \[78h\] (IA-21/SF-210)                                                                                        |
-|       |                                                                                                               |
-|       | \[7Ch\] (Adapter and holder other than the above)                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 11    | > Bits per a halftone mask parameter                                                                          |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 12    | > X bit depth of Download LUT                                                                                 |
-|       | >                                                                                                             |
-|       | > (The number of bits in the input data of the LUT that is downloaded from the initiator)                     |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 13    | > Y bit depth of Download LUT                                                                                 |
-|       | >                                                                                                             |
-|       | > (The number of bits in the output data of the LUT that is downloaded from the initiator)                    |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 14    | > Bits per a Histogram Data                                                                                   |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 15    | > Bits per a Max Value Data                                                                                   |
-|       | >                                                                                                             |
-|       | > (The number of bits of the AE maximum value)                                                                |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 16    | > Bits per a Matrix Data                                                                                      |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 17    | > Bits per a Filter Data                                                                                      |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 18    | > Bits per a Shading Data                                                                                     |
-|       | >                                                                                                             |
-|       | > (The number of bits in each data of the shading correction coefficient)                                     |
-|       | >                                                                                                             |
-|       | > \[16=10h\]                                                                                                  |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 19    | > Bits per a Dark Current Data (The number of bits in each data of the dark voltage correction coefficient)   |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 20,   | > Execute operation support 80                                                                                |
-| 21    | >                                                                                                             |
-|       | > (Function that is supported by operation code 8xh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 20 \[03h\]                                                                                             |
-|       | >                                                                                                             |
-|       | > Byte 21 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 22,   | > Execute operation support 90                                                                                |
-| 23    | >                                                                                                             |
-|       | > (Function that is supported by operation code 9xh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 22 \[02h\] (MA-21)                                                                                     |
-|       | >                                                                                                             |
-|       | > \[0\] (Adapter other than the above)                                                                        |
-|       | >                                                                                                             |
-|       | > Byte 23 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 24,   | > Execute operation support A0                                                                                |
-| 25    | >                                                                                                             |
-|       | > (Function that is supported by operation code Axh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 24 \[01h\]                                                                                             |
-|       | >                                                                                                             |
-|       | > Byte 25 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 26,   | > Execute operation support B0                                                                                |
-| 27    | >                                                                                                             |
-|       | > (Function that is supported by operation code Bxh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 26 \[19h\] (SA-21/SA-30/IA-20)                                                                         |
-|       | >                                                                                                             |
-|       | > \[09h\] (Adapter and holder other than the above)                                                           |
-|       | >                                                                                                             |
-|       | > Byte 27 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 28,   | > Execute operation support C0                                                                                |
-| 29    | >                                                                                                             |
-|       | > (Function that is supported by operation code Cxh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 28 \[03h\]                                                                                             |
-|       | >                                                                                                             |
-|       | > Byte 29 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 30,   | > Execute operation support D0                                                                                |
-| 31    | >                                                                                                             |
-|       | > (Function that is supported by operation code Dxh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 30 \[45h\] (SA-21/SA-30)                                                                               |
-|       | >                                                                                                             |
-|       | > \[07h\] (IA-20)                                                                                             |
-|       | >                                                                                                             |
-|       | > \[23h\] (SF-210)                                                                                            |
-|       | >                                                                                                             |
-|       | > \[0\] (Adapter and holder other than the above)                                                             |
-|       | >                                                                                                             |
-|       | > Byte 31 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 32,   | > Execute operation support E0                                                                                |
-| 33    | >                                                                                                             |
-|       | > (Function that is supported by operation code Exh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 32 \[0\]                                                                                               |
-|       | >                                                                                                             |
-|       | > Byte 33 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 34,   | > Execute operation support F0                                                                                |
-| 35    | >                                                                                                             |
-|       | > (Function that is supported by operation code Fxh of Execute)                                               |
-|       | >                                                                                                             |
-|       | > Byte 34 \[0\]                                                                                               |
-|       | >                                                                                                             |
-|       | > Byte 35 \[0\]                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 36    | > Additional Information (other additional information)                                                       |
-|       | >                                                                                                             |
-|       | > \[0Ch\]                                                                                                     |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 37    | > Volatile buffer for Initiator use (RAM buffer area)                                                         |
-|       | >                                                                                                             |
-|       | > \[4\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 38    | > Non Volatile buffer for Initiator use (non-volatile memory buffer area)                                     |
-|       | >                                                                                                             |
-|       | > \[0\]                                                                                                       |
-+-------+---------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 11%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Page code [E1h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Page length [35d=23h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4, 5</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Host cooperation function (initiator cooperation execution
+processing)</p>
+<p>Byte 4 [83h] (SA-21/SA-30)</p>
+<p>[82h] (Adapter and holder other than the above)</p>
+<p>Byte 5 [0Ch]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">6 to 10</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Send/Read supported information (SEND/READ command support data
+transfer)</p>
+<p>Byte 6 [80h]</p>
+<p>Byte 7 [B0h]</p>
+<p>Byte 8 [90h]</p>
+<p>Byte 9 [DAh] (SA-21/SA-30)</p>
+</blockquote>
+<p>[9Ah] (Adapter and holder other than the above)</p>
+<p>Byte 10 [7Bh] (SA-21/SA-30)</p>
+<p>[78h] (IA-21/SF-210)</p>
+<p>[7Ch] (Adapter and holder other than the above)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">11</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Bits per a halftone mask parameter</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">12</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>X bit depth of Download LUT</p>
+<p>(The number of bits in the input data of the LUT that is downloaded
+from the initiator)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">13</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Y bit depth of Download LUT</p>
+<p>(The number of bits in the output data of the LUT that is downloaded
+from the initiator)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">14</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Bits per a Histogram Data</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">15</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Bits per a Max Value Data</p>
+<p>(The number of bits of the AE maximum value)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">16</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Bits per a Matrix Data</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">17</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Bits per a Filter Data</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">18</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Bits per a Shading Data</p>
+<p>(The number of bits in each data of the shading correction
+coefficient)</p>
+<p>[16=10h]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">19</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Bits per a Dark Current Data (The number of bits in each data of the
+dark voltage correction coefficient)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">20, 21</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support 80</p>
+<p>(Function that is supported by operation code 8xh of Execute)</p>
+<p>Byte 20 [03h]</p>
+<p>Byte 21 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">22, 23</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support 90</p>
+<p>(Function that is supported by operation code 9xh of Execute)</p>
+<p>Byte 22 [02h] (MA-21)</p>
+<p>[0] (Adapter other than the above)</p>
+<p>Byte 23 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">24, 25</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support A0</p>
+<p>(Function that is supported by operation code Axh of Execute)</p>
+<p>Byte 24 [01h]</p>
+<p>Byte 25 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">26, 27</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support B0</p>
+<p>(Function that is supported by operation code Bxh of Execute)</p>
+<p>Byte 26 [19h] (SA-21/SA-30/IA-20)</p>
+<p>[09h] (Adapter and holder other than the above)</p>
+<p>Byte 27 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">28, 29</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support C0</p>
+<p>(Function that is supported by operation code Cxh of Execute)</p>
+<p>Byte 28 [03h]</p>
+<p>Byte 29 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">30, 31</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support D0</p>
+<p>(Function that is supported by operation code Dxh of Execute)</p>
+<p>Byte 30 [45h] (SA-21/SA-30)</p>
+<p>[07h] (IA-20)</p>
+<p>[23h] (SF-210)</p>
+<p>[0] (Adapter and holder other than the above)</p>
+<p>Byte 31 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">32, 33</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support E0</p>
+<p>(Function that is supported by operation code Exh of Execute)</p>
+<p>Byte 32 [0]</p>
+<p>Byte 33 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">34, 35</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Execute operation support F0</p>
+<p>(Function that is supported by operation code Fxh of Execute)</p>
+<p>Byte 34 [0]</p>
+<p>Byte 35 [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">36</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Additional Information (other additional information)</p>
+<p>[0Ch]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">37</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Volatile buffer for Initiator use (RAM buffer area)</p>
+<p>[4]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">38</td>
+<td colspan="8" style="text-align: left;"><blockquote>
+<p>Non Volatile buffer for Initiator use (non-volatile memory buffer
+area)</p>
+<p>[0]</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 \*1 When an invalid logical unit selection is performed
 
@@ -2296,46 +3857,151 @@ Byte 4 and 5 Host cooperation function
 >
 > The initiator performs the processing of the bit that is set to 1.
 
-+:----:+:----:+:-------------------------------:+:-----------:+:--------:+
-| Byte | Bit  |                                 | SA-21/SA-30 | Other    |
-|      |      |                                 |             | adapters |
-|      |      |                                 | /IA-20      |          |
-+------+------+---------------------------------+-------------+----------+
-| 4    | 0    | > Thumbnail created by driver   | 1           | 0        |
-+------+------+---------------------------------+-------------+----------+
-|      | 1    | > Averaging multiple reading by | 1           | 1        |
-|      |      | > driver                        |             |          |
-+------+------+---------------------------------+-------------+----------+
-|      | 2    | > Registration gap resolved by  | 0           | 0        |
-|      |      | > driver                        |             |          |
-+------+------+---------------------------------+-------------+----------+
-|      | 3    | > Dark voltage data created by  | 0           | 0        |
-|      |      | > driver                        |             |          |
-+------+------+---------------------------------+-------------+----------+
-|      | 4    | > Shading calibration data      | 0           | 0        |
-|      |      | > created by driver             |             |          |
-+------+------+---------------------------------+-------------+----------+
-|      | 5    | > Auto Focus by driver          | 0           | 0        |
-+------+------+---------------------------------+-------------+----------+
-|      | 6    | > Shading correction by driver  | 0           | 0        |
-+------+------+---------------------------------+-------------+----------+
-|      | 7    | > Extend bit                    | 1           | 1        |
-+------+------+---------------------------------+-------------+----------+
-| 5    | 0    | > 3 line simultaneous reading   | 0           | 0        |
-|      |      | > process by driver             |             |          |
-+------+------+---------------------------------+-------------+----------+
-|      | 1    | > Pitch in the main-scanning    | 0           | 0        |
-|      |      | > direction by driver           |             |          |
-+------+------+---------------------------------+-------------+----------+
-|      | 2    | > Truncated by driver           | 1           | 1        |
-+------+------+---------------------------------+-------------+----------+
-|      | 3    | > CCD Data Created by Driver    | 1           | 1        |
-+------+------+---------------------------------+-------------+----------+
-|      | 4 to | > Reserved                      | 0           | 0        |
-|      | 6    |                                 |             |          |
-+------+------+---------------------------------+-------------+----------+
-|      | 7    | > Extend bit                    | 0           | 0        |
-+------+------+---------------------------------+-------------+----------+
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 47%" />
+<col style="width: 15%" />
+<col style="width: 16%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Bit</td>
+<td style="text-align: center;"></td>
+<td style="text-align: center;"><p>SA-21/SA-30</p>
+<p>/IA-20</p></td>
+<td style="text-align: center;">Other adapters</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;"><blockquote>
+<p>Thumbnail created by driver</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;"><blockquote>
+<p>Averaging multiple reading by driver</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">2</td>
+<td style="text-align: left;"><blockquote>
+<p>Registration gap resolved by driver</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">3</td>
+<td style="text-align: left;"><blockquote>
+<p>Dark voltage data created by driver</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">4</td>
+<td style="text-align: left;"><blockquote>
+<p>Shading calibration data created by driver</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">5</td>
+<td style="text-align: left;"><blockquote>
+<p>Auto Focus by driver</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">6</td>
+<td style="text-align: left;"><blockquote>
+<p>Shading correction by driver</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: left;"><blockquote>
+<p>Extend bit</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;"><blockquote>
+<p>3 line simultaneous reading process by driver</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;"><blockquote>
+<p>Pitch in the main-scanning direction by driver</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">2</td>
+<td style="text-align: left;"><blockquote>
+<p>Truncated by driver</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">3</td>
+<td style="text-align: left;"><blockquote>
+<p>CCD Data Created by Driver</p>
+</blockquote></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">4 to 6</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: left;"><blockquote>
+<p>Extend bit</p>
+</blockquote></td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">0</td>
+</tr>
+</tbody>
+</table>
 
 Byte 6 to 10 Send/Read supported information
 
@@ -2344,149 +4010,450 @@ Byte 6 to 10 Send/Read supported information
 >
 > The data transfer of the bit that is set to 1 is supported.
 >
-> However, setting byte 7 bit5 'Shading Data writing supported' to \[0\]
+> However, setting byte 7 bit5 ‘Shading Data writing supported’ to \[0\]
 > when the shading correction that is being performed by the Set
 > Parameter command becomes an error indicates that the recovery
 > operation such as transferring the previous shading data from the host
 > to the unit is not necessary and the previous shading data can be
 > recovered in the unit.
 
-+------+------+-------------------------------+:--------:+:--------:+:---------:+
-|      |      |                               | \[SA-21/ | \[IA-20/ | \[Other\] |
-|      |      |                               |          |          |           |
-|      |      |                               | SA-30\]  | SF-210\] |           |
-+------+------+-------------------------------+----------+----------+-----------+
-| Byte | Bit0 | Halftone mask reading         | \[0\]    | \[0\]    | \[0\]     |
-| 6    |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit1 | Halftone mask writing         | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit2 | Gamma function reading        | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit3 | Gamma function writing        | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit4 | Histogram Data reading        | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit5 | Max Value Data reading        | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit6 | Reserved                      | \[0\]    | \[0\]    | \[0\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit7 | Extend bit                    | \[1\]    | \[1\]    | \[1\]     |
-+------+------+-------------------------------+----------+----------+-----------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 45%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td style="text-align: center;"><p>[SA-21/</p>
+<p>SA-30]</p></td>
+<td style="text-align: center;"><p>[IA-20/</p>
+<p>SF-210]</p></td>
+<td style="text-align: center;">[Other]</td>
+</tr>
+<tr>
+<td>Byte 6</td>
+<td>Bit0</td>
+<td>Halftone mask reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Bit1</td>
+<td>Halftone mask writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Bit2</td>
+<td>Gamma function reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Bit3</td>
+<td>Gamma function writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Bit4</td>
+<td>Histogram Data reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Bit5</td>
+<td>Max Value Data reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Bit6</td>
+<td>Reserved</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Bit7</td>
+<td>Extend bit</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+</tbody>
+</table>
 
-+:-----+:-----+:------------------------------+:--------:+:--------:+:---------:+
-|      |      |                               | \[SA-21/ | \[IA-20/ | \[Other\] |
-|      |      |                               |          |          |           |
-|      |      |                               | SA-30\]  | SF-210\] |           |
-+------+------+-------------------------------+----------+----------+-----------+
-| Byte | Bit0 | Matrix Data reading supported | \[0\]    | \[0\]    | \[0\]     |
-| 7    |      |                               |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit1 | Matrix Data writing supported | \[0\]    | \[0\]    | \[0\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit2 | Filter Data reading supported | \[0\]    | \[0\]    | \[0\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit3 | Filter Data writing supported | \[0\]    | \[0\]    | \[0\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit4 | Shading Data reading          | \[1\]    | \[1\]    | \[1\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit5 | Shading Data writing          | \[1\]    | \[1\]    | \[1\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit6 | Reserved                      | \[0\]    | \[0\]    | \[0\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit7 | Extend bit                    | \[1\]    | \[1\]    | \[1\]     |
-+------+------+-------------------------------+----------+----------+-----------+
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 9%" />
+<col style="width: 44%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;"><p>[SA-21/</p>
+<p>SA-30]</p></td>
+<td style="text-align: center;"><p>[IA-20/</p>
+<p>SF-210]</p></td>
+<td style="text-align: center;">[Other]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Byte 7</td>
+<td style="text-align: left;">Bit0</td>
+<td style="text-align: left;">Matrix Data reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit1</td>
+<td style="text-align: left;">Matrix Data writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit2</td>
+<td style="text-align: left;">Filter Data reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit3</td>
+<td style="text-align: left;">Filter Data writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit4</td>
+<td style="text-align: left;">Shading Data reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit5</td>
+<td style="text-align: left;">Shading Data writing supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit6</td>
+<td style="text-align: left;">Reserved</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit7</td>
+<td style="text-align: left;">Extend bit</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+</tbody>
+</table>
 
-+:-----+:-----+:------------------------------+:--------:+:--------:+:---------:+
-|      |      |                               | \[SA-21/ | \[IA-20/ | \[Other\] |
-|      |      |                               |          |          |           |
-|      |      |                               | SA-30\]  | SF-210\] |           |
-+------+------+-------------------------------+----------+----------+-----------+
-| Byte | Bit0 | Dark Voltage Data reading     | \[0\]    | \[0\]    | \[0\]     |
-| 8    |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit1 | Dark Voltage Data writing     | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit2 | Magnetic Data reading         | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit3 | Magnetic Data writing         | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit4 | Cooperation parameters        | \[1\]    | \[1\]    | \[1\]     |
-|      |      | reading supported             |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit5 | Boundary data reading         | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit6 | Boundary data writing         | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit7 | Extend bit                    | \[1\]    | \[1\]    | \[1\]     |
-+------+------+-------------------------------+----------+----------+-----------+
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 44%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;"><p>[SA-21/</p>
+<p>SA-30]</p></td>
+<td style="text-align: center;"><p>[IA-20/</p>
+<p>SF-210]</p></td>
+<td style="text-align: center;">[Other]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Byte 8</td>
+<td style="text-align: left;">Bit0</td>
+<td style="text-align: left;">Dark Voltage Data reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit1</td>
+<td style="text-align: left;">Dark Voltage Data writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit2</td>
+<td style="text-align: left;">Magnetic Data reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit3</td>
+<td style="text-align: left;">Magnetic Data writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit4</td>
+<td style="text-align: left;">Cooperation parameters reading
+supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit5</td>
+<td style="text-align: left;">Boundary data reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit6</td>
+<td style="text-align: left;">Boundary data writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit7</td>
+<td style="text-align: left;">Extend bit</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+</tbody>
+</table>
 
-+:-----+:-----+:------------------------------+:--------:+:--------:+:---------:+
-|      |      |                               | \[SA-21/ | \[IA-20/ | \[Other\] |
-|      |      |                               |          |          |           |
-|      |      |                               | SA-30\]  | SF-210\] |           |
-+------+------+-------------------------------+----------+----------+-----------+
-| Byte | Bit0 | Analog Gamma reading          | \[0\]    | \[0\]    | \[0\]     |
-| 9    |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit1 | Analog Gain reading supported | \[1\]    | \[1\]    | \[1\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit2 | Digital Gain reading          | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit3 | Exposure Value reading        | \[1\]    | \[1\]    | \[1\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit4 | Setup Information reading     | \[1\]    | \[1\]    | \[1\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit5 | Setup Information writing     | \[0\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit6 | Perforation Information       | \[1\]    | \[0\]    | \[0\]     |
-|      |      | reading supported             |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit7 | Extend bit                    | \[1\]    | \[1\]    | \[1\]     |
-+------+------+-------------------------------+----------+----------+-----------+
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 44%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;"><p>[SA-21/</p>
+<p>SA-30]</p></td>
+<td style="text-align: center;"><p>[IA-20/</p>
+<p>SF-210]</p></td>
+<td style="text-align: center;">[Other]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Byte 9</td>
+<td style="text-align: left;">Bit0</td>
+<td style="text-align: left;">Analog Gamma reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit1</td>
+<td style="text-align: left;">Analog Gain reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit2</td>
+<td style="text-align: left;">Digital Gain reading supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit3</td>
+<td style="text-align: left;">Exposure Value reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit4</td>
+<td style="text-align: left;">Setup Information reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit5</td>
+<td style="text-align: left;">Setup Information writing supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit6</td>
+<td style="text-align: left;">Perforation Information reading
+supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit7</td>
+<td style="text-align: left;">Extend bit</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+</tbody>
+</table>
 
-+:-----+:-----+:------------------------------+:--------:+:--------:+:---------:+
-|      |      |                               | \[SA-21/ | \[IA-20/ | \[Other\] |
-|      |      |                               |          |          |           |
-|      |      |                               | SA-30\]  | SF-210\] |           |
-+------+------+-------------------------------+----------+----------+-----------+
-| Byte | Bit0 | Boundary Type2 data reading   | \[1\]    | \[0\]    | \[0\]     |
-| 10   |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit1 | Boundary Type2 data writing   | \[1\]    | \[0\]    | \[0\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit2 | Initial WB Exposure Value     | \[0\]    | \[0\]    | \[1\]     |
-|      |      | reading supported             |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit3 | CCD data reading supported    | \[1\]    | \[1\]    | \[1\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit4 | Driver Soft Version reading   | \[1\]    | \[1\]    | \[1\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit5 | Driver Soft Version writing   | \[1\]    | \[1\]    | \[1\]     |
-|      |      | supported                     |          |          |           |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit6 | Leak data reading supported   | \[1\]    | \[1\]    | \[1\]     |
-+------+------+-------------------------------+----------+----------+-----------+
-|      | Bit7 | Extend bit                    | \[0\]    | \[0\]    | \[0\]     |
-+------+------+-------------------------------+----------+----------+-----------+
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 44%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;"><p>[SA-21/</p>
+<p>SA-30]</p></td>
+<td style="text-align: center;"><p>[IA-20/</p>
+<p>SF-210]</p></td>
+<td style="text-align: center;">[Other]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Byte 10</td>
+<td style="text-align: left;">Bit0</td>
+<td style="text-align: left;">Boundary Type2 data reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit1</td>
+<td style="text-align: left;">Boundary Type2 data writing supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit2</td>
+<td style="text-align: left;">Initial WB Exposure Value reading
+supported</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit3</td>
+<td style="text-align: left;">CCD data reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit4</td>
+<td style="text-align: left;">Driver Soft Version reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit5</td>
+<td style="text-align: left;">Driver Soft Version writing supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit6</td>
+<td style="text-align: left;">Leak data reading supported</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Bit7</td>
+<td style="text-align: left;">Extend bit</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 11 Bits per a halftone mask parameter
 
@@ -2539,27 +4506,62 @@ Byte 20 and 21 Execute operation support 80
 > This field specifies the function that is supported by operation code
 > 8xh of EXECUTE command.
 >
-> This unit supports 'Initialize' and 'Return to origin'.
+> This unit supports ‘Initialize’ and ‘Return to origin’.
 >
-> 'Initialize' performs the unit initialization in the same manner as
+> ‘Initialize’ performs the unit initialization in the same manner as
 > that is performed at the start of power supply.
 >
-> 'Return to origin' moves the object to be scanned or the stage
+> ‘Return to origin’ moves the object to be scanned or the stage
 > (mechanical block) to the origin position.
 
-+:------:+:------:+:---------------------------------------:+:--------:+
-| Byte   | Bit    | Operation                               | Value on |
-|        |        |                                         | this     |
-|        |        |                                         | unit     |
-+--------+--------+-----------------------------------------+----------+
-| 20     | 0      | > Initialize                            | \[1\]    |
-+--------+--------+-----------------------------------------+----------+
-|        | 1      | > Return to origin                      | \[1\]    |
-+--------+--------+-----------------------------------------+----------+
-|        | 2 to 7 | > Reserved                              | \[0\]    |
-+--------+--------+-----------------------------------------+----------+
-| 21     | 0 to 7 | > Reserved                              | \[0\]    |
-+--------+--------+-----------------------------------------+----------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 58%" />
+<col style="width: 15%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Bit</td>
+<td style="text-align: center;">Operation</td>
+<td style="text-align: center;">Value on this unit</td>
+</tr>
+<tr>
+<td style="text-align: center;">20</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;"><blockquote>
+<p>Initialize</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;"><blockquote>
+<p>Return to origin</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">2 to 7</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">21</td>
+<td style="text-align: center;">0 to 7</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 22 and 23 Execute operation support 90
 
@@ -2568,21 +4570,70 @@ Byte 22 and 23 Execute operation support 90
 >
 > This unit supports the automatic execution of auto focus.
 
-+:---------:+:---------:+:-----------------------------------:+:---------------:+:------:+
-| Byte      | Bit       | Operation                           | Value on this unit       |
-+-----------+-----------+-------------------------------------+-----------------+--------+
-|           |           |                                     | MA-21           | Other  |
-|           |           |                                     |                 | than   |
-|           |           |                                     |                 | MA-21  |
-+-----------+-----------+-------------------------------------+-----------------+--------+
-| 22        | 0         | > Change Unit                       | \[0\]           | \[0\]  |
-+-----------+-----------+-------------------------------------+-----------------+--------+
-|           | 1         | > AF Autoexec                       | \[1\]           | \[0\]  |
-+-----------+-----------+-------------------------------------+-----------------+--------+
-|           | 2 to 7    | > Reserved                          | \[0\]           | \[0\]  |
-+-----------+-----------+-------------------------------------+-----------------+--------+
-| 23        | 0 to 7    | > Reserved                          | \[0\]           | \[0\]  |
-+-----------+-----------+-------------------------------------+-----------------+--------+
+<table style="width:99%;">
+<colgroup>
+<col style="width: 0%" />
+<col style="width: 11%" />
+<col style="width: 0%" />
+<col style="width: 11%" />
+<col style="width: 0%" />
+<col style="width: 47%" />
+<col style="width: 0%" />
+<col style="width: 12%" />
+<col style="width: 13%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="2" style="text-align: center;">Byte</td>
+<td colspan="2" style="text-align: center;">Bit</td>
+<td colspan="2" style="text-align: center;">Operation</td>
+<td colspan="3" style="text-align: center;">Value on this unit</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">MA-21</td>
+<td style="text-align: center;">Other than MA-21</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">22</td>
+<td colspan="2" style="text-align: center;">0</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Change Unit</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">1</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>AF Autoexec</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">2 to 7</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">23</td>
+<td colspan="2" style="text-align: center;">0 to 7</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 24 and 25 Execute operation support A0
 
@@ -2591,18 +4642,54 @@ Byte 24 and 25 Execute operation support A0
 >
 > This unit supports the auto focus.
 
-+:------:+:------:+:-------------------------------------:+:---------:+
-| Byte   | Bit    | Operation                             | Value on  |
-|        |        |                                       | this unit |
-+--------+--------+---------------------------------------+-----------+
-| 24     | 0      | > Auto Focus                          | \[1\]     |
-+--------+--------+---------------------------------------+-----------+
-|        | 1      | > Color oriented Auto Focus           | \[0\]     |
-+--------+--------+---------------------------------------+-----------+
-|        | 2 to 7 | > Reserved                            | \[0\]     |
-+--------+--------+---------------------------------------+-----------+
-| 25     | 0 to 7 | > Reserved                            | \[0\]     |
-+--------+--------+---------------------------------------+-----------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 12%" />
+<col style="width: 56%" />
+<col style="width: 18%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Bit</td>
+<td style="text-align: center;">Operation</td>
+<td style="text-align: center;">Value on this unit</td>
+</tr>
+<tr>
+<td style="text-align: center;">24</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;"><blockquote>
+<p>Auto Focus</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;"><blockquote>
+<p>Color oriented Auto Focus</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">2 to 7</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">25</td>
+<td style="text-align: center;">0 to 7</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 26 and 27 Execute operation support B0
 
@@ -2613,27 +4700,109 @@ Byte 26 and 27 Execute operation support B0
 > recording of the unit-specific data setting, and changing the
 > automatic ejection time of the film.
 
-+:---------------------:+:---------------------:+:---------------------------------------------:+:---------------------------------:+:---------------------------:+
-| Byte                  | Bit                   | Operation                                     | Value on this unit                                              |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-|                       |                       |                                               | SA-21/SA-30                       | Other than                  |
-|                       |                       |                                               |                                   |                             |
-|                       |                       |                                               | /IA-20                            | SA-21/SA-30/IA-20           |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-| 26                    | 0                     | > Setup Shading Data                          | \[1\]                             | \[1\]                       |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-|                       | 1                     | > Setup Dark Current Correction Data          | \[0\]                             | \[0\]                       |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-|                       | 2                     | > Setup Offset Correction Data                | \[0\]                             | \[0\]                       |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-|                       | 3                     | > Write Data On Device Dependence             | \[1\]                             | \[1\]                       |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-|                       | 4                     | > Change of Auto Unload time                  | \[1\]                             | \[0\]                       |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-|                       | 5 to 7                | > Reserved                                    | \[0\]                             | \[0\]                       |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
-| 27                    | 0 to 7                | > Reserved                                    | \[0\]                             | \[0\]                       |
-+-----------------------+-----------------------+-----------------------------------------------+-----------------------------------+-----------------------------+
+<table style="width:98%;">
+<colgroup>
+<col style="width: 0%" />
+<col style="width: 0%" />
+<col style="width: 1%" />
+<col style="width: 6%" />
+<col style="width: 0%" />
+<col style="width: 0%" />
+<col style="width: 1%" />
+<col style="width: 6%" />
+<col style="width: 0%" />
+<col style="width: 0%" />
+<col style="width: 1%" />
+<col style="width: 39%" />
+<col style="width: 0%" />
+<col style="width: 0%" />
+<col style="width: 1%" />
+<col style="width: 15%" />
+<col style="width: 0%" />
+<col style="width: 1%" />
+<col style="width: 18%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="4" style="text-align: center;">Byte</td>
+<td colspan="4" style="text-align: center;">Bit</td>
+<td colspan="4" style="text-align: center;">Operation</td>
+<td colspan="7" style="text-align: center;">Value on this unit</td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;"><p>SA-21/SA-30</p>
+<p>/IA-20</p></td>
+<td colspan="3" style="text-align: center;"><p>Other than</p>
+<p>SA-21/SA-30/IA-20</p></td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;">26</td>
+<td colspan="4" style="text-align: center;">0</td>
+<td colspan="4" style="text-align: center;"><blockquote>
+<p>Setup Shading Data</p>
+</blockquote></td>
+<td colspan="4" style="text-align: center;">[1]</td>
+<td colspan="3" style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;">1</td>
+<td colspan="4" style="text-align: center;"><blockquote>
+<p>Setup Dark Current Correction Data</p>
+</blockquote></td>
+<td colspan="4" style="text-align: center;">[0]</td>
+<td colspan="3" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;">2</td>
+<td colspan="4" style="text-align: center;"><blockquote>
+<p>Setup Offset Correction Data</p>
+</blockquote></td>
+<td colspan="4" style="text-align: center;">[0]</td>
+<td colspan="3" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;">3</td>
+<td colspan="4" style="text-align: center;"><blockquote>
+<p>Write Data On Device Dependence</p>
+</blockquote></td>
+<td colspan="4" style="text-align: center;">[1]</td>
+<td colspan="3" style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;">4</td>
+<td colspan="4" style="text-align: center;"><blockquote>
+<p>Change of Auto Unload time</p>
+</blockquote></td>
+<td colspan="4" style="text-align: center;">[1]</td>
+<td colspan="3" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;"></td>
+<td colspan="4" style="text-align: center;">5 to 7</td>
+<td colspan="4" style="text-align: center;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td colspan="4" style="text-align: center;">[0]</td>
+<td colspan="3" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="4" style="text-align: center;">27</td>
+<td colspan="4" style="text-align: center;">0 to 7</td>
+<td colspan="4" style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td colspan="4" style="text-align: center;">[0]</td>
+<td colspan="3" style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 28 and 29 Execute operation support C0
 
@@ -2642,19 +4811,54 @@ Byte 28 and 29 Execute operation support C0
 >
 > This unit supports the stage movement and the focus movement.
 
-+:------:+:------:+:--------------------------------------:+:--------:+
-| Byte   | Bit    | Operation                              | Value on |
-|        |        |                                        | this     |
-|        |        |                                        | unit     |
-+--------+--------+----------------------------------------+----------+
-| 28     | 0      | > Stage Move                           | \[1\]    |
-+--------+--------+----------------------------------------+----------+
-|        | 1      | > Focus Move                           | \[1\]    |
-+--------+--------+----------------------------------------+----------+
-|        | 2 to 7 | > Reserved                             | \[0\]    |
-+--------+--------+----------------------------------------+----------+
-| 29     | 0 to 7 | > Reserved                             | \[0\]    |
-+--------+--------+----------------------------------------+----------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 12%" />
+<col style="width: 58%" />
+<col style="width: 15%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Bit</td>
+<td style="text-align: center;">Operation</td>
+<td style="text-align: center;">Value on this unit</td>
+</tr>
+<tr>
+<td style="text-align: center;">28</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: left;"><blockquote>
+<p>Stage Move</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;"><blockquote>
+<p>Focus Move</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td style="text-align: center;">2 to 7</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">29</td>
+<td style="text-align: center;">0 to 7</td>
+<td style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 30 and 31 Execute operation support D0
 
@@ -2664,31 +4868,153 @@ Byte 30 and 31 Execute operation support D0
 > This unit supports the loading/unloading of the object to be scanned.
 > For the movement, the absolute address specification is supported.
 
-+:-------:+:-------:+:-----------------------:+:-------------------------:+:-------------------------:+:-------------------------:+:-------------------------:+:-------------------------:+
-| Byte    | Bit     | Operation               | Value on this unit                                                                                                                        |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         |         |                         | MA-21                     | SA-21                     | SA-30                     | IA-20                     | SF-210                    |
-|         |         |                         |                           |                           |                           |                           |                           |
-|         |         |                         | (\*1)                     |                           |                           |                           |                           |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-| 30      | 0       | > Unload object         | \[0\]                     | \[1\]                     | \[1\]                     | \[1\]                     | \[1\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         | 1       | > Load object           | \[0\]                     | \[0\]                     | \[0\]                     | \[1\]                     | \[1\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         | 2       | > Absolute positioning  | \[0\]                     | \[1\]                     | \[1\]                     | \[1\]                     | \[0\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         | 3       | > Relative positioning  | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         | 4       | > Rotate                | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         | 5       | > FD Move               | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     | \[1\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         | 6       | > SA Lock               | \[0\]                     | \[1\]                     | \[1\]                     | \[0\]                     | \[0\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-|         | 7       | > Reserved              | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
-| 31      | 0 to 7  | > Reserved              | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     | \[0\]                     |
-+---------+---------+-------------------------+---------------------------+---------------------------+---------------------------+---------------------------+---------------------------+
+<table style="width:94%;">
+<colgroup>
+<col style="width: 6%" />
+<col style="width: 2%" />
+<col style="width: 6%" />
+<col style="width: 2%" />
+<col style="width: 6%" />
+<col style="width: 25%" />
+<col style="width: 6%" />
+<col style="width: 2%" />
+<col style="width: 6%" />
+<col style="width: 2%" />
+<col style="width: 6%" />
+<col style="width: 2%" />
+<col style="width: 6%" />
+<col style="width: 2%" />
+<col style="width: 6%" />
+<col style="width: 2%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="2" style="text-align: center;">Byte</td>
+<td colspan="2" style="text-align: center;">Bit</td>
+<td colspan="2" style="text-align: center;">Operation</td>
+<td colspan="10" style="text-align: center;">Value on this unit</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;"><p>MA-21</p>
+<p>(*1)</p></td>
+<td colspan="2" style="text-align: center;">SA-21</td>
+<td colspan="2" style="text-align: center;">SA-30</td>
+<td colspan="2" style="text-align: center;">IA-20</td>
+<td colspan="2" style="text-align: center;">SF-210</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">30</td>
+<td colspan="2" style="text-align: center;">0</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Unload object</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">1</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Load object</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">2</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Absolute positioning</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">3</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Relative positioning</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">4</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Rotate</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">5</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>FD Move</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">6</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>SA Lock</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[1]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="2" style="text-align: center;">7</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">31</td>
+<td colspan="2" style="text-align: center;">0 to 7</td>
+<td colspan="2" style="text-align: left;"><blockquote>
+<p>Reserved</p>
+</blockquote></td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+<td colspan="2" style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 \*1 Each holder of FH3, FHG1, and FHA1 is included.
 
@@ -2706,43 +5032,80 @@ Byte 36 Additional Information
 
 > This field specifies the other additional information.
 
-+:-----+:--------------------+:----------------------------:+:--------:+
-| Bit  |                     | Explanations of operation    | Value on |
-|      |                     |                              | this     |
-|      |                     |                              | unit     |
-+------+---------------------+------------------------------+----------+
-| Bit0 | Hot exchangeable to | > The attached adapter can   | \[0\]    |
-|      | unequipped unit     | > be exchanged with the      |          |
-|      | with notice         | > power turned ON, and it is |          |
-|      |                     | > possible to inform the     |          |
-|      |                     | > initiator that the adapter |          |
-|      |                     | > has been exchanged.        |          |
-+------+---------------------+------------------------------+----------+
-| Bit1 | Scanned object      | > The scanned object can be  | \[0\]    |
-|      | exchangeable with   | > exchanged, and it is       |          |
-|      | notice              | > possible to inform the     |          |
-|      |                     | > initiator that the object  |          |
-|      |                     | > has been exchanged.        |          |
-+------+---------------------+------------------------------+----------+
-| Bit2 | Hot exchangeable to | > The attached adapter can   | \[1\]    |
-|      | unequipped unit     | > be exchanged with the      |          |
-|      | without notice      | > power turned ON, but it is |          |
-|      |                     | > not possible to inform the |          |
-|      |                     | > initiator that the adapter |          |
-|      |                     | > has been exchanged.        |          |
-+------+---------------------+------------------------------+----------+
-| Bit3 | Scanned object      | > The scanned object can be  | \[1\]    |
-|      | exchangeable        | > exchanged, but it is not   |          |
-|      | without notice      | > possible to inform the     |          |
-|      |                     | > initiator that the object  |          |
-|      |                     | > has been exchanged.        |          |
-+------+---------------------+------------------------------+----------+
-| Bit4 | Histogram Scanning  | > Scanning for creating the  | \[0\]    |
-| to 6 |                     | > histogram of the image     |          |
-|      |                     | > data                       |          |
-+------+---------------------+------------------------------+----------+
-| Bit7 | Extend bit          | > Extension bit              | \[0\]    |
-+------+---------------------+------------------------------+----------+
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 31%" />
+<col style="width: 44%" />
+<col style="width: 15%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: left;">Bit</td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;">Explanations of operation</td>
+<td style="text-align: center;">Value on this unit</td>
+</tr>
+<tr>
+<td style="text-align: left;">Bit0</td>
+<td style="text-align: left;">Hot exchangeable to unequipped unit with
+notice</td>
+<td style="text-align: left;"><blockquote>
+<p>The attached adapter can be exchanged with the power turned ON, and
+it is possible to inform the initiator that the adapter has been
+exchanged.</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Bit1</td>
+<td style="text-align: left;">Scanned object exchangeable with
+notice</td>
+<td style="text-align: left;"><blockquote>
+<p>The scanned object can be exchanged, and it is possible to inform the
+initiator that the object has been exchanged.</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Bit2</td>
+<td style="text-align: left;">Hot exchangeable to unequipped unit
+without notice</td>
+<td style="text-align: center;"><blockquote>
+<p>The attached adapter can be exchanged with the power turned ON, but
+it is not possible to inform the initiator that the adapter has been
+exchanged.</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Bit3</td>
+<td style="text-align: left;">Scanned object exchangeable without
+notice</td>
+<td style="text-align: left;"><blockquote>
+<p>The scanned object can be exchanged, but it is not possible to inform
+the initiator that the object has been exchanged.</p>
+</blockquote></td>
+<td style="text-align: center;">[1]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Bit4 to 6</td>
+<td style="text-align: left;">Histogram Scanning</td>
+<td style="text-align: left;"><blockquote>
+<p>Scanning for creating the histogram of the image data</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+<tr>
+<td style="text-align: left;">Bit7</td>
+<td style="text-align: left;">Extend bit</td>
+<td style="text-align: center;"><blockquote>
+<p>Extension bit</p>
+</blockquote></td>
+<td style="text-align: center;">[0]</td>
+</tr>
+</tbody>
+</table>
 
 Byte 37 Volatile buffer for Initiator use
 
@@ -2765,48 +5128,103 @@ Byte 38 Non Volatile buffer for Initiator use
 > This unit sets this field to 0, that is, this unit does not support
 > the non-volatile memory buffer area.
 
-**\**
+**  **
 **2-2-2-6. Operation code setting page**
 
-+----------:+:---------:+:---------:+:---------:+:---------:+:---------:+:---------:+:---------:+:---------:+
-| Bit       | 7         | 6         | 5         | 4         | 3         | 2         | 1         | 0         |
-|           |           |           |           |           |           |           |           |           |
-| Byte      |           |           |           |           |           |           |           |           |
-+-----------+-----------+-----------+-----------+-----------+-----------+-----------+-----------+-----------+
-| 0         | Peripheral Qualifier              | Peripheral Device Type                                    |
-|           |                                   |                                                           |
-|           | \[0\]                             | \[6=00110b\]                                              |
-|           |                                   |                                                           |
-|           | \[011b\](\*1)                     | \[1Fh=11111b\](\*1)                                       |
-+-----------+-----------------------------------+-----------------------------------------------------------+
-| 1         | Page code \[E2h\]                                                                             |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 2         | Reserved \[0\]                                                                                |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 3         | Page length \[m-3\]                                                                           |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 4         | Number of Operation code (=n)                                                                 |
-|           |                                                                                               |
-|           | (The number of operation codes for which setting of each value is necessary)                  |
-|           |                                                                                               |
-|           | \[1\]                                                                                         |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 5         | Operation Code                                                                                |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 6 to 9    | Minimum value of 1st Value                                                                    |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 10 to 13  | Maximum value of 1st Value                                                                    |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 14 to 17  | Minimum value of 2nd Value                                                                    |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 18 to 21  | Maximum value of 2nd Value                                                                    |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 22 to 25  | Minimum value of Speed                                                                        |
-+-----------+-----------------------------------------------------------------------------------------------+
-| 26 to 29  | Maximum value of Speed                                                                        |
-+-----------+-----------------------------------------------------------------------------------------------+
-| m=5+25\*n | \[n-1 times, repetition of byte 5 to 29\]                                                     |
-+-----------+-----------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 10%" />
+<col style="width: 9%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Page code [E2h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Page length [m-3]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;"><p>Number of Operation code
+(=n)</p>
+<p>(The number of operation codes for which setting of each value is
+necessary)</p>
+<p>[1]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Operation Code</td>
+</tr>
+<tr>
+<td style="text-align: center;">6 to 9</td>
+<td colspan="8" style="text-align: center;">Minimum value of 1st
+Value</td>
+</tr>
+<tr>
+<td style="text-align: center;">10 to 13</td>
+<td colspan="8" style="text-align: center;">Maximum value of 1st
+Value</td>
+</tr>
+<tr>
+<td style="text-align: center;">14 to 17</td>
+<td colspan="8" style="text-align: center;">Minimum value of 2nd
+Value</td>
+</tr>
+<tr>
+<td style="text-align: center;">18 to 21</td>
+<td colspan="8" style="text-align: center;">Maximum value of 2nd
+Value</td>
+</tr>
+<tr>
+<td style="text-align: center;">22 to 25</td>
+<td colspan="8" style="text-align: center;">Minimum value of Speed</td>
+</tr>
+<tr>
+<td style="text-align: center;">26 to 29</td>
+<td colspan="8" style="text-align: center;">Maximum value of Speed</td>
+</tr>
+<tr>
+<td style="text-align: right;">m=5+25*n</td>
+<td colspan="8" style="text-align: center;">[n-1 times, repetition of
+byte 5 to 29]</td>
+</tr>
+</tbody>
+</table>
 
 \*1 When an invalid logical unit selection is performed
 
@@ -2822,83 +5240,163 @@ Byte 5 and after (5+25\*n)
 > the unit of the ID specified in this field. The operation code that is
 > used in this unit is shown below.
 
-  ------------------------------------------ ----------------------------
-  Contents of operation                             Operation code
-
-  Setting of the medium ejection time                    B4h
-  ------------------------------------------ ----------------------------
+|                                     |                |
+|-------------------------------------|:--------------:|
+| Contents of operation               | Operation code |
+| Setting of the medium ejection time |      B4h       |
 
 Set value of the operation code setting page
 
-+---------------------------------------+:--------------:+:--------------:+
-| Operation code                        | B4                              |
-|                                       +----------------+----------------+
-|                                       | Byte           | Set value      |
-+---------------------------------------+----------------+----------------+
-| Operation Code                        | 5              | B4h            |
-+---------------------------------------+----------------+----------------+
-| Minimum value of 1^st^ Value          | 6 to 9         | 60             |
-+---------------------------------------+----------------+----------------+
-| Maximum value of 1^st^ Value          | 10 to 13       | 3600           |
-+---------------------------------------+----------------+----------------+
-| Minimum value of 2^nd^ Value          | 14 to 17       | 0              |
-+---------------------------------------+----------------+----------------+
-| Maximum value of 2^nd^ Value          | 18 to 21       | 1              |
-+---------------------------------------+----------------+----------------+
-| Minimum value of Speed                | 22 to 25       | 0              |
-+---------------------------------------+----------------+----------------+
-| Maximum value of Speed                | 26 to 29       | 0              |
-+---------------------------------------+----------------+----------------+
+<table>
+<colgroup>
+<col style="width: 55%" />
+<col style="width: 20%" />
+<col style="width: 23%" />
+</colgroup>
+<tbody>
+<tr>
+<td rowspan="2">Operation code</td>
+<td colspan="2" style="text-align: center;">B4</td>
+</tr>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Set value</td>
+</tr>
+<tr>
+<td>Operation Code</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">B4h</td>
+</tr>
+<tr>
+<td>Minimum value of 1<sup>st</sup> Value</td>
+<td style="text-align: center;">6 to 9</td>
+<td style="text-align: center;">60</td>
+</tr>
+<tr>
+<td>Maximum value of 1<sup>st</sup> Value</td>
+<td style="text-align: center;">10 to 13</td>
+<td style="text-align: center;">3600</td>
+</tr>
+<tr>
+<td>Minimum value of 2<sup>nd</sup> Value</td>
+<td style="text-align: center;">14 to 17</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td>Maximum value of 2<sup>nd</sup> Value</td>
+<td style="text-align: center;">18 to 21</td>
+<td style="text-align: center;">1</td>
+</tr>
+<tr>
+<td>Minimum value of Speed</td>
+<td style="text-align: center;">22 to 25</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td>Maximum value of Speed</td>
+<td style="text-align: center;">26 to 29</td>
+<td style="text-align: center;">0</td>
+</tr>
+</tbody>
+</table>
 
 **2-2-2-7. CCD measurement setting page**
 
-+-------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit    | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|        |             |             |             |             |             |             |             |             |
-| Byte   |             |             |             |             |             |             |             |             |
-+--------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| 0      | Peripheral Qualifier                    | Peripheral Device Type                                              |
-|        |                                         |                                                                     |
-|        | \[0\]                                   | \[6=00110b\]                                                        |
-|        |                                         |                                                                     |
-|        | \[011b\](\*1)                           | \[1Fh=11111b\](\*1)                                                 |
-+--------+-----------------------------------------+---------------------------------------------------------------------+
-| 1      | Page code \[E3h\]                                                                                             |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 2      | Reserved \[0\]                                                                                                |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 3      | Page length \[\]                                                                                              |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 4, 5   | Color of CCD Data                                                                                             |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 6, 7   | Resolution of CCD Data                                                                                        |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 8      | Scanning Number of CCD Data                                                                                   |
-|        |                                                                                                               |
-|        | (The number of scanning times for the CCD measurement)                                                        |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 9      | Type of CCD Data                                                                                              |
-|        |                                                                                                               |
-|        | (The number of types for the CCD measurement)                                                                 |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 10     | A number of CCD Data \[n\]                                                                                    |
-|        |                                                                                                               |
-|        | (The number of measurement points for the CCD measurement)                                                    |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 11, 12 | First value of CCD Data                                                                                       |
-|        |                                                                                                               |
-|        | (Ratio of the first point for the CCD measurement)                                                            |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| 13, 14 | Second value of CCD Data                                                                                      |
-|        |                                                                                                               |
-|        | (Ratio of the second point for the CCD measurement)                                                           |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| :      | :                                                                                                             |
-+--------+---------------------------------------------------------------------------------------------------------------+
-| n+10,  | nth value of CCD Data                                                                                         |
-| n+11   |                                                                                                               |
-|        | (Ratio of the nth point for the CCD measurement)                                                              |
-+--------+---------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="3" style="text-align: center;"><p>Peripheral Qualifier</p>
+<p>[0]</p>
+<p>[011b](*1)</p></td>
+<td colspan="5" style="text-align: center;"><p>Peripheral Device
+Type</p>
+<p>[6=00110b]</p>
+<p>[1Fh=11111b](*1)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Page code [E3h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Page length []</td>
+</tr>
+<tr>
+<td style="text-align: center;">4, 5</td>
+<td colspan="8" style="text-align: center;">Color of CCD Data</td>
+</tr>
+<tr>
+<td style="text-align: center;">6, 7</td>
+<td colspan="8" style="text-align: center;">Resolution of CCD Data</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td colspan="8" style="text-align: center;"><p>Scanning Number of CCD
+Data</p>
+<p>(The number of scanning times for the CCD measurement)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td colspan="8" style="text-align: center;"><p>Type of CCD Data</p>
+<p>(The number of types for the CCD measurement)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">10</td>
+<td colspan="8" style="text-align: center;"><p>A number of CCD Data
+[n]</p>
+<p>(The number of measurement points for the CCD measurement)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">11, 12</td>
+<td colspan="8" style="text-align: center;"><p>First value of CCD
+Data</p>
+<p>(Ratio of the first point for the CCD measurement)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">13, 14</td>
+<td colspan="8" style="text-align: center;"><p>Second value of CCD
+Data</p>
+<p>(Ratio of the second point for the CCD measurement)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">n+10, n+11</td>
+<td colspan="8" style="text-align: center;"><p>nth value of CCD Data</p>
+<p>(Ratio of the nth point for the CCD measurement)</p></td>
+</tr>
+</tbody>
+</table>
 
 \*1 When an invalid logical unit selection is performed
 
@@ -2910,30 +5408,22 @@ Byte 4 and 5 Color of CCD Data
 >
 > Byte 4
 
-  ------------- ---------------------------------------------------------
-  Bit 0         R \[0:OFF/1:ON\]
-
-  Bit 1         G \[0:OFF/1:ON\]
-
-  Bit 2         B \[0:OFF/1:ON\]
-
-  Bit 3         NG \[0:OFF/1:ON\]
-
-  Bit 4         C \[0:OFF/1:ON\]
-
-  Bit 5         M \[0:OFF/1:ON\]
-
-  Bit 6         Y \[0:OFF/1:ON\]
-
-  Bit 7         K \[0:OFF/1:ON\]
-  ------------- ---------------------------------------------------------
+|       |                   |
+|-------|-------------------|
+| Bit 0 | R \[0:OFF/1:ON\]  |
+| Bit 1 | G \[0:OFF/1:ON\]  |
+| Bit 2 | B \[0:OFF/1:ON\]  |
+| Bit 3 | NG \[0:OFF/1:ON\] |
+| Bit 4 | C \[0:OFF/1:ON\]  |
+| Bit 5 | M \[0:OFF/1:ON\]  |
+| Bit 6 | Y \[0:OFF/1:ON\]  |
+| Bit 7 | K \[0:OFF/1:ON\]  |
 
 Byte 5
 
-  ------------------ ----------------------------------------------------
-  Bit 0 to 7         Reserved
-
-  ------------------ ----------------------------------------------------
+|            |          |
+|------------|----------|
+| Bit 0 to 7 | Reserved |
 
 > Byte 6 and 7 Resolution of CCD Data
 >
@@ -2965,23 +5455,61 @@ Byte 11 and after nth value of CCD Data
 
 Table 2-3-1 MODE SELECT (6) command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[15h\]                                                                                |
-+--------+--------------------------------------+------------+--------------------------------------+------------+
-| 1      | Logical unit number                  | PF         | Reserved                             | SP         |
-|        |                                      |            |                                      |            |
-|        | \[0\]                                | \[1\]      | \[0\]                                | \[0\]      |
-+--------+--------------------------------------+------------+--------------------------------------+------------+
-| 2, 3   | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4      | Parameter list length \[0,4,12,20\]                                                                   |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [15h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>PF</p>
+<p>[1]</p></td>
+<td colspan="3" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>SP</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2, 3</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;">Parameter list length
+[0,4,12,20]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 1)  The MODE SELECT (6) command provides a means for the initiator to
     specify the device parameter to this unit.
@@ -3006,92 +5534,122 @@ Table 2-3-1 MODE SELECT (6) command
 
 > Table 2-3-2 Sense data that is set in each status
 
-+:-----------------------:+:---------------------:+:------------------:+
-| Status                  | Sense data            | Remarks            |
-+-------------------------+-----------------------+--------------------+
-| > When an initiator     | MODE PARAMETERS       | Creates the UNIT   |
-| > sends a MODE SELECT   | CHANGED               | ATTENTION status   |
-| > command that changes  |                       | for all initiators |
-| > the parameter         | > (The MODE parameter | other than the     |
-| > applicable to other   | > is changed by other | initiator that     |
-| > initiators            | > initiator when the  | issued the MODE    |
-|                         | > multi-initiator is  | SELECT command.    |
-|                         | > set.)               |                    |
-|                         |                       |                    |
-|                         | 06h-2Ah-01h-00h       |                    |
-+-------------------------+-----------------------+--------------------+
-| When a parameter list   | PARAMETER LIST LENGTH | Terminates with    |
-| length that results in  | ERROR                 | the CHECK          |
-| truncation of any       |                       | CONDITION status.  |
-| parameter for           | (The parameter length |                    |
-| descriptor, header, or  | is illegal.)          |                    |
-| page is specified       |                       |                    |
-|                         | 05h-1Ah-00h-00h       |                    |
-+-------------------------+-----------------------+--------------------+
-| a)  When the initiator  | INVALID FIELD IN      | Terminates the     |
-|     changes the field   | PARAMETER LIST        | MODE SELECT        |
-|     that is not         |                       | command with the   |
-|     changeable as       | (Some illegal data    | CHECK CONDITION    |
-|     reported by this    | exists in the         | status without     |
-|     unit to the value   | parameter.)           | changing any mode  |
-|     other than the      |                       | parameter.         |
-|     current value       | 05h-26h-00h-00h       |                    |
-|                         |                       |                    |
-| b)  When the initiator  |                       |                    |
-|     sends a MODE SELECT |                       |                    |
-|     header, block       |                       |                    |
-|     descriptor, or page |                       |                    |
-|     header for which a  |                       |                    |
-|     non-supported value |                       |                    |
-|     is set in the       |                       |                    |
-|     reserved field      |                       |                    |
-|                         |                       |                    |
-| c)  When the initiator  |                       |                    |
-|     sends a page of the |                       |                    |
-|     length that is      |                       |                    |
-|     different from the  |                       |                    |
-|     parameter length    |                       |                    |
-|     reported for that   |                       |                    |
-|     page by the MODE    |                       |                    |
-|     SENSE command       |                       |                    |
-|                         |                       |                    |
-| d)  When the initiator  |                       |                    |
-|     sends a parameter   |                       |                    |
-|     that has a value    |                       |                    |
-|     exceeding the       |                       |                    |
-|     support range of    |                       |                    |
-|     this unit           |                       |                    |
-|                         |                       |                    |
-| e)  When the initiator  |                       |                    |
-|     sets a value other  |                       |                    |
-|     than 0 in the       |                       |                    |
-|     reserved field of   |                       |                    |
-|     the mode parameter  |                       |                    |
-+-------------------------+-----------------------+--------------------+
+<table>
+<colgroup>
+<col style="width: 36%" />
+<col style="width: 33%" />
+<col style="width: 29%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;"><blockquote>
+<p>When an initiator sends a MODE SELECT command that changes the
+parameter applicable to other initiators</p>
+</blockquote></td>
+<td style="text-align: center;"><p>MODE PARAMETERS CHANGED</p>
+<blockquote>
+<p>(The MODE parameter is changed by other initiator when the
+multi-initiator is set.)</p>
+</blockquote>
+<p>06h-2Ah-01h-00h</p></td>
+<td style="text-align: center;">Creates the UNIT ATTENTION status for
+all initiators other than the initiator that issued the MODE SELECT
+command.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When a parameter list length that
+results in truncation of any parameter for descriptor, header, or page
+is specified</td>
+<td style="text-align: center;"><p>PARAMETER LIST LENGTH ERROR</p>
+<p>(The parameter length is illegal.)</p>
+<p>05h-1Ah-00h-00h</p></td>
+<td style="text-align: center;">Terminates with the CHECK CONDITION
+status.</td>
+</tr>
+<tr>
+<td style="text-align: center;"><ol type="a">
+<li><p>When the initiator changes the field that is not changeable as
+reported by this unit to the value other than the current value</p></li>
+<li><p>When the initiator sends a MODE SELECT header, block descriptor,
+or page header for which a non-supported value is set in the reserved
+field</p></li>
+<li><p>When the initiator sends a page of the length that is different
+from the parameter length reported for that page by the MODE SENSE
+command</p></li>
+<li><p>When the initiator sends a parameter that has a value exceeding
+the support range of this unit</p></li>
+<li><p>When the initiator sets a value other than 0 in the reserved
+field of the mode parameter</p></li>
+</ol></td>
+<td style="text-align: center;"><p>INVALID FIELD IN PARAMETER LIST</p>
+<p>(Some illegal data exists in the parameter.)</p>
+<p>05h-26h-00h-00h</p></td>
+<td style="text-align: center;">Terminates the MODE SELECT command with
+the CHECK CONDITION status without changing any mode parameter.</td>
+</tr>
+</tbody>
+</table>
 
 \- Mode parameter of this unit
 
 Table 2-3-2 Mode parameter header
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Mode Data Length                                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 1      | Medium Type \[0\]                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2      | Device-Specific Parameter \[0\]                                                                       |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3      | Block Descriptor Length \[0, 8\]                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Mode Data Length</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Medium Type [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Device-Specific Parameter
+[0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Block Descriptor Length [0,
+8]</td>
+</tr>
+</tbody>
+</table>
 
 1)  When the MODE SENSE command is used, the Mode Data Length field
     specifies the length in bytes of the following data that can be
     transferred. Mode Data Length does not include itself. When using
     the MODE SELECT command, the Mode Data Length field is set to
-    'Reserved'.
+    ‘Reserved’.
 
 2)  Medium Type is always set to 0.
 
@@ -3106,27 +5664,65 @@ Table 2-3-2 Mode parameter header
 
 Table 2-3-3 Mode parameter block descriptor
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Density Code \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 1      | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2      | Number of Blocks \[0\]                                                                                |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3      | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4      | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6      | Block Length \[1\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 7      | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Density Code [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Number of Blocks [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: center;">Block Length [1]</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+</tbody>
+</table>
 
 1)  Density Code field is always set to 0.
 
@@ -3140,29 +5736,68 @@ This unit supports only the Measurement Units page.
 
 Table 2-3-4 Measurement Units page
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | PS         | Reserved   | Operation code \[03h\]                                                      |
-|        |            |            |                                                                             |
-|        | \[0\]      | \[0\]      |                                                                             |
-+--------+------------+------------+-----------------------------------------------------------------------------+
-| 1      | Parameter length \[06h\]                                                                              |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2      | Basic measurement unit \[00h\]                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3      | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4      | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Measurement unit divisor \[1200/Maximum resolution\]                                                  |
-|        |                                                                                                       |
-|        | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6, 7   | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 12%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;"><p>PS</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td colspan="6" style="text-align: center;">Operation code [03h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">Parameter length [06h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Basic measurement unit
+[00h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;"><p>Measurement unit divisor
+[1200/Maximum resolution]</p>
+<p>(LSB)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">6, 7</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+</tbody>
+</table>
 
 1)  The Measurement Units page specifies the units of measurement used
     for setting the window position and for positioning an object. The
@@ -3194,27 +5829,60 @@ Table 2-3-4 Measurement Units page
     command, this unit responds with common error 2. The default value
     is 1200.
 
-**\**
+**  **
 **2-4. RESERVE UNIT Command**
 
 Table 2-4-1 RESERVE UNIT command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[16h\]                                                                                |
-+--------+--------------------------------------+------------+--------------------------------------+------------+
-| 1      | Logical unit number                  | Third      | Third party device ID                | Re-served  |
-|        |                                      | party      |                                      |            |
-|        | \[0\]                                |            |                                      | \[0\]      |
-|        |                                      | \[0 or 1\] |                                      |            |
-+--------+--------------------------------------+------------+--------------------------------------+------------+
-| 2 to 4 | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [16h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Third party</p>
+<p>[0 or 1]</p></td>
+<td colspan="3" style="text-align: center;">Third party device ID</td>
+<td style="text-align: center;"><p>Re-served</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 4</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The RESERVE UNIT command is used to reserve the logical unit for the
 exclusive use by the initiator.
@@ -3227,27 +5895,60 @@ released by the hard reset status or the power-ON cycle. It is
 permissible for the initiator that currently makes reservation to
 reserve the logical unit again.
 
-**\
+**  
 2-5. RELEASE UNIT Command**
 
 Table 2-5-1 RELEASE UNIT command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[17h\]                                                                                |
-+--------+--------------------------------------+------------+--------------------------------------+------------+
-| 1      | Logical unit number                  | Third      | Third party device ID                | Re-served  |
-|        |                                      | party      |                                      |            |
-|        | \[0\]                                |            |                                      | \[0\]      |
-|        |                                      | \[0 or 1\] |                                      |            |
-+--------+--------------------------------------+------------+--------------------------------------+------------+
-| 2 to 4 | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [17h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Third party</p>
+<p>[0 or 1]</p></td>
+<td colspan="3" style="text-align: center;">Third party device ID</td>
+<td style="text-align: center;"><p>Re-served</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 4</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The RELEASE UNIT command is used for the initiator that issued the
 command to release the reservation of the logical unit that has already
@@ -3265,25 +5966,65 @@ unit returns the GOOD status without changing any other reservation.
 
 Table 2-6-1 MODE SENSE command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[1Ah\]                                                                                |
-+--------+--------------------------------------+------------+------------+--------------------------------------+
-| 1      | Logical unit number                  | PF         | DBD        | Reserved                             |
-|        |                                      |            |            |                                      |
-|        | \[0\]                                | \[1\]      | \[0 or 1\] | \[0\]                                |
-+--------+-------------------------+------------+------------+------------+--------------------------------------+
-| 2      | PC                      | Page code                                                                   |
-+--------+-------------------------+-----------------------------------------------------------------------------+
-| 3      | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4      | Allocation length                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [1Ah]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>PF</p>
+<p>[1]</p></td>
+<td style="text-align: center;"><p>DBD</p>
+<p>[0 or 1]</p></td>
+<td colspan="3" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="2" style="text-align: center;">PC</td>
+<td colspan="6" style="text-align: center;">Page code</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;">Allocation length</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The MODE SENSE (6) command provides a means for this unit to report the
 parameters to the initiator.
@@ -3305,15 +6046,26 @@ parameters to the initiator.
 
 Table 2-6-2 PC field
 
-+:------------------:+:-----------------------------------------------:+
-| Code               | Parameter type                                  |
-+--------------------+-------------------------------------------------+
-| 00b                | Current value                                   |
-|                    |                                                 |
-| 01b                | Variable value                                  |
-|                    |                                                 |
-| 10b                | Default value                                   |
-+--------------------+-------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 30%" />
+<col style="width: 70%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Code</td>
+<td style="text-align: center;">Parameter type</td>
+</tr>
+<tr>
+<td style="text-align: center;"><p>00b</p>
+<p>01b</p>
+<p>10b</p></td>
+<td style="text-align: center;"><p>Current value</p>
+<p>Variable value</p>
+<p>Default value</p></td>
+</tr>
+</tbody>
+</table>
 
 > Current value
 >
@@ -3353,13 +6105,25 @@ Table 2-6-2 PC field
 
 Table 2-6-3 Page code usage
 
-+:--------------------:+:---------------------------------------------:+
-| Page code            | Descriptions                                  |
-+----------------------+-----------------------------------------------+
-| 03h                  | Returns the Measurement Units page            |
-|                      |                                               |
-| 3Fh                  | Returns all pages                             |
-+----------------------+-----------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 32%" />
+<col style="width: 67%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Page code</td>
+<td style="text-align: center;">Descriptions</td>
+</tr>
+<tr>
+<td style="text-align: center;"><p>03h</p>
+<p>3Fh</p></td>
+<td style="text-align: center;"><p>Returns the Measurement Units
+page</p>
+<p>Returns all pages</p></td>
+</tr>
+</tbody>
+</table>
 
 > An initiator may request one or all of the pages supported by this
 > unit. If an initiator issues a MODE SENSE command with a page code
@@ -3378,23 +6142,57 @@ and the block descriptor.
 
 Table 2-7-1 SCAN command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[1Bh\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2, 3   | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4      | Transfer length \[0, 1, 2, 3, 4\]                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [1Bh]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2, 3</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;">Transfer length [0, 1, 2, 3,
+4]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The SCAN command requests this unit to start the scanning operation.
 
@@ -3422,164 +6220,198 @@ The sense data that is set in each status is shown in table 2-7-2.
 
 Table 2-7-2 Sense data that is set in each status
 
-+:------------------:+:-------------------------:+:-------------------:+
-| Status             | Sense data                | Remarks             |
-+--------------------+---------------------------+---------------------+
-| When the default   | INVALID COMBINATION OF    | Terminates with the |
-| color is specified | WINDOWS SPECIFIED         | CHECK CONDITION     |
-| with other color   |                           | status.             |
-| in the window      | 05h-2Ch-02h-00h           |                     |
-+--------------------+---------------------------+---------------------+
-| When the           | INVALID COMBINATION OF    | Terminates with the |
-| overlapped setting | WINDOWS SPECIFIED         | CHECK CONDITION     |
-| is performed       |                           | status.             |
-| between two or     | 05h-2Ch-02h-00h           |                     |
-| more windows (a    |                           |                     |
-| different setting  |                           |                     |
-| is performed in    |                           |                     |
-| the parameter      |                           |                     |
-| common to all      |                           |                     |
-| windows)           |                           |                     |
-+--------------------+---------------------------+---------------------+
-| When Multiple      | AVERAGING MULTIPLE        | The initiator       |
-| Reading is set     | READING BY DRIVER         | cooperative action  |
-|                    |                           | parameter is read   |
-|                    | (The averaging processing | by the READ command |
-|                    | during Multiple Reading   | following the SCAN  |
-|                    | is performed by the       | command and the     |
-|                    | initiator.)               | averaging           |
-|                    |                           | processing is       |
-|                    | 09h-80h-02h-00h           | performed on the    |
-|                    |                           | initiator side      |
-|                    |                           | based on the        |
-|                    |                           | information.        |
-+--------------------+---------------------------+---------------------+
-| When Thumbnail is  | THUMBNAIL CREATED BY      | The initiator       |
-| set                | DRIVER                    | cooperative action  |
-|                    |                           | parameter is read   |
-| \(240\)            | (The thumbnail image of   | by the READ command |
-|                    | the 240 film is created   | following the SCAN  |
-|                    | by the initiator.)        | command and the     |
-|                    |                           | thumbnail is        |
-|                    | 09h-80h-01h-02h           | created on the      |
-|                    |                           | initiator side      |
-|                    |                           | based on the        |
-|                    |                           | information. The    |
-|                    |                           | initiator issues    |
-|                    |                           | the SCAN command    |
-|                    |                           | again after         |
-|                    |                           | performing the      |
-|                    |                           | necessary           |
-|                    |                           | operation.          |
-+--------------------+---------------------------+                     |
-| (6-frame strip)    | THUMBNAIL CREATED BY      |                     |
-|                    | DRIVER                    |                     |
-| (36-frame strip)   |                           |                     |
-|                    | (The thumbnail image of   |                     |
-|                    | the strip film is created |                     |
-|                    | by the initiator.)        |                     |
-|                    |                           |                     |
-|                    | 09h-80h-01h-06h           |                     |
-+--------------------+---------------------------+---------------------+
-| For two-line       | TRUNCATED BY DRIVER       | The SCAN command is |
-| reading, when a    |                           | issued again. The   |
-| setting other than | (The invalid data that is | excess data is      |
-| the combination of | sent excessively is       | deleted on the      |
-| an even-number     | deleted by the            | initiator side by   |
-| start address and  | initiator.)               | the READ command    |
-| an odd-number end  |                           | that is issued      |
-| address is made    | 09h-80h-06h-01h           | following the SCAN  |
-|                    |                           | command.            |
-| When the sent data |                           |                     |
-| is not a multiple  |                           |                     |
-| of 512 bytes       |                           |                     |
-+--------------------+---------------------------+---------------------+
-| When the CCD DATA  | CCD DATA CREATED BY       | The initiator       |
-| is ON while Image  | DRIVER                    | cooperative action  |
-| Scanning is set    |                           | parameter is read   |
-|                    | 9h-80h-07h-00h            | by the READ command |
-|                    |                           | following the SCAN  |
-|                    |                           | command.            |
-+--------------------+---------------------------+---------------------+
-| If Set up Scanning | LOGICAL UNIT NOT READY,   | Terminates with the |
-| is set, after the  | CAUSE NOT REPORTABLE      | CHECK CONDITION     |
-| operation is       |                           | status. If the      |
-| activated by the   | (The internal mechanical  | operation is        |
-| SCAN command, when | error occurred.)          | terminated          |
-| the completion of  |                           | normally, after the |
-| reading and the    | 02h-04h-02h-00h           | operation           |
-| device internal    |                           | completion is       |
-| processing         |                           | confirmed, Max      |
-| operation is       |                           | Value can be read   |
-| confirmed by the   |                           | by the READ         |
-| TEST UNIT READY    |                           | command.            |
-| command, and the   |                           |                     |
-| operation is not   |                           |                     |
-| terminated         |                           |                     |
-| normally           |                           |                     |
-+--------------------+---------------------------+---------------------+
-| After the SCAN     | LOGICAL UNIT IS IN        | Terminates with     |
-| command is         | PROCESS OF BECOMING READY | GOOD status after   |
-| terminated with    |                           | the preparation is  |
-| GOOD status, until | (During the execution of  | completed even in   |
-| the scan           | the operation activation  | the scanning        |
-| preparation such   | command)                  | status.             |
-| as the stage       |                           |                     |
-| movement is        | 02h-04h-01h-00h           |                     |
-| completed (for     |                           |                     |
-| TEST UNIT READY)   | (During loading/ejection  |                     |
-|                    | of the object to be       |                     |
-|                    | scanned)                  |                     |
-|                    |                           |                     |
-|                    | 02h-04h-01h-01h           |                     |
-|                    |                           |                     |
-|                    | (During the measurement   |                     |
-|                    | of the correction data)   |                     |
-|                    |                           |                     |
-|                    | 02h-04h-01h-02h           |                     |
-|                    |                           |                     |
-|                    | (During the execution of  |                     |
-|                    | operation for loading the |                     |
-|                    | object to be scanned)     |                     |
-|                    |                           |                     |
-|                    | 02h-04h-01h-03h           |                     |
-|                    |                           |                     |
-|                    | (During the execution of  |                     |
-|                    | automatic shading or      |                     |
-|                    | white balance             |                     |
-|                    | measurement)              |                     |
-|                    |                           |                     |
-|                    | 02h-04h-01h-04h           |                     |
-+--------------------+---------------------------+---------------------+
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 39%" />
+<col style="width: 31%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the default color is specified with
+other color in the window</td>
+<td style="text-align: center;"><p>INVALID COMBINATION OF WINDOWS
+SPECIFIED</p>
+<p>05h-2Ch-02h-00h</p></td>
+<td style="text-align: center;">Terminates with the CHECK CONDITION
+status.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the overlapped setting is performed
+between two or more windows (a different setting is performed in the
+parameter common to all windows)</td>
+<td style="text-align: center;"><p>INVALID COMBINATION OF WINDOWS
+SPECIFIED</p>
+<p>05h-2Ch-02h-00h</p></td>
+<td style="text-align: center;">Terminates with the CHECK CONDITION
+status.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When Multiple Reading is set</td>
+<td style="text-align: center;"><p>AVERAGING MULTIPLE READING BY
+DRIVER</p>
+<p>(The averaging processing during Multiple Reading is performed by the
+initiator.)</p>
+<p>09h-80h-02h-00h</p></td>
+<td style="text-align: center;">The initiator cooperative action
+parameter is read by the READ command following the SCAN command and the
+averaging processing is performed on the initiator side based on the
+information.</td>
+</tr>
+<tr>
+<td style="text-align: center;"><p>When Thumbnail is set</p>
+<p>(240)</p></td>
+<td style="text-align: center;"><p>THUMBNAIL CREATED BY DRIVER</p>
+<p>(The thumbnail image of the 240 film is created by the
+initiator.)</p>
+<p>09h-80h-01h-02h</p></td>
+<td rowspan="2" style="text-align: center;">The initiator cooperative
+action parameter is read by the READ command following the SCAN command
+and the thumbnail is created on the initiator side based on the
+information. The initiator issues the SCAN command again after
+performing the necessary operation.</td>
+</tr>
+<tr>
+<td style="text-align: right;"><p>(6-frame strip)</p>
+<p>(36-frame strip)</p></td>
+<td style="text-align: center;"><p>THUMBNAIL CREATED BY DRIVER</p>
+<p>(The thumbnail image of the strip film is created by the
+initiator.)</p>
+<p>09h-80h-01h-06h</p></td>
+</tr>
+<tr>
+<td style="text-align: center;"><p>For two-line reading, when a setting
+other than the combination of an even-number start address and an
+odd-number end address is made</p>
+<p>When the sent data is not a multiple of 512 bytes</p></td>
+<td style="text-align: center;"><p>TRUNCATED BY DRIVER</p>
+<p>(The invalid data that is sent excessively is deleted by the
+initiator.)</p>
+<p>09h-80h-06h-01h</p></td>
+<td style="text-align: center;">The SCAN command is issued again. The
+excess data is deleted on the initiator side by the READ command that is
+issued following the SCAN command.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the CCD DATA is ON while Image
+Scanning is set</td>
+<td style="text-align: center;"><p>CCD DATA CREATED BY DRIVER</p>
+<p>9h-80h-07h-00h</p></td>
+<td style="text-align: center;">The initiator cooperative action
+parameter is read by the READ command following the SCAN command.</td>
+</tr>
+<tr>
+<td style="text-align: center;">If Set up Scanning is set, after the
+operation is activated by the SCAN command, when the completion of
+reading and the device internal processing operation is confirmed by the
+TEST UNIT READY command, and the operation is not terminated
+normally</td>
+<td style="text-align: center;"><p>LOGICAL UNIT NOT READY, CAUSE NOT
+REPORTABLE</p>
+<p>(The internal mechanical error occurred.)</p>
+<p>02h-04h-02h-00h</p></td>
+<td style="text-align: center;">Terminates with the CHECK CONDITION
+status. If the operation is terminated normally, after the operation
+completion is confirmed, Max Value can be read by the READ command.</td>
+</tr>
+<tr>
+<td style="text-align: center;">After the SCAN command is terminated
+with GOOD status, until the scan preparation such as the stage movement
+is completed (for TEST UNIT READY)</td>
+<td style="text-align: center;"><p>LOGICAL UNIT IS IN PROCESS OF
+BECOMING READY</p>
+<p>(During the execution of the operation activation command)</p>
+<p>02h-04h-01h-00h</p>
+<p>(During loading/ejection of the object to be scanned)</p>
+<p>02h-04h-01h-01h</p>
+<p>(During the measurement of the correction data)</p>
+<p>02h-04h-01h-02h</p>
+<p>(During the execution of operation for loading the object to be
+scanned)</p>
+<p>02h-04h-01h-03h</p>
+<p>(During the execution of automatic shading or white balance
+measurement)</p>
+<p>02h-04h-01h-04h</p></td>
+<td style="text-align: center;">Terminates with GOOD status after the
+preparation is completed even in the scanning status.</td>
+</tr>
+</tbody>
+</table>
 
 **2-8. SEND DIAGNOSTIC Command**
 
 Table 2-8-1 SEND DIAGNOSTIC command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[1Dh\]                                                                                |
-+--------+--------------------------------------+------------+------------+------------+------------+------------+
-| 1      | Logical unit number                  | PF         | Re-served  | Self       | DevOfL     | Unit       |
-|        |                                      |            |            |            |            |            |
-|        | \[0\]                                | \[0 or 1\] | \[0\]      | Test       | \[0\]      | OfL        |
-|        |                                      |            |            |            |            |            |
-|        |                                      |            |            | \[0 or 1\] |            | \[0\]      |
-+--------+--------------------------------------+------------+------------+------------+------------+------------+
-| 2      | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3, 4   | Parameter list length                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [1Dh]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>PF</p>
+<p>[0 or 1]</p></td>
+<td style="text-align: center;"><p>Re-served</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Self</p>
+<p>Test</p>
+<p>[0 or 1]</p></td>
+<td style="text-align: center;"><p>DevOfL</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Unit</p>
+<p>OfL</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3, 4</td>
+<td colspan="8" style="text-align: center;">Parameter list length</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The SEND DIAGNOSTIC command performs the self-test for this unit itself.
 
-For the self-test of this unit, 'Parameter exists' or 'Parameter does
-not exist' can be selected.
+For the self-test of this unit, ‘Parameter exists’ or ‘Parameter does
+not exist’ can be selected.
 
 ●If the parameter does not exist
 
@@ -3609,17 +6441,29 @@ not exist' can be selected.
 > error information occurred in the operation activation command is
 > cleared.
 
-+:-----------------------:+:------------------------:+:--------------:+
-| Status                  | Sense data               | Remarks        |
-+-------------------------+--------------------------+----------------+
-| An error occurred in    | Logical Unit Not Ready,  |                |
-| the operation           | Cause Not Reportable     |                |
-| activation command.     |                          |                |
-|                         | (The internal mechanical |                |
-|                         | error occurred.)         |                |
-|                         |                          |                |
-|                         | 02h-04h-02h-00h          |                |
-+-------------------------+--------------------------+----------------+
+<table>
+<colgroup>
+<col style="width: 36%" />
+<col style="width: 38%" />
+<col style="width: 24%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">An error occurred in the operation
+activation command.</td>
+<td style="text-align: center;"><p>Logical Unit Not Ready, Cause Not
+Reportable</p>
+<p>(The internal mechanical error occurred.)</p>
+<p>02h-04h-02h-00h</p></td>
+<td style="text-align: center;"></td>
+</tr>
+</tbody>
+</table>
 
 - If the parameter exists
 
@@ -3631,34 +6475,74 @@ not exist' can be selected.
     (UnitOfl) bit must be set to 0 regardless of whether the parameter
     exists or not.
 
-**\
+**  
 2-9. SET WINDOW Command**
 
 Table 2-9-1 SET WINDOW command
 
-+----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit       | 7           | 6           | 5           | 4                         | 3           | 2           | 1           | 0           |
-|           |             |             |             |                           |             |             |             |             |
-| Byte      |             |             |             |                           |             |             |             |             |
-+-----------+-------------+-------------+-------------+---------------------------+-------------+-------------+-------------+-------------+
-| 0         | Operation code \[24h\]                                                                                                      |
-+-----------+-------------------------------------------------------+---------------------------------------------------------------------+
-| 1         | Logical unit number                                   | Reserved                                                            |
-|           |                                                       |                                                                     |
-|           | \[0\]                                                 | \[0\]                                                               |
-+-----------+-------------------------------------------------------+---------------------------------------------------------------------+
-| 2 to 5    | Reserved \[0\]                                                                                                              |
-+-----------+-----------------------------------------------------------------------------------------------------------------------------+
-|           | (MSB)                                                                                                                       |
-+-----------+-----------------------------------------------------------------------------------------------------------------------------+
-| 6 to 8    | Transfer length \[Recommended value: 58d\]                                                                                  |
-+-----------+-----------------------------------------------------------------------------------------------------------------------------+
-|           | (LSB)                                                                                                                       |
-+-----------+-------------+---------------------------------------------------------------------------------------------------------------+
-| 9         | Reserved    | Control byte \[0\]                                                                                            |
-|           |             |                                                                                                               |
-|           | \[0\]       |                                                                                                               |
-+-----------+-------------+---------------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 0%" />
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 0%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="2" style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td colspan="2" style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">0</td>
+<td colspan="9" style="text-align: center;">Operation code [24h]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">1</td>
+<td colspan="4" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">2 to 5</td>
+<td colspan="9" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="9" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">6 to 8</td>
+<td colspan="9" style="text-align: center;">Transfer length [Recommended
+value: 58d]</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;"></td>
+<td colspan="9" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">9</td>
+<td style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 - The SET WINDOW command provides a means for the initiator to define
   the windows within the scanning range of the device. The windows are
@@ -3681,17 +6565,47 @@ Table 2-9-1 SET WINDOW command
 
 Table 2-9-2 SET WINDOW data header
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0 to 5 | Reserved                                                                                              |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6      | (MSB) Window descriptor length                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 7      | \[Recommended value: 50d\] (LSB)                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0 to 5</td>
+<td colspan="8" style="text-align: center;">Reserved</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: center;">(MSB) Window descriptor
+length</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: right;">[Recommended value: 50d]
+(LSB)</td>
+</tr>
+</tbody>
+</table>
 
 - The window parameter data consists of a header followed by one or more
   window descriptors (refer to table 2-10-3). Each window descriptor
@@ -3700,34 +6614,79 @@ Table 2-9-2 SET WINDOW data header
 The window descriptor length specifies the length in bytes of a single
 window descriptor.
 
-**\
+**  
 2-10. GET WINDOW Command**
 
 Table 2-10-1 GET WINDOW command
 
-+-------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit    | 7           | 6           | 5                         | 4           | 3           | 2           | 1           | 0           |
-|        |             |             |                           |             |             |             |             |             |
-| Byte   |             |             |                           |             |             |             |             |             |
-+--------+-------------+-------------+---------------------------+-------------+-------------+-------------+-------------+-------------+
-| 0      | Operation code \[25h\]                                                                                                      |
-+--------+-------------------------------------------------------+-------------------------------------------------------+-------------+
-| 1      | Logical unit number                                   | Reserved                                              | Single      |
-|        |                                                       |                                                       |             |
-|        | \[0\]                                                 | \[0\]                                                 | \[0, 1\]    |
-+--------+-------------------------------------------------------+-------------------------------------------------------+-------------+
-| 2 to 4 | Reserved \[0\]                                                                                                              |
-+--------+-----------------------------------------------------------------------------------------------------------------------------+
-| 5      | Window identifier \[0, 1, 2, 3\]                                                                                            |
-+--------+-----------------------------------------------------------------------------------------------------------------------------+
-|        | (MSB)                                                                                                                       |
-+--------+-----------------------------------------------------------------------------------------------------------------------------+
-| 6 to 8 | Transfer length \[Recommended value: (50\*the number of windows+8)d\]                                                       |
-+--------+-----------------------------------------------------------------------------------------------------------------------------+
-|        | (LSB)                                                                                                                       |
-+--------+-----------------------------------------+-----------------------------------------------------------------------------------+
-| 9      | Reserved \[0\]                          | Control byte \[0\]                                                                |
-+--------+-----------------------------------------+-----------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 0%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td colspan="2" style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="9" style="text-align: center;">Operation code [25h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="4" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="4" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Single</p>
+<p>[0, 1]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 4</td>
+<td colspan="9" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="9" style="text-align: center;">Window identifier [0, 1, 2,
+3]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td colspan="9" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">6 to 8</td>
+<td colspan="9" style="text-align: center;">Transfer length [Recommended
+value: (50*the number of windows+8)d]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td colspan="9" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td colspan="3" style="text-align: center;">Reserved [0]</td>
+<td colspan="6" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The GET WINDOW command reports the values that are currently set in the
 scanner for each window parameter.
@@ -3765,21 +6724,56 @@ scanner for each window parameter.
 
 Table 2-10-2 GET WINDOW data header
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | (MSB) Window data length                                                                              |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 1      | \[Recommended value: (50\*the number of windows+6)d\] (LSB)                                           |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2 to 5 | Reserved                                                                                              |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6      | (MSB) Window descriptor length                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 7      | \[Recommended value: 50d\] (LSB)                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: left;">(MSB) Window data length</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: right;">[Recommended value: (50*the
+number of windows+6)d] (LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 5</td>
+<td colspan="8" style="text-align: center;">Reserved</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: left;">(MSB) Window descriptor
+length</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: right;">[Recommended value: 50d]
+(LSB)</td>
+</tr>
+</tbody>
+</table>
 
 The window data length specifies the length in bytes of the data that is
 transferred following it. The window data length does not include
@@ -3792,81 +6786,207 @@ bytes for a single window.
 
 Table 2-10-3 Window Descriptor Byte
 
-+-------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| Bit   | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|       |             |             |             |             |             |             |             |             |
-| Byte  |             |             |             |             |             |             |             |             |
-+:=====:+:===========:+:===========:+:===========:+:===========:+:===========:+:===========:+:===========:+:===========:+
-| 0     | Window Identifier \[0, 1, 2, 3\] (The default is 2.)                                                          |
-+-------+-------------------------------------------------------------------------------------------------+-------------+
-| 1     | Reserved                                                                                        | Auto        |
-|       |                                                                                                 |             |
-|       | \[0\]                                                                                           | \[0\]       |
-+-------+-------------------------------------------------------------------------------------------------+-------------+
-| 2, 3  | > X Resolution \[90 to 4000\]                                                                                 |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 4, 5  | > Y Resolution \[90 to 4000\]                                                                                 |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 6 to  | > Upper Left X Offset (The default is 0.)                                                                     |
-| 9     |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 10 to | > Upper Left Y Offset (The default is 0.)                                                                     |
-| 13    |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 14 to | > Window Width                                                                                                |
-| 17    |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 18 to | > Window Length                                                                                               |
-| 21    |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 22    | > Brightness \[0\]                                                                                            |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 23    | > Threshold \[0\]                                                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 24    | > Contrast \[0\]                                                                                              |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 25    | > Image Composition \[2 or 5\] (The default is 2.)                                                            |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 26    | > Pixel Composition \[16d\]                                                                                   |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 27,   | > Halftone Pattern \[0\]                                                                                      |
-| 28    |                                                                                                               |
-+-------+-------------+-------------------------------------------------------+-----------------------------------------+
-| 29    | Reverse     | Reserved                                              | Padding Type                            |
-|       |             |                                                       |                                         |
-|       | \[0\]       | \[0\]                                                 | \[0\]                                   |
-+-------+-------------+-------------------------------------------------------+-----------------------------------------+
-| 30,   | > Bit Ordering \[0\]                                                                                          |
-| 31    |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 32    | > Compression Type \[0\]                                                                                      |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 33    | > Compression Argument \[0\]                                                                                  |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 34 to | > Reserved \[0\]                                                                                              |
-| 39    |                                                                                                               |
-+-------+-------------------------------------------------------+-------------------------------------------------------+
-| 40    | Multiple Reading Number \[0 to 15\]                   | Color Ordering \[0, 1, 2, 3\]                         |
-|       |                                                       |                                                       |
-|       | (The default is 0.)                                   | (The default is R=1, G=2, B=3)                        |
-+-------+-------------+-------------+-------------+-------------+-----------------------------------------+-------------+
-| 41    | Averag-ing  | Matrix      | Filter      | Reserved    | Setup Mode                              | Object      |
-|       |             |             |             |             |                                         |             |
-|       | 1: ON       | \[0\]       | \[0\]       | \[0\]       |                                         | 1: Posi\*   |
-|       |             |             |             |             |                                         |             |
-|       | 0: OFF\*    |             |             |             |                                         | 0: Nega     |
-+-------+-------------+-------------+-------------+-------------+-----------------------------------------+-------------+
-| 42    | > Scanning Kind (The default is 1.)                                                                           |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 43    | > Scanning Mode (The default is 2.)                                                                           |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 44    | > Color interleaving (The default is 2.)                                                                      |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 45    | > AE Value (The default is 255d.)                                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 46 to | > Exposure Value \[0 to 3FFFFFFh\]                                                                            |
-| 49    |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 11%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: right;"><p>Bit</p>
+<p>Byte</p></th>
+<th style="text-align: center;">7</th>
+<th style="text-align: center;">6</th>
+<th style="text-align: center;">5</th>
+<th style="text-align: center;">4</th>
+<th style="text-align: center;">3</th>
+<th style="text-align: center;">2</th>
+<th style="text-align: center;">1</th>
+<th style="text-align: center;">0</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Window Identifier [0, 1, 2,
+3] (The default is 2.)</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="7" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Auto</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2, 3</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>X Resolution [90 to 4000]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">4, 5</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Y Resolution [90 to 4000]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">6 to 9</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Upper Left X Offset (The default is 0.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">10 to 13</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Upper Left Y Offset (The default is 0.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">14 to 17</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Window Width</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">18 to 21</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Window Length</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">22</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Brightness [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">23</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Threshold [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">24</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Contrast [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">25</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Image Composition [2 or 5] (The default is 2.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">26</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Pixel Composition [16d]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">27, 28</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Halftone Pattern [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">29</td>
+<td style="text-align: center;"><p>Reverse</p>
+<p>[0]</p></td>
+<td colspan="4" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td colspan="3" style="text-align: center;"><p>Padding Type</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">30, 31</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Bit Ordering [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">32</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Compression Type [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">33</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Compression Argument [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">34 to 39</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Reserved [0]</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">40</td>
+<td colspan="4" style="text-align: center;"><p>Multiple Reading Number
+[0 to 15]</p>
+<p>(The default is 0.)</p></td>
+<td colspan="4" style="text-align: center;"><p>Color Ordering [0, 1, 2,
+3]</p>
+<p>(The default is R=1, G=2, B=3)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">41</td>
+<td style="text-align: center;"><p>Averag-ing</p>
+<p>1: ON</p>
+<p>0: OFF*</p></td>
+<td style="text-align: center;"><p>Matrix</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Filter</p>
+<p>[0]</p></td>
+<td style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td colspan="3" style="text-align: center;">Setup Mode</td>
+<td style="text-align: center;"><p>Object</p>
+<p>1: Posi*</p>
+<p>0: Nega</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">42</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Scanning Kind (The default is 1.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">43</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Scanning Mode (The default is 2.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">44</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Color interleaving (The default is 2.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">45</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>AE Value (The default is 255d.)</p>
+</blockquote></td>
+</tr>
+<tr>
+<td style="text-align: center;">46 to 49</td>
+<td colspan="8" style="text-align: center;"><blockquote>
+<p>Exposure Value [0 to 3FFFFFFh]</p>
+</blockquote></td>
+</tr>
+</tbody>
+</table>
 
 \* Default value
 
@@ -3890,19 +7010,14 @@ Byte 0
 Table 2-10-4 Relation between the window identifier and the scanning
 color
 
-  ------------------------ ----------------------- -----------------------
-     Window identifier         Scanning color       Support of this unit
-
-             0                Default color (G)              Yes
-
-             1                        R                      Yes
-
-             2                        G                      Yes
-
-             3                        B                      Yes
-
-             4                  Neutral gray                 No
-  ------------------------ ----------------------- -----------------------
+|                   |                   |                      |
+|:-----------------:|:-----------------:|:--------------------:|
+| Window identifier |  Scanning color   | Support of this unit |
+|         0         | Default color (G) |         Yes          |
+|         1         |         R         |         Yes          |
+|         2         |         G         |         Yes          |
+|         3         |         B         |         Yes          |
+|         4         |   Neutral gray    |          No          |
 
 Byte 2 and 3
 
@@ -3934,58 +7049,167 @@ Byte 2 and 3
 Table 2-10-5 Relation between the specified resolution and the scanning
 resolution
 
-+:-----------------------:+:---------------:+:------:+:------:+:------:+
-| Set Window              | Scanning at the device                     |
-| specification           |                                            |
-+-------------------------+--------------------------+-----------------+
-| X resolution            | Scanning resolution      | Pitch           |
-+-------------------------+-----------------+--------+--------+--------+
-| 4000 to 2001            | 4000            | 1               |        |
-+-------------------------+-----------------+-----------------+--------+
-| 2000 to 1001            | 2000            | 2               |        |
-+-------------------------+-----------------+-----------------+--------+
-| 1000 to 667             | 1000            | 4               |        |
-+-------------------------+-----------------+-----------------+--------+
-| 666 to 501              | 666             | 6               |        |
-+-------------------------+-----------------+-----------------+--------+
-| 500 to 401              | 500             | 8               |        |
-+-------------------------+-----------------+-----------------+--------+
-| 400 to 334              | 400             | 10              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 333 to 286              | 333             | 12              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 285 to 251              | 285             | 14              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 250 to 223              | 250             | 16              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 222 to 201              | 222             | 18              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 200 to 182              | 200             | 20              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 181 to 167              | 181             | 22              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 166 to 154              | 166             | 24              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 153 to 143              | 153             | 26              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 142 to 134              | 142             | 28              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 133 to 126              | 133             | 30              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 125 to 118              | 125             | 32              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 117 to 112              | 117             | 34              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 111 to 106              | 111             | 36              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 105 to 101              | 105             | 38              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 100 to 96               | 100             | 40              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 95 to 91                | 95              | 42              |        |
-+-------------------------+-----------------+-----------------+--------+
-| 90                      | 90              | 44              |        |
-+-------------------------+-----------------+-----------------+--------+
+<table style="width:68%;">
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 8%" />
+<col style="width: 3%" />
+<col style="width: 18%" />
+<col style="width: 1%" />
+<col style="width: 9%" />
+<col style="width: 2%" />
+</colgroup>
+<tbody>
+<tr>
+<td colspan="2" style="text-align: center;">Set Window
+specification</td>
+<td colspan="5" style="text-align: center;">Scanning at the device</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">X resolution</td>
+<td colspan="3" style="text-align: center;">Scanning resolution</td>
+<td colspan="2" style="text-align: center;">Pitch</td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">4000 to 2001</td>
+<td colspan="2" style="text-align: center;">4000</td>
+<td colspan="2" style="text-align: center;">1</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">2000 to 1001</td>
+<td colspan="2" style="text-align: center;">2000</td>
+<td colspan="2" style="text-align: center;">2</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">1000 to 667</td>
+<td colspan="2" style="text-align: center;">1000</td>
+<td colspan="2" style="text-align: center;">4</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">666 to 501</td>
+<td colspan="2" style="text-align: center;">666</td>
+<td colspan="2" style="text-align: center;">6</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">500 to 401</td>
+<td colspan="2" style="text-align: center;">500</td>
+<td colspan="2" style="text-align: center;">8</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">400 to 334</td>
+<td colspan="2" style="text-align: center;">400</td>
+<td colspan="2" style="text-align: center;">10</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">333 to 286</td>
+<td colspan="2" style="text-align: center;">333</td>
+<td colspan="2" style="text-align: center;">12</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">285 to 251</td>
+<td colspan="2" style="text-align: center;">285</td>
+<td colspan="2" style="text-align: center;">14</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">250 to 223</td>
+<td colspan="2" style="text-align: center;">250</td>
+<td colspan="2" style="text-align: center;">16</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">222 to 201</td>
+<td colspan="2" style="text-align: center;">222</td>
+<td colspan="2" style="text-align: center;">18</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">200 to 182</td>
+<td colspan="2" style="text-align: center;">200</td>
+<td colspan="2" style="text-align: center;">20</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">181 to 167</td>
+<td colspan="2" style="text-align: center;">181</td>
+<td colspan="2" style="text-align: center;">22</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">166 to 154</td>
+<td colspan="2" style="text-align: center;">166</td>
+<td colspan="2" style="text-align: center;">24</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">153 to 143</td>
+<td colspan="2" style="text-align: center;">153</td>
+<td colspan="2" style="text-align: center;">26</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">142 to 134</td>
+<td colspan="2" style="text-align: center;">142</td>
+<td colspan="2" style="text-align: center;">28</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">133 to 126</td>
+<td colspan="2" style="text-align: center;">133</td>
+<td colspan="2" style="text-align: center;">30</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">125 to 118</td>
+<td colspan="2" style="text-align: center;">125</td>
+<td colspan="2" style="text-align: center;">32</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">117 to 112</td>
+<td colspan="2" style="text-align: center;">117</td>
+<td colspan="2" style="text-align: center;">34</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">111 to 106</td>
+<td colspan="2" style="text-align: center;">111</td>
+<td colspan="2" style="text-align: center;">36</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">105 to 101</td>
+<td colspan="2" style="text-align: center;">105</td>
+<td colspan="2" style="text-align: center;">38</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">100 to 96</td>
+<td colspan="2" style="text-align: center;">100</td>
+<td colspan="2" style="text-align: center;">40</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">95 to 91</td>
+<td colspan="2" style="text-align: center;">95</td>
+<td colspan="2" style="text-align: center;">42</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td colspan="2" style="text-align: center;">90</td>
+<td colspan="2" style="text-align: center;">90</td>
+<td colspan="2" style="text-align: center;">44</td>
+<td style="text-align: center;"></td>
+</tr>
+</tbody>
+</table>
 
 Byte 4 and 5
 
@@ -4082,23 +7306,42 @@ Byte 25
 
 Table 2-10-6 Image composition code
 
-+:------------:+:---------------------------------------:+:----------:+
-| Code         | Descriptions                            | Support    |
-+--------------+-----------------------------------------+------------+
-| 00h          | Bi-level black & white                  | No         |
-|              |                                         |            |
-| 01h          | Dithered/halftone black & white         | No         |
-|              |                                         |            |
-| 02h          | Multi-level black & white               | Yes        |
-|              |                                         |            |
-| 03h          | Bi-level RGB color                      | No         |
-|              |                                         |            |
-| 04h          | Dithered/halftone RGB color             | No         |
-|              |                                         |            |
-| 05h          | Multi-level RGB color                   | Yes        |
-|              |                                         |            |
-| 06h to FFh   | Reserved                                |            |
-+--------------+-----------------------------------------+------------+
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 59%" />
+<col style="width: 18%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Code</td>
+<td style="text-align: center;">Descriptions</td>
+<td style="text-align: center;">Support</td>
+</tr>
+<tr>
+<td style="text-align: center;"><p>00h</p>
+<p>01h</p>
+<p>02h</p>
+<p>03h</p>
+<p>04h</p>
+<p>05h</p>
+<p>06h to FFh</p></td>
+<td style="text-align: center;"><p>Bi-level black &amp; white</p>
+<p>Dithered/halftone black &amp; white</p>
+<p>Multi-level black &amp; white</p>
+<p>Bi-level RGB color</p>
+<p>Dithered/halftone RGB color</p>
+<p>Multi-level RGB color</p>
+<p>Reserved</p></td>
+<td style="text-align: center;"><p>No</p>
+<p>No</p>
+<p>Yes</p>
+<p>No</p>
+<p>No</p>
+<p>Yes</p></td>
+</tr>
+</tbody>
+</table>
 
 Byte 26
 
@@ -4155,19 +7398,31 @@ Byte 40
 >
 > The currently set value is specified for the GET WINDOW command.
 
-+:----------------------------:+:--------------------:+:--------------:+
-| Status                       | Sense data           | Remarks        |
-+------------------------------+----------------------+----------------+
-| In the case that the         | INVALID COMBINATION  | The command is |
-| overlapped setting of a      | OF WINDOWS SPECIFIED | terminated     |
-| value other than 0 is        |                      | with the CHECK |
-| performed in this field for  | 05h-2Ch-02h-00h      | CONDITION      |
-| two or more windows that are |                      | status.        |
-| set when the SCAN command is |                      |                |
-| received, and that 0 and a   |                      |                |
-| value other than 0 are set   |                      |                |
-| in this field                |                      |                |
-+------------------------------+----------------------+----------------+
+<table>
+<colgroup>
+<col style="width: 43%" />
+<col style="width: 32%" />
+<col style="width: 23%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">In the case that the overlapped setting
+of a value other than 0 is performed in this field for two or more
+windows that are set when the SCAN command is received, and that 0 and a
+value other than 0 are set in this field</td>
+<td style="text-align: center;"><p>INVALID COMBINATION OF WINDOWS
+SPECIFIED</p>
+<p>05h-2Ch-02h-00h</p></td>
+<td style="text-align: center;">The command is terminated with the CHECK
+CONDITION status.</td>
+</tr>
+</tbody>
+</table>
 
 Byte 41
 
@@ -4207,30 +7462,22 @@ Byte 42
 >
 > When the thumbnail scanning is set, this unit terminates the first
 > SCAN command after the SET WINDOW command with the CHECK CONDITION
-> status and sets 'Thumbnail created by driver' in the sense data. The
+> status and sets ‘Thumbnail created by driver’ in the sense data. The
 > initiator can read the parameter (Cooperation parameter) for creating
 > the thumbnail by the READ command. This unit executes reading at the
 > second SCAN command.
 
-  ------------------------- ---------- -----------------------------------
-  Scanning Kind                        
-
-                                  Bit0                      Image Scanning
-
-                                  Bit1                  Thumbnail Scanning
-
-                                  Bit2                     Set up Scanning
-
-                                  Bit3                    Set up Scanning2
-
-                                  Bit4                      Reserved \[0\]
-
-                                  Bit5              Auto Exposure Scanning
-
-                                  Bit6                 AE with WB Scanning
-
-                                  Bit7                      Reserved \[0\]
-  ------------------------- ---------- -----------------------------------
+|               |      |                        |
+|:--------------|-----:|-----------------------:|
+| Scanning Kind |      |                        |
+|               | Bit0 |         Image Scanning |
+|               | Bit1 |     Thumbnail Scanning |
+|               | Bit2 |        Set up Scanning |
+|               | Bit3 |       Set up Scanning2 |
+|               | Bit4 |         Reserved \[0\] |
+|               | Bit5 | Auto Exposure Scanning |
+|               | Bit6 |    AE with WB Scanning |
+|               | Bit7 |         Reserved \[0\] |
 
 Byte 43
 
@@ -4246,25 +7493,17 @@ Byte 43
 > The default is 2. This field specifies the currently set value for the
 > GET WINDOW command.
 
-  ------------------------- ---------- -----------------------------------
-  Scan Mode Support                    
-
-                                  Bit0                   High Quality Scan
-
-                                  Bit1                 Normal Quality Scan
-
-                                  Bit2                     High Speed Scan
-
-                                  Bit3                      Reserved \[0\]
-
-                                  Bit4               Multiple Reading Scan
-
-                                  Bit5                      Reserved \[0\]
-
-                                  Bit6          Reverse direction Scanning
-
-                                  Bit7                      Reserved \[0\]
-  ------------------------- ---------- -----------------------------------
+|                   |      |                            |
+|:------------------|-----:|---------------------------:|
+| Scan Mode Support |      |                            |
+|                   | Bit0 |          High Quality Scan |
+|                   | Bit1 |        Normal Quality Scan |
+|                   | Bit2 |            High Speed Scan |
+|                   | Bit3 |             Reserved \[0\] |
+|                   | Bit4 |      Multiple Reading Scan |
+|                   | Bit5 |             Reserved \[0\] |
+|                   | Bit6 | Reverse direction Scanning |
+|                   | Bit7 |             Reserved \[0\] |
 
 Byte 44
 
@@ -4277,23 +7516,16 @@ Byte 44
 > This field specifies the currently set value for the GET WINDOW
 > command.
 
-  --------------- -------------------------------------------------------
-  Bit0            Pixel without CCD distance
-
-  Bit1            Line without CCD distance
-
-  Bit2            Plane
-
-  Bit3            Reserved \[0\]
-
-  Bit4            Pixel with CCD distance
-
-  Bit5            Line with CCD distance
-
-  Bit6            Multi line Simultaneous reading
-
-  Bit7            Reserved \[0\]
-  --------------- -------------------------------------------------------
+|      |                                 |
+|:-----|:--------------------------------|
+| Bit0 | Pixel without CCD distance      |
+| Bit1 | Line without CCD distance       |
+| Bit2 | Plane                           |
+| Bit3 | Reserved \[0\]                  |
+| Bit4 | Pixel with CCD distance         |
+| Bit5 | Line with CCD distance          |
+| Bit6 | Multi line Simultaneous reading |
+| Bit7 | Reserved \[0\]                  |
 
 Byte 45
 
@@ -4326,35 +7558,80 @@ Byte 46 to 49
 
 Table 2-11-1 READ command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[28h\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2      | Data type code                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3      | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4      | Data type qualifier (upper byte)                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Data type qualifier (lower byte)                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6      | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 7      | Transfer length                                                                                       |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 8      | (LSB)                                                                                                 |
-+--------+------------+------------------------------------------------------------------------------------------+
-| 9      | Reserved   | Control bit \[0\]                                                                        |
-|        |            |                                                                                          |
-|        | \[0\]      |                                                                                          |
-+--------+------------+------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [28h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Data type code</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;">Data type qualifier (upper
+byte)</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Data type qualifier (lower
+byte)</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: center;">Transfer length</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+<td colspan="7" style="text-align: center;">Control bit [0]</td>
+</tr>
+</tbody>
+</table>
 
 The READ command requests that this unit transfer the data to the
 initiator.
@@ -4387,93 +7664,263 @@ initiator.
 >
 > The recommended values are as shown below.
 
-+-------------------+--------------------------------------------------+
-| Data type code    | Recommended value (Refer to table 2-11-2.)       |
-+-------------------+--------------------------------------------------+
-| 00h to 7Fh        | Data length in bytes \* the number of valid data |
-+-------------------+--------------------------------------------------+
-| 80h and after     | Data length in bytes \* the number of valid      |
-|                   | data + header length in bytes                    |
-|                   |                                                  |
-|                   | (In the case of the magnetic data, the magnetic  |
-|                   | data header is included.)                        |
-+-------------------+--------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 28%" />
+<col style="width: 71%" />
+</colgroup>
+<tbody>
+<tr>
+<td>Data type code</td>
+<td>Recommended value (Refer to table 2-11-2.)</td>
+</tr>
+<tr>
+<td>00h to 7Fh</td>
+<td>Data length in bytes * the number of valid data</td>
+</tr>
+<tr>
+<td>80h and after</td>
+<td><p>Data length in bytes * the number of valid data + header length
+in bytes</p>
+<p>(In the case of the magnetic data, the magnetic data header is
+included.)</p></td>
+</tr>
+</tbody>
+</table>
 
 Table 2-11-2 Data type code (common to READ/SEND)
 
-+:-------:+:-------------------:+:-----------:+:-------:+:----------:+:--------:+
-| Code    | Descriptions        | Support by  | Length  | Number of  | Header   |
-|         |                     | this        | in      | valid data | included |
-|         |                     | system^\*1^ | bytes   |            | or not   |
-|         |                     |             | of each | (Number of |          |
-|         |                     |             | valid   | elements)  |          |
-|         |                     |             | data    |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 00h     | Image               | R           | 1 or 2  | Variable   | Not      |
-|         |                     |             |         |            | included |
-+---------+---------------------+-------------+---------+------------+----------+
-| 02h     | Halftone mask       | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 03h     | LUT                 | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 80h     | Histogram data      | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 81h     | Maximum value       | \-          | 2       | 1          | Included |
-+---------+---------------------+-------------+---------+------------+----------+
-| 82h     | Matrix data         | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 83h     | Filter data         | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 84h     | Shading data        | R/S         | 2       | 47352      | Included |
-+---------+---------------------+-------------+---------+------------+----------+
-| 85h     | Dark voltage        | \-          | \-      | \-         | \-       |
-|         | correction data     |             |         |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 86h     | Magnetic data       | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 87h     | Initiator           | R           | 1       | Variable   | Included |
-|         | cooperative action  |             |         |            |          |
-|         | parameter           |             |         |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 88h     | Boundary            | \-          | 4       | Variable   | Included |
-|         | Information         |             |         |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 89h     | Analog gamma        | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 8Ah     | Analog gain         | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 8Bh     | Digital gain        | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| 8Ch     | WB exposure value   | R           | 4       | 1          | Included |
-+---------+---------------------+-------------+---------+------------+----------+
-| 8Dh     | Setup information   | R           | 1, 2,   | Variable   | Included |
-|         |                     |             | or 4    |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 8Eh     | Perforation         | R           | 1 or 2  | Variable   | Included |
-|         | information         |             |         |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 8Fh     | Boundary            | R/S         | 1, 2,   | Variable   | Included |
-|         | Information Type2   |             | or 4    |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 90h     | WB exposure value   | \-          | \-      | \-         | \-       |
-|         | at the time of      |             |         |            |          |
-|         | shipment            |             |         |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 91h     | CCD data            | R           | 2       | Variable   | Included |
-+---------+---------------------+-------------+---------+------------+----------+
-| 92h     | Driver software     | \-          | \-      | \-         | \-       |
-|         | version information |             |         |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| 93h     | Leak volume         | R           | 2       | 3          | Included |
-+---------+---------------------+-------------+---------+------------+----------+
-| 94h-DFh | Reserved            | \-          | \-      | \-         | \-       |
-+---------+---------------------+-------------+---------+------------+----------+
-| E0h     | Initiator RAM       | R/S         | 1, 2,   | Variable   | Included |
-|         | buffer              |             | or 4    | (max 1 KB) |          |
-+---------+---------------------+-------------+---------+------------+----------+
-| E1h     | Initiator EEPROM    | \-          | \-      | \-         | \-       |
-|         | buffer              |             |         |            |          |
-+---------+---------------------+-------------+---------+------------+----------+
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 31%" />
+<col style="width: 13%" />
+<col style="width: 14%" />
+<col style="width: 19%" />
+<col style="width: 11%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Code</td>
+<td style="text-align: center;">Descriptions</td>
+<td style="text-align: center;">Support by this system<sup>*1</sup></td>
+<td style="text-align: center;">Length in bytes of each valid data</td>
+<td style="text-align: center;"><p>Number of valid data</p>
+<p>(Number of elements)</p></td>
+<td style="text-align: center;">Header included or not</td>
+</tr>
+<tr>
+<td style="text-align: center;">00h</td>
+<td style="text-align: left;">Image</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">1 or 2</td>
+<td style="text-align: center;">Variable</td>
+<td style="text-align: center;">Not included</td>
+</tr>
+<tr>
+<td style="text-align: center;">02h</td>
+<td style="text-align: left;">Halftone mask</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">03h</td>
+<td style="text-align: left;">LUT</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">80h</td>
+<td style="text-align: left;">Histogram data</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">81h</td>
+<td style="text-align: left;">Maximum value</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">82h</td>
+<td style="text-align: left;">Matrix data</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">83h</td>
+<td style="text-align: left;">Filter data</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">84h</td>
+<td style="text-align: left;">Shading data</td>
+<td style="text-align: center;">R/S</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">47352</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">85h</td>
+<td style="text-align: left;">Dark voltage correction data</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">86h</td>
+<td style="text-align: left;">Magnetic data</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">87h</td>
+<td style="text-align: left;">Initiator cooperative action
+parameter</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Variable</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">88h</td>
+<td style="text-align: left;">Boundary Information</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">Variable</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">89h</td>
+<td style="text-align: left;">Analog gamma</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">8Ah</td>
+<td style="text-align: left;">Analog gain</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">8Bh</td>
+<td style="text-align: left;">Digital gain</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">8Ch</td>
+<td style="text-align: left;">WB exposure value</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">8Dh</td>
+<td style="text-align: left;">Setup information</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">1, 2, or 4</td>
+<td style="text-align: center;">Variable</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">8Eh</td>
+<td style="text-align: left;">Perforation information</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">1 or 2</td>
+<td style="text-align: center;">Variable</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">8Fh</td>
+<td style="text-align: left;">Boundary Information Type2</td>
+<td style="text-align: center;">R/S</td>
+<td style="text-align: center;">1, 2, or 4</td>
+<td style="text-align: center;">Variable</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">90h</td>
+<td style="text-align: left;">WB exposure value at the time of
+shipment</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">91h</td>
+<td style="text-align: left;">CCD data</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">Variable</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">92h</td>
+<td style="text-align: left;">Driver software version information</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">93h</td>
+<td style="text-align: left;">Leak volume</td>
+<td style="text-align: center;">R</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">94h-DFh</td>
+<td style="text-align: left;">Reserved</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">E0h</td>
+<td style="text-align: left;">Initiator RAM buffer</td>
+<td style="text-align: center;">R/S</td>
+<td style="text-align: center;">1, 2, or 4</td>
+<td style="text-align: center;">Variable (max 1 KB)</td>
+<td style="text-align: center;">Included</td>
+</tr>
+<tr>
+<td style="text-align: center;">E1h</td>
+<td style="text-align: left;">Initiator EEPROM buffer</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+</tbody>
+</table>
 
 > \*1 R means that the code is supported only for the READ command. R/S
 > means that the code is supported for both the READ and the SEND
@@ -4483,36 +7930,64 @@ Table 2-11-2 Data type code (common to READ/SEND)
 
 Table 2-11-3 Data type qualifier (upper byte)
 
-+--------------------+--------+----------------------------------------+
-|                    | Code   | Descriptions                           |
-+--------------------+--------+----------------------------------------+
-| When the data type | 00h    | Default color (G-component element)    |
-| code is 03h, 80h,  |        |                                        |
-| 81h, 84h, 85h,     | 01h    | R-component element                    |
-| 8Ch, 8Dh, or 91h   |        |                                        |
-|                    | 02h    | G-component element                    |
-|                    |        |                                        |
-|                    | 03h    | B-component element                    |
-+--------------------+--------+----------------------------------------+
-| Case other than    | \*\*h  | No meaning                             |
-| the above          |        |                                        |
-+--------------------+--------+----------------------------------------+
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 13%" />
+<col style="width: 57%" />
+</colgroup>
+<tbody>
+<tr>
+<td></td>
+<td>Code</td>
+<td>Descriptions</td>
+</tr>
+<tr>
+<td>When the data type code is 03h, 80h, 81h, 84h, 85h, 8Ch, 8Dh, or
+91h</td>
+<td><p>00h</p>
+<p>01h</p>
+<p>02h</p>
+<p>03h</p></td>
+<td><p>Default color (G-component element)</p>
+<p>R-component element</p>
+<p>G-component element</p>
+<p>B-component element</p></td>
+</tr>
+<tr>
+<td>Case other than the above</td>
+<td>**h</td>
+<td>No meaning</td>
+</tr>
+</tbody>
+</table>
 
 Table 2-11-4 Data type qualifier (lower byte)
 
-+-------------------+--------------------------------------------------+
-| Code              | Descriptions                                     |
-+-------------------+--------------------------------------------------+
-| 00h               | 1-byte data                                      |
-|                   |                                                  |
-| 01h               | 2-byte data                                      |
-|                   |                                                  |
-| 02h               | Reserved                                         |
-|                   |                                                  |
-| 03h               | 4-byte data                                      |
-|                   |                                                  |
-| 04h and after     | Reserved                                         |
-+-------------------+--------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 28%" />
+<col style="width: 71%" />
+</colgroup>
+<tbody>
+<tr>
+<td>Code</td>
+<td>Descriptions</td>
+</tr>
+<tr>
+<td><p>00h</p>
+<p>01h</p>
+<p>02h</p>
+<p>03h</p>
+<p>04h and after</p></td>
+<td><p>1-byte data</p>
+<p>2-byte data</p>
+<p>Reserved</p>
+<p>4-byte data</p>
+<p>Reserved</p></td>
+</tr>
+</tbody>
+</table>
 
 When this unit sends data that is smaller than the transfer length, the
 CHECK CONDITION status is returned. Set the ILI bit to 1, valid bit to
@@ -4530,20 +8005,34 @@ The sense data set in each status is shown in the table below.
 
 Table 2-11-5 Sense data set in each status
 
-+:------------------------:+:-----------------------:+:---------------:+
-| Status                   | Sense data              | Remarks         |
-+--------------------------+-------------------------+-----------------+
-| - When the READ command  | COMMAND SEQUENCE ERROR  | The command     |
-|   of the image is        |                         | terminates with |
-|   received without       | (A command that makes   | the CHECK       |
-|   receiving the SCAN     | the previous SCAN       | CONDITION       |
-|   command                | command invalid is      | status.         |
-|                          | received while the      |                 |
-| - When the READ command  | scanning operation is   |                 |
-|   is received after all  | valid)                  |                 |
-|   image data is          |                         |                 |
-|   transferred            | 05h-2Ch-00h-00h         |                 |
-+--------------------------+-------------------------+-----------------+
+<table>
+<colgroup>
+<col style="width: 38%" />
+<col style="width: 36%" />
+<col style="width: 25%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;"><ul>
+<li><p>When the READ command of the image is received without receiving
+the SCAN command</p></li>
+<li><p>When the READ command is received after all image data is
+transferred</p></li>
+</ul></td>
+<td style="text-align: center;"><p>COMMAND SEQUENCE ERROR</p>
+<p>(A command that makes the previous SCAN command invalid is received
+while the scanning operation is valid)</p>
+<p>05h-2Ch-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status.</td>
+</tr>
+</tbody>
+</table>
 
 **2-11-1. 2-byte data transfer**
 
@@ -4558,21 +8047,54 @@ added at the top of the valid data.
 
 Table 2-11-6 READ data header
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Data type code                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 1      | The number of bits in each valid data                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-|        | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2 to 5 | Valid data length                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-|        | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Data type code</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: center;">The number of bits in each
+valid data</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 5</td>
+<td colspan="8" style="text-align: center;">Valid data length</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+</tbody>
+</table>
 
 \- Data type code
 
@@ -4622,23 +8144,35 @@ requested transfer length and the number of blocks actually transferred.
 After that, the following sense data shall be returned when the next
 READ command is received.
 
-+:------------------:+:------------------------------:+:--------------:+
-| Status             | Sense data                     | Remarks        |
-+--------------------+--------------------------------+----------------+
-| When the READ      | COMMAND SEQUENCE ERROR         | The command    |
-| command is         |                                | terminates     |
-| received after all | (A command that makes the      | with the CHECK |
-| the image data is  | previous SCAN command invalid  | CONDITION      |
-| transferred        | is received while the scanning | status.        |
-|                    | operation is valid)            |                |
-|                    |                                |                |
-|                    | 05h-2Ch-00h-00h                |                |
-+--------------------+--------------------------------+----------------+
+<table>
+<colgroup>
+<col style="width: 30%" />
+<col style="width: 45%" />
+<col style="width: 23%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the READ command is received after
+all the image data is transferred</td>
+<td style="text-align: center;"><p>COMMAND SEQUENCE ERROR</p>
+<p>(A command that makes the previous SCAN command invalid is received
+while the scanning operation is valid)</p>
+<p>05h-2Ch-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status.</td>
+</tr>
+</tbody>
+</table>
 
 **Precautions:**
 
-As shown in Byte 4 "SCSI function support" of 2-2-2-3. "Address
-information page", the image reading is performed in units of \[Data of
+As shown in Byte 4 “SCSI function support” of 2-2-2-3. “Address
+information page”, the image reading is performed in units of \[Data of
 one line in bytes \* number of colors\]. Therefore the image data size
 is calculated by the following formula.
 
@@ -4837,62 +8371,137 @@ The shading data is represented by the 16-bit data.
 
 The format is shown below.
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | (MSB) Data for the first pixel in gain 1, 2-line mode, CCD line A                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 1      | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2      | (MSB) Data for the first pixel in gain 1, 2-line mode, CCD line B                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3      | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| :      | :                                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 15782  | (MSB) Data for the 3946th pixel in gain 1, 2-line mode, CCD line B                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 15783  | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 15784  | (MSB) Data for the first pixel in gain 1, 1-line mode, CCD line A                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 15785  | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| :      | :                                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 23674  | (MSB) Data for the 3946th pixel in gain 1, 1-line mode, CCD line A                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 23675  | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 23676  | (MSB) Data for the first pixel in gain 2, 2-line mode, CCD line A                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 23677  | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| :      | :                                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 39458  | (MSB) Data for the 3946th pixel in gain 2, 2-line mode, CCD line B                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 39459  | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 39460  | (MSB) Data for the first pixel in gain 2, 1-line mode, CCD line A                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 39461  | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| :      | :                                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 47350  | (MSB) Data for the 3946th pixel in gain 2, 1-line mode, CCD line A                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 47351  | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the first pixel
+in gain 1, 2-line mode, CCD line A</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the first pixel
+in gain 1, 2-line mode, CCD line B</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">15782</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the 3946th
+pixel in gain 1, 2-line mode, CCD line B</td>
+</tr>
+<tr>
+<td style="text-align: center;">15783</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">15784</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the first pixel
+in gain 1, 1-line mode, CCD line A</td>
+</tr>
+<tr>
+<td style="text-align: center;">15785</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">23674</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the 3946th
+pixel in gain 1, 1-line mode, CCD line A</td>
+</tr>
+<tr>
+<td style="text-align: center;">23675</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">23676</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the first pixel
+in gain 2, 2-line mode, CCD line A</td>
+</tr>
+<tr>
+<td style="text-align: center;">23677</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">39458</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the 3946th
+pixel in gain 2, 2-line mode, CCD line B</td>
+</tr>
+<tr>
+<td style="text-align: center;">39459</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">39460</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the first pixel
+in gain 2, 1-line mode, CCD line A</td>
+</tr>
+<tr>
+<td style="text-align: center;">39461</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">47350</td>
+<td colspan="8" style="text-align: left;">(MSB) Data for the 3946th
+pixel in gain 2, 1-line mode, CCD line A</td>
+</tr>
+<tr>
+<td style="text-align: center;">47351</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+</tbody>
+</table>
 
 Note) For the shading data measured with the 240 adapter attached, the
 shading data corresponding to the range outside the aperture becomes
 invalid, but this invalid data is also read at the same time in the
 reading by the READ command.
 
-**\
+**  
 2-11-5. Initiator cooperative action parameter**
 
 The READ command specifying data type code 87h is sent from the host
@@ -4909,195 +8518,217 @@ The contents and the format of the data are shown below.
 
 Operation type code
 
-  ------ ------------------------------- --------------------------------
-    1    THUMBNAIL CREATED BY DRIVER     Thumbnail scanning
-
-    2    AVERAGING MULTIPLE READING BY   Line averaging of the multiple
-         DRIVER                          reading function
-
-    6    TRUNCATED BY DRIVER             Deletion of invalid data
-
-    7    CCD DATA CREATED BY DRIVER      CCD data reading
-  ------ ------------------------------- --------------------------------
+|  |  |  |
+|:--:|----|:---|
+| 1 | THUMBNAIL CREATED BY DRIVER | Thumbnail scanning |
+| 2 | AVERAGING MULTIPLE READING BY DRIVER | Line averaging of the multiple reading function |
+| 6 | TRUNCATED BY DRIVER | Deletion of invalid data |
+| 7 | CCD DATA CREATED BY DRIVER | CCD data reading |
 
 Table 2-11-5-1 Format of THUMBNAIL CREATED BY DRIVER
 
-+:----:+:-------------:+:-----------------:+---------------------------+
-| Byte | Name          | Descriptions      | Parameter                 |
-+------+---------------+-------------------+---------------------------+
-| 0    | Type Code     | Operation type    | 1                         |
-|      |               | code              |                           |
-+------+---------------+-------------------+---------------------------+
-| 1 to | Sense Data    | Sense data that   | 09h-80h-01h-02h (IA)      |
-| 4    |               | is set by the     |                           |
-|      |               | SCAN command      | 09h-80h-01h-06h (SA)      |
-+------+---------------+-------------------+---------------------------+
-| 5, 6 | Bytes Per     | The number of     | Depends on the scanning   |
-|      | Line          | bytes per line    | condition                 |
-+------+---------------+-------------------+---------------------------+
-| 7, 8 | Entire Lines  | The number of     | Number of scanning        |
-|      |               | entire lines      | lines\*Number of frames   |
-+------+---------------+-------------------+---------------------------+
-| 9    | Bits Per a    | The number of     | \[16\]                    |
-|      | Color of Dot  | bits per dot of   |                           |
-|      |               | one color         |                           |
-+------+---------------+-------------------+---------------------------+
-| 10,  | Lines Per an  | The number of     | The number of scanning    |
-| 11   | Image         | lines per image   | lines                     |
-+------+---------------+-------------------+---------------------------+
-| 12   | Reading Count | Exposure counts   | \-                        |
-|      | Per a Line    | per line          |                           |
-+------+---------------+-------------------+---------------------------+
-| 13   | Reserved      | Reserved          | 0                         |
-| to   |               |                   |                           |
-| 17   |               |                   |                           |
-+------+---------------+-------------------+---------------------------+
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 22%" />
+<col style="width: 28%" />
+<col style="width: 39%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Name</td>
+<td style="text-align: center;">Descriptions</td>
+<td>Parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">Type Code</td>
+<td style="text-align: center;">Operation type code</td>
+<td>1</td>
+</tr>
+<tr>
+<td style="text-align: center;">1 to 4</td>
+<td style="text-align: center;">Sense Data</td>
+<td style="text-align: center;">Sense data that is set by the SCAN
+command</td>
+<td><p>09h-80h-01h-02h (IA)</p>
+<p>09h-80h-01h-06h (SA)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">5, 6</td>
+<td style="text-align: center;">Bytes Per Line</td>
+<td style="text-align: center;">The number of bytes per line</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">7, 8</td>
+<td style="text-align: center;">Entire Lines</td>
+<td style="text-align: center;">The number of entire lines</td>
+<td>Number of scanning lines*Number of frames</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td style="text-align: center;">Bits Per a Color of Dot</td>
+<td style="text-align: center;">The number of bits per dot of one
+color</td>
+<td>[16]</td>
+</tr>
+<tr>
+<td style="text-align: center;">10, 11</td>
+<td style="text-align: center;">Lines Per an Image</td>
+<td style="text-align: center;">The number of lines per image</td>
+<td>The number of scanning lines</td>
+</tr>
+<tr>
+<td style="text-align: center;">12</td>
+<td style="text-align: center;">Reading Count Per a Line</td>
+<td style="text-align: center;">Exposure counts per line</td>
+<td>-</td>
+</tr>
+<tr>
+<td style="text-align: center;">13 to 17</td>
+<td style="text-align: center;">Reserved</td>
+<td style="text-align: center;">Reserved</td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
 
 Table 2-11-5-2 Format of AVERAGING MULTIPLE READING BY DRIVER
 
-  ------ ---------------- -------------------- ---------------------------
-   Byte        Name           Descriptions     Parameter
-
-    0       Type Code     Operation type code  2
-
-  1 to 4    Sense Data     Sense data that is  09h-80h-02h-00h
-                            set by the SCAN    
-                                command        
-
-   5, 6   Bytes Per Line  The number of bytes  \-
-                                per line       
-
-   7, 8    Entire Lines   The number of entire \-
-                                 lines         
-
-    9    Bits Per a Color  The number of bits  \-
-              of Dot      per dot of one color 
-
-  10, 11   Lines Per an   The number of lines  \-
-              Image            per image       
-
-    12    Reading Count   Exposure counts per  Depends on the scanning
-            Per a Line            line         condition
-
-  13 to      Reserved           Reserved       0
-    17                                         
-  ------ ---------------- -------------------- ---------------------------
+|  |  |  |  |
+|:--:|:--:|:--:|----|
+| Byte | Name | Descriptions | Parameter |
+| 0 | Type Code | Operation type code | 2 |
+| 1 to 4 | Sense Data | Sense data that is set by the SCAN command | 09h-80h-02h-00h |
+| 5, 6 | Bytes Per Line | The number of bytes per line | \- |
+| 7, 8 | Entire Lines | The number of entire lines | \- |
+| 9 | Bits Per a Color of Dot | The number of bits per dot of one color | \- |
+| 10, 11 | Lines Per an Image | The number of lines per image | \- |
+| 12 | Reading Count Per a Line | Exposure counts per line | Depends on the scanning condition |
+| 13 to 17 | Reserved | Reserved | 0 |
 
 Table 2-11-5-3 Format of TRUNCATED BY DRIVER TYPE2
 
-+:----:+:-------------:+:-----------------:+---------------------------+
-| Byte | Name          | Descriptions      | Parameter                 |
-+------+---------------+-------------------+---------------------------+
-| 0    | Type Code     | Operation type    | 6                         |
-|      |               | code (06h)        |                           |
-+------+---------------+-------------------+---------------------------+
-| 1 to | Sense Data    | Sense data that   | 09h-80h-06h-01h           |
-| 4    |               | is set by the     |                           |
-|      |               | SCAN command      |                           |
-|      |               |                   |                           |
-|      |               | (9h-80h-06h-01h)  |                           |
-+------+---------------+-------------------+---------------------------+
-| 5, 6 | Invalid Data  | Invalid data      | Depends on the scanning   |
-|      | Position      | attaching         | condition                 |
-|      |               | position          |                           |
-+------+---------------+-------------------+---------------------------+
-| 7, 8 | Byte of       | Invalid data      | Depends on the scanning   |
-|      | invalid data  | length in bytes   | condition                 |
-|      | of Left of    | that is attached  |                           |
-|      | each color    | to the            |                           |
-|      |               | first-pixel side  |                           |
-|      |               | in the scan line  |                           |
-|      |               | direction with    |                           |
-|      |               | the origin of the |                           |
-|      |               | image in each     |                           |
-|      |               | color set to the  |                           |
-|      |               | standard          |                           |
-+------+---------------+-------------------+---------------------------+
-| 9,   | Byte of       | Invalid data      | Depends on the scanning   |
-| 10   | invalid data  | length in bytes   | condition                 |
-|      | of Last of    | that is attached  |                           |
-|      | each color    | to the last-pixel |                           |
-|      |               | side in the scan  |                           |
-|      |               | line direction    |                           |
-|      |               | with the origin   |                           |
-|      |               | of the image in   |                           |
-|      |               | each color set to |                           |
-|      |               | the standard      |                           |
-+------+---------------+-------------------+---------------------------+
-| 11,  | Byte of       | Invalid data      | Depends on the scanning   |
-| 12   | invalid data  | length in bytes   | condition                 |
-|      | of Left of    | that is attached  |                           |
-|      | all color     | to the            |                           |
-|      |               | first-pixel side  |                           |
-|      |               | in the scan line  |                           |
-|      |               | direction with    |                           |
-|      |               | the origin of the |                           |
-|      |               | image in all      |                           |
-|      |               | colors set to the |                           |
-|      |               | standard          |                           |
-+------+---------------+-------------------+---------------------------+
-| 13,  | Byte of       | Invalid data      | Depends on the scanning   |
-| 14   | invalid data  | length in bytes   | condition                 |
-|      | of Last of    | that is attached  |                           |
-|      | all color     | to the last-pixel |                           |
-|      |               | side in the scan  |                           |
-|      |               | line direction    |                           |
-|      |               | with the origin   |                           |
-|      |               | of the image in   |                           |
-|      |               | all colors set to |                           |
-|      |               | the standard      |                           |
-+------+---------------+-------------------+---------------------------+
-| 15,  | Reserved      | \-                | \-                        |
-| 16   |               |                   |                           |
-+------+---------------+-------------------+---------------------------+
-| 17,  | Reserved      | \-                | \-                        |
-| 18   |               |                   |                           |
-+------+---------------+-------------------+---------------------------+
-| 19,  | Line of       | The number of     | Depends on the scanning   |
-| 20   | invalid data  | invalid data      | condition                 |
-|      | of Top        | lines that is     |                           |
-|      |               | attached to the   |                           |
-|      |               | first-line side   |                           |
-|      |               | in the base line  |                           |
-|      |               | direction with    |                           |
-|      |               | the origin of the |                           |
-|      |               | image set to the  |                           |
-|      |               | standard          |                           |
-+------+---------------+-------------------+---------------------------+
-| 21,  | Line of       | The number of     | Depends on the scanning   |
-| 22   | invalid data  | invalid data      | condition                 |
-|      | of End        | lines that is     |                           |
-|      |               | attached to the   |                           |
-|      |               | last-line side in |                           |
-|      |               | the base line     |                           |
-|      |               | direction with    |                           |
-|      |               | the origin of the |                           |
-|      |               | image set to the  |                           |
-|      |               | standard          |                           |
-+------+---------------+-------------------+---------------------------+
-| 23,  | Byte of       | Invalid data      | Depends on the scanning   |
-| 24   | invalid data  | length in bytes   | condition                 |
-|      | of Top of one | that is attached  |                           |
-|      | frame         | to the            |                           |
-|      |               | first-pixel side  |                           |
-|      |               | in the scan line  |                           |
-|      |               | direction with    |                           |
-|      |               | the origin of the |                           |
-|      |               | one-frame image   |                           |
-|      |               | data set to the   |                           |
-|      |               | standard          |                           |
-+------+---------------+-------------------+---------------------------+
-| 25,  | Byte of       | Invalid data      | Depends on the scanning   |
-| 26   | invalid data  | length in bytes   | condition                 |
-|      | of End of one | that is attached  |                           |
-|      | frame         | to the last-pixel |                           |
-|      |               | side in the scan  |                           |
-|      |               | line direction    |                           |
-|      |               | with the origin   |                           |
-|      |               | of the one-frame  |                           |
-|      |               | image data set to |                           |
-|      |               | the standard      |                           |
-+------+---------------+-------------------+---------------------------+
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 22%" />
+<col style="width: 28%" />
+<col style="width: 39%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Byte</td>
+<td style="text-align: center;">Name</td>
+<td style="text-align: center;">Descriptions</td>
+<td>Parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">Type Code</td>
+<td style="text-align: center;">Operation type code (06h)</td>
+<td>6</td>
+</tr>
+<tr>
+<td style="text-align: center;">1 to 4</td>
+<td style="text-align: center;">Sense Data</td>
+<td style="text-align: center;"><p>Sense data that is set by the SCAN
+command</p>
+<p>(9h-80h-06h-01h)</p></td>
+<td>09h-80h-06h-01h</td>
+</tr>
+<tr>
+<td style="text-align: center;">5, 6</td>
+<td style="text-align: center;">Invalid Data Position</td>
+<td style="text-align: center;">Invalid data attaching position</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">7, 8</td>
+<td style="text-align: center;">Byte of invalid data of Left of each
+color</td>
+<td style="text-align: center;">Invalid data length in bytes that is
+attached to the first-pixel side in the scan line direction with the
+origin of the image in each color set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">9, 10</td>
+<td style="text-align: center;">Byte of invalid data of Last of each
+color</td>
+<td style="text-align: center;">Invalid data length in bytes that is
+attached to the last-pixel side in the scan line direction with the
+origin of the image in each color set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">11, 12</td>
+<td style="text-align: center;">Byte of invalid data of Left of all
+color</td>
+<td style="text-align: center;">Invalid data length in bytes that is
+attached to the first-pixel side in the scan line direction with the
+origin of the image in all colors set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">13, 14</td>
+<td style="text-align: center;">Byte of invalid data of Last of all
+color</td>
+<td style="text-align: center;">Invalid data length in bytes that is
+attached to the last-pixel side in the scan line direction with the
+origin of the image in all colors set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">15, 16</td>
+<td style="text-align: center;">Reserved</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">17, 18</td>
+<td style="text-align: center;">Reserved</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+</tr>
+<tr>
+<td style="text-align: center;">19, 20</td>
+<td style="text-align: center;">Line of invalid data of Top</td>
+<td style="text-align: center;">The number of invalid data lines that is
+attached to the first-line side in the base line direction with the
+origin of the image set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">21, 22</td>
+<td style="text-align: center;">Line of invalid data of End</td>
+<td style="text-align: center;">The number of invalid data lines that is
+attached to the last-line side in the base line direction with the
+origin of the image set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">23, 24</td>
+<td style="text-align: center;">Byte of invalid data of Top of one
+frame</td>
+<td style="text-align: center;">Invalid data length in bytes that is
+attached to the first-pixel side in the scan line direction with the
+origin of the one-frame image data set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+<tr>
+<td style="text-align: center;">25, 26</td>
+<td style="text-align: center;">Byte of invalid data of End of one
+frame</td>
+<td style="text-align: center;">Invalid data length in bytes that is
+attached to the last-pixel side in the scan line direction with the
+origin of the one-frame image data set to the standard</td>
+<td>Depends on the scanning condition</td>
+</tr>
+</tbody>
+</table>
 
 Byte 5 and 6 Invalid Data Position
 
@@ -5105,51 +8736,27 @@ Byte 5 and 6 Invalid Data Position
 > attached. The invalid data is attached to the position of the bit to
 > which 1 is set.
 
-  --------- --------- ----------------------------------------------------
-  Byte 5    Bit0      The first-pixel side in the scan line direction with
-                      theorigin of data in each color set to the standard
+|  |  |  |
+|----|----|----|
+| Byte 5 | Bit0 | The first-pixel side in the scan line direction with theorigin of data in each color set to the standard |
+|  | Bit1 | The last-pixel side in the scan line direction with theorigin of data in each color set to the standard |
+|  | Bit2 | The first-pixel side in the scan line direction with theorigin of data in all colors set to the standard |
+|  | Bit3 | The last-pixel side in the scan line direction with theorigin of data in all colors set to the standard |
+|  | Bit4 | Reserved |
+|  | Bit5 | Reserved |
+|  | Bit6 | The first-line side in the base line direction with the origin set to the standard |
+|  | Bit7 | The last-line side in the base line direction with the origin set to the standard |
 
-            Bit1      The last-pixel side in the scan line direction with
-                      theorigin of data in each color set to the standard
-
-            Bit2      The first-pixel side in the scan line direction with
-                      theorigin of data in all colors set to the standard
-
-            Bit3      The last-pixel side in the scan line direction with
-                      theorigin of data in all colors set to the standard
-
-            Bit4      Reserved
-
-            Bit5      Reserved
-
-            Bit6      The first-line side in the base line direction with
-                      the origin set to the standard
-
-            Bit7      The last-line side in the base line direction with
-                      the origin set to the standard
-  --------- --------- ----------------------------------------------------
-
-  --------- --------- ----------------------------------------------------
-  Byte 6    Bit0      The first-pixel side in the scan line direction with
-                      theorigin of one-frame image data set to the
-                      standard
-
-            Bit1      The last-pixel side in the scan line direction with
-                      theorigin of one-frame image data set to the
-                      standard
-
-            Bit2      Reserved
-
-            Bit3      Reserved
-
-            Bit4      Reserved
-
-            Bit5      Reserved
-
-            Bit6      Reserved
-
-            Bit7      Reserved
-  --------- --------- ----------------------------------------------------
+|  |  |  |
+|----|----|----|
+| Byte 6 | Bit0 | The first-pixel side in the scan line direction with theorigin of one-frame image data set to the standard |
+|  | Bit1 | The last-pixel side in the scan line direction with theorigin of one-frame image data set to the standard |
+|  | Bit2 | Reserved |
+|  | Bit3 | Reserved |
+|  | Bit4 | Reserved |
+|  | Bit5 | Reserved |
+|  | Bit6 | Reserved |
+|  | Bit7 | Reserved |
 
 Byte 7 to 26 Byte of invalid data
 
@@ -5162,50 +8769,20 @@ as a part of the line in the base line direction.
 
 Table 2-11-5-4 Format of CCD DATA CREATED BY DRIVER
 
-  ------ ---------------- --------------------- --------------------------
-   Byte        Name           Descriptions      Parameter
-
-    0       Type Code      Operation type code  7
-
-  1 to 4    Sense Data     Sense data that is   09h-80h-07h-00h
-                             set by the SCAN    
-                                 command        
-
-    5    CCD Data Type of     Type for CCD      Depends on the scanning
-              R Data        measurement of R    condition
-                                  color         
-
-    6    CCD Data Type of     Type for CCD      Depends on the scanning
-              G Data        measurement of G    condition
-                                  color         
-
-    7    CCD Data Type of     Type for CCD      Depends on the scanning
-              B Data        measurement of B    condition
-                                  color         
-
-    8    CCD Data Type of     Type for CCD      \-
-             NG Data        measurement of NG   
-                                  color         
-
-    9    CCD Data Type of     Type for CCD      \-
-              C Data        measurement of C    
-                                  color         
-
-    10   CCD Data Type of     Type for CCD      \-
-              M Data        measurement of M    
-                                  color         
-
-    11   CCD Data Type of     Type for CCD      \-
-              Y Data        measurement of Y    
-                                  color         
-
-    12   CCD Data Type of     Type for CCD      \-
-              B Data        measurement of B    
-                                  color         
-
-  13 to      Reserved           Reserved        0
-    17                                          
-  ------ ---------------- --------------------- --------------------------
+|  |  |  |  |
+|:--:|:--:|:--:|----|
+| Byte | Name | Descriptions | Parameter |
+| 0 | Type Code | Operation type code | 7 |
+| 1 to 4 | Sense Data | Sense data that is set by the SCAN command | 09h-80h-07h-00h |
+| 5 | CCD Data Type of R Data | Type for CCD measurement of R color | Depends on the scanning condition |
+| 6 | CCD Data Type of G Data | Type for CCD measurement of G color | Depends on the scanning condition |
+| 7 | CCD Data Type of B Data | Type for CCD measurement of B color | Depends on the scanning condition |
+| 8 | CCD Data Type of NG Data | Type for CCD measurement of NG color | \- |
+| 9 | CCD Data Type of C Data | Type for CCD measurement of C color | \- |
+| 10 | CCD Data Type of M Data | Type for CCD measurement of M color | \- |
+| 11 | CCD Data Type of Y Data | Type for CCD measurement of Y color | \- |
+| 12 | CCD Data Type of B Data | Type for CCD measurement of B color | \- |
+| 13 to 17 | Reserved | Reserved | 0 |
 
 Byte 5 to 12 CCD Data Type of color Data
 
@@ -5218,76 +8795,151 @@ The value decided by the measurement of the unit at the time of start-up
 specifies the color according to the upper byte of the data type
 qualifier, and 4-byte data is sent for each color.
 
-**\
+**  
 2-11-7. Setup information**
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0, 1   | (MSB) Parameter length \[n-2\] (LSB)                                                                  |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2      | Format Identifier \[0\]                                                                               |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3, 4   | Base Level (Base level value of the film)                                                             |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5 to 8 | Exposure Value for Base Level                                                                         |
-|        |                                                                                                       |
-|        | (Exposure value when the base level value of the film is decided)                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 9 to   | Exposure Value for White balance at base measurement                                                  |
-| 12     |                                                                                                       |
-|        | (Exposure value for white balance when the base level value of the film is decided)                   |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 13     | The number of information retaining images                                                            |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 14     | 1st Index (The first image)                                                                           |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 15 to  | Exposure Value for 1st index image                                                                    |
-| 18     |                                                                                                       |
-|        | (Exposure value after prescan of the first image)                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 19 to  | Exposure Value for White balance at 1st image setup                                                   |
-| 22     |                                                                                                       |
-|        | (Exposure value for white balance in the prescan of the first image)                                  |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 23, 24 | Minimum Level for the 1st index image                                                                 |
-|        |                                                                                                       |
-|        | (Minimum level of the image detected after prescan of the first image)                                |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 25, 26 | Maximum Level for the 1st index image                                                                 |
-|        |                                                                                                       |
-|        | (Maximum level of the image detected after prescan of the first image)                                |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 27     | 2nd Index (The second image)                                                                          |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 28 to  | Exposure Value for 2nd index image                                                                    |
-| 31     |                                                                                                       |
-|        | (Exposure value after prescan of the 2nd image)                                                       |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 32 to  | Exposure Value for White balance at 2nd image setup                                                   |
-| 35     |                                                                                                       |
-|        | (Exposure value for white balance in the prescan of the 2nd image)                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 36, 37 | Minimum Level for the 2nd index image                                                                 |
-|        |                                                                                                       |
-|        | (Minimum level of the image detected after prescan of the 2nd image)                                  |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 38, 39 | Maximum Level for the 2nd index image                                                                 |
-|        |                                                                                                       |
-|        | (Maximum level of the image detected after prescan of the 2nd image)                                  |
-+--------+-------------------------------------------------------------------------------------------------------+
-| :      | :                                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| n-3,   | Minimum Level for the last index image                                                                |
-| n-2    |                                                                                                       |
-|        | (Minimum level of the image detected after prescan of the last image)                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| n-1, n | Maximum Level for the last index image                                                                |
-|        |                                                                                                       |
-|        | (Maximum level of the image detected after prescan of the last image)                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0, 1</td>
+<td colspan="8" style="text-align: center;">(MSB) Parameter length [n-2]
+(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Format Identifier [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3, 4</td>
+<td colspan="8" style="text-align: center;">Base Level (Base level value
+of the film)</td>
+</tr>
+<tr>
+<td style="text-align: center;">5 to 8</td>
+<td colspan="8" style="text-align: center;"><p>Exposure Value for Base
+Level</p>
+<p>(Exposure value when the base level value of the film is
+decided)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">9 to 12</td>
+<td colspan="8" style="text-align: center;"><p>Exposure Value for White
+balance at base measurement</p>
+<p>(Exposure value for white balance when the base level value of the
+film is decided)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">13</td>
+<td colspan="8" style="text-align: center;">The number of information
+retaining images</td>
+</tr>
+<tr>
+<td style="text-align: center;">14</td>
+<td colspan="8" style="text-align: center;">1st Index (The first
+image)</td>
+</tr>
+<tr>
+<td style="text-align: center;">15 to 18</td>
+<td colspan="8" style="text-align: center;"><p>Exposure Value for 1st
+index image</p>
+<p>(Exposure value after prescan of the first image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">19 to 22</td>
+<td colspan="8" style="text-align: center;"><p>Exposure Value for White
+balance at 1st image setup</p>
+<p>(Exposure value for white balance in the prescan of the first
+image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">23, 24</td>
+<td colspan="8" style="text-align: center;"><p>Minimum Level for the 1st
+index image</p>
+<p>(Minimum level of the image detected after prescan of the first
+image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">25, 26</td>
+<td colspan="8" style="text-align: center;"><p>Maximum Level for the 1st
+index image</p>
+<p>(Maximum level of the image detected after prescan of the first
+image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">27</td>
+<td colspan="8" style="text-align: center;">2nd Index (The second
+image)</td>
+</tr>
+<tr>
+<td style="text-align: center;">28 to 31</td>
+<td colspan="8" style="text-align: center;"><p>Exposure Value for 2nd
+index image</p>
+<p>(Exposure value after prescan of the 2nd image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">32 to 35</td>
+<td colspan="8" style="text-align: center;"><p>Exposure Value for White
+balance at 2nd image setup</p>
+<p>(Exposure value for white balance in the prescan of the 2nd
+image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">36, 37</td>
+<td colspan="8" style="text-align: center;"><p>Minimum Level for the 2nd
+index image</p>
+<p>(Minimum level of the image detected after prescan of the 2nd
+image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">38, 39</td>
+<td colspan="8" style="text-align: center;"><p>Maximum Level for the 2nd
+index image</p>
+<p>(Maximum level of the image detected after prescan of the 2nd
+image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">n-3, n-2</td>
+<td colspan="8" style="text-align: center;"><p>Minimum Level for the
+last index image</p>
+<p>(Minimum level of the image detected after prescan of the last
+image)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">n-1, n</td>
+<td colspan="8" style="text-align: center;"><p>Maximum Level for the
+last index image</p>
+<p>(Maximum level of the image detected after prescan of the last
+image)</p></td>
+</tr>
+</tbody>
+</table>
 
 Byte 2 Format Identifier
 
@@ -5347,7 +8999,7 @@ Maximum Level for the last index image
 Maximum level of the image that is detected as a result of the prescan
 of the nth image.
 
-**\
+**  
 2-11-8. Perforation information**
 
 After the thumbnail scanning of the strip film, the READ command
@@ -5357,46 +9009,89 @@ lines between each perforation.
 
 The contents of the data and the format are as shown below.
 
-+:-----:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit   | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|       |             |             |             |             |             |             |             |             |
-| Byte  |             |             |             |             |             |             |             |             |
-+-------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| 0 to  | (MSB) Parameter length \[4n+1\]                                                                               |
-| 2     |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-|       | (LSB)                                                                                                         |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 3     | Bytes per parameter (The number of bytes in each line of the absolute position information)                   |
-|       |                                                                                                               |
-|       | \[4\]                                                                                                         |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 4, 5  | (MSB) Perforation number for the 1st line                                                                     |
-|       |                                                                                                               |
-|       | (LSB)                                                                                                         |
-+-------+-------------+-------------------------------------------------------------------------------------------------+
-| 6     | Count       | Number of Pattern for the 1st line                                                              |
-|       | switching   |                                                                                                 |
-|       | flag        |                                                                                                 |
-|       |             |                                                                                                 |
-|       | \[0, 1\]    |                                                                                                 |
-+-------+-------------+-------------------------------------------------------------------------------------------------+
-| 7     | Pulse number for the 1st line                                                                                 |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| :     | :                                                                                                             |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 4n,   | (MSB) Perforation number for the nth line                                                                     |
-|       |                                                                                                               |
-| 4n+1  | (LSB)                                                                                                         |
-+-------+-------------+-------------------------------------------------------------------------------------------------+
-| 4n+2  | Count       | Number of Pattern for the nth line                                                              |
-|       | switching   |                                                                                                 |
-|       | flag        |                                                                                                 |
-|       |             |                                                                                                 |
-|       | \[0, 1\]    |                                                                                                 |
-+-------+-------------+-------------------------------------------------------------------------------------------------+
-| 4n+3  | Pulse number for the nth line                                                                                 |
-+-------+---------------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0 to 2</td>
+<td colspan="8" style="text-align: center;">(MSB) Parameter length
+[4n+1]</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;"><p>Bytes per parameter (The
+number of bytes in each line of the absolute position information)</p>
+<p>[4]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">4, 5</td>
+<td colspan="8" style="text-align: center;"><p>(MSB) Perforation number
+for the 1st line</p>
+<p>(LSB)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;"><p>Count switching flag</p>
+<p>[0, 1]</p></td>
+<td colspan="7" style="text-align: center;">Number of Pattern for the
+1st line</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: center;">Pulse number for the 1st
+line</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;"><p>4n,</p>
+<p>4n+1</p></td>
+<td colspan="8" style="text-align: center;"><p>(MSB) Perforation number
+for the nth line</p>
+<p>(LSB)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">4n+2</td>
+<td style="text-align: center;"><p>Count switching flag</p>
+<p>[0, 1]</p></td>
+<td colspan="7" style="text-align: center;">Number of Pattern for the
+nth line</td>
+</tr>
+<tr>
+<td style="text-align: center;">4n+3</td>
+<td colspan="8" style="text-align: center;">Pulse number for the nth
+line</td>
+</tr>
+</tbody>
+</table>
 
 Byte 3 Bytes per parameter
 
@@ -5413,49 +9108,111 @@ Byte 4 and after Perforation Address for the nth line
 > This is the flag to be set when the sensor that counts the perforation
 > is switched.
 
-**\
+**  
 2-11-9. Boundary Information Type2**
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0, 1   | (MSB) Parameter length \[n-1\] (LSB)                                                                  |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 2      | The actual number of images                                                                           |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3      | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4 to 7 | 1st image Top (Y) address                                                                             |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 8, 9   | 1st image Perforation number                                                                          |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 10     | 1st image Perforation decimal                                                                         |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 11     | 1st image Pulse number                                                                                |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 12 to  | 2nd image Top (Y) address                                                                             |
-| 15     |                                                                                                       |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 16, 17 | 2nd image Perforation number                                                                          |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 18     | 2nd image Perforation decimal                                                                         |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 19     | 2nd image Pulse number                                                                                |
-+--------+-------------------------------------------------------------------------------------------------------+
-| :      | :                                                                                                     |
-+--------+-------------------------------------------------------------------------------------------------------+
-| n-7 to | mth (\*) image Top (Y) address                                                                        |
-| n-4    |                                                                                                       |
-+--------+-------------------------------------------------------------------------------------------------------+
-| n-3,   | mth image Perforation number                                                                          |
-| n-2    |                                                                                                       |
-+--------+-------------------------------------------------------------------------------------------------------+
-| n-1    | mth image Perforation decimal                                                                         |
-+--------+-------------------------------------------------------------------------------------------------------+
-| n      | mth image Pulse number                                                                                |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0, 1</td>
+<td colspan="8" style="text-align: center;">(MSB) Parameter length [n-1]
+(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">The actual number of
+images</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4 to 7</td>
+<td colspan="8" style="text-align: center;">1st image Top (Y)
+address</td>
+</tr>
+<tr>
+<td style="text-align: center;">8, 9</td>
+<td colspan="8" style="text-align: center;">1st image Perforation
+number</td>
+</tr>
+<tr>
+<td style="text-align: center;">10</td>
+<td colspan="8" style="text-align: center;">1st image Perforation
+decimal</td>
+</tr>
+<tr>
+<td style="text-align: center;">11</td>
+<td colspan="8" style="text-align: center;">1st image Pulse number</td>
+</tr>
+<tr>
+<td style="text-align: center;">12 to 15</td>
+<td colspan="8" style="text-align: center;">2nd image Top (Y)
+address</td>
+</tr>
+<tr>
+<td style="text-align: center;">16, 17</td>
+<td colspan="8" style="text-align: center;">2nd image Perforation
+number</td>
+</tr>
+<tr>
+<td style="text-align: center;">18</td>
+<td colspan="8" style="text-align: center;">2nd image Perforation
+decimal</td>
+</tr>
+<tr>
+<td style="text-align: center;">19</td>
+<td colspan="8" style="text-align: center;">2nd image Pulse number</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">n-7 to n-4</td>
+<td colspan="8" style="text-align: center;">mth (*) image Top (Y)
+address</td>
+</tr>
+<tr>
+<td style="text-align: center;">n-3, n-2</td>
+<td colspan="8" style="text-align: center;">mth image Perforation
+number</td>
+</tr>
+<tr>
+<td style="text-align: center;">n-1</td>
+<td colspan="8" style="text-align: center;">mth image Perforation
+decimal</td>
+</tr>
+<tr>
+<td style="text-align: center;">n</td>
+<td colspan="8" style="text-align: center;">mth image Pulse number</td>
+</tr>
+</tbody>
+</table>
 
 \*: m=(n-3)/8
 
@@ -5511,76 +9268,162 @@ number that are sent by Boundary Information Type2.
 
 **2-11-10. CCD data**
 
-+------------:+:------------:+:------------:+:------------:+:------------:+:------------:+:------------:+:------------:+:------------:+
-| Bit         | 7            | 6            | 5            | 4            | 3            | 2            | 1            | 0            |
-|             |              |              |              |              |              |              |              |              |
-| Byte        |              |              |              |              |              |              |              |              |
-+-------------+--------------+--------------+--------------+--------------+--------------+--------------+--------------+--------------+
-| 0, 1        | The first point data of the first type in CCD first line                                                              |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
-| 2, 3        | The second point data of the first type in CCD first line                                                             |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
-| :           | :                                                                                                                     |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
-| 2mn-4,      | The (m-1)th point data of the nth type in CCD first line                                                              |
-| 2mn-3       |                                                                                                                       |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
-| 2mn-2,      | The mth point data of the nth type in CCD first line                                                                  |
-| 2mn-1       |                                                                                                                       |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
-| 2mn, 2mn+1  | The first point data of the first type in CCD second line                                                             |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
-| :           | :                                                                                                                     |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
-| 2lmn-2,     | The mth point data of the nth type in CCD second line                                                                 |
-| 2lmn-1      |                                                                                                                       |
-+-------------+-----------------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0, 1</td>
+<td colspan="8" style="text-align: center;">The first point data of the
+first type in CCD first line</td>
+</tr>
+<tr>
+<td style="text-align: center;">2, 3</td>
+<td colspan="8" style="text-align: center;">The second point data of the
+first type in CCD first line</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">2mn-4, 2mn-3</td>
+<td colspan="8" style="text-align: center;">The (m-1)th point data of
+the nth type in CCD first line</td>
+</tr>
+<tr>
+<td style="text-align: center;">2mn-2, 2mn-1</td>
+<td colspan="8" style="text-align: center;">The mth point data of the
+nth type in CCD first line</td>
+</tr>
+<tr>
+<td style="text-align: center;">2mn, 2mn+1</td>
+<td colspan="8" style="text-align: center;">The first point data of the
+first type in CCD second line</td>
+</tr>
+<tr>
+<td style="text-align: center;">:</td>
+<td colspan="8" style="text-align: center;">:</td>
+</tr>
+<tr>
+<td style="text-align: center;">2lmn-2, 2lmn-1</td>
+<td colspan="8" style="text-align: center;">The mth point data of the
+nth type in CCD second line</td>
+</tr>
+</tbody>
+</table>
 
 **2-11-11. Leak volume**
 
 Leak_g, Leak_s, and Leak_k (2 bytes each) are sent to the initiator, in
 that order.
 
-'FFFFh' is sent for all of the three kinds when they are not recorded
+‘FFFFh’ is sent for all of the three kinds when they are not recorded
 once in the scanner.
 
-The host should use the default value when 'FFFFh' is sent.
+The host should use the default value when ‘FFFFh’ is sent.
 
 Because the value multiplied by 1,000,000 is recorded in the scanner,
 the value divided by 1,000,000 should be used.
 
-**\
+**  
 2-12. SEND Command**
 
 Table 2-12-1 SEND command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[2Ah\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2      | Data type code                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3      | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 4      | Data type qualifier (upper byte)                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Data type qualifier (lower byte)                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6      | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 7      | Transfer length                                                                                       |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 8      | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 9      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [2Ah]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Data type code</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+<td colspan="8" style="text-align: center;">Data type qualifier (upper
+byte)</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Data type qualifier (lower
+byte)</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: center;">Transfer length</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The SEND command transfers the data from the initiator to this unit.
 
@@ -5601,21 +9444,52 @@ transferred.
 
 Table 2-13-1 ABORT command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[C0h\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2 to 4 | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [C0h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 4</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The ABORT command aborts the scanning operation that is started by the
 SCAN command.
@@ -5638,21 +9512,52 @@ performed, GOOD status shall be returned.
 
 Table 2-14-1 EXECUTE command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[C1h\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2 to 4 | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 5      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [C1h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2 to 4</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The EXECUTE command performs the operation specified by the SET
 PARAMETER command. The EXECUTE command is an operation activation
@@ -5667,119 +9572,171 @@ the TEST UNIT READY command.
 
 Table 2-14-2 Sense data that is set in each status
 
-+:----------------:+:---------------------------:+:-------------------:+
-| Status           | Sense data                  | Remarks             |
-+------------------+-----------------------------+---------------------+
-| When the TEST    | LOGICAL UNIT IS IN PROCESS  | The command         |
-| UNIT READY       | OF BECOMING READY           | terminates with the |
-| command is       |                             | CHECK CONDITION     |
-| received during  | (During the execution of    | status.             |
-| operation        | the operation activation    |                     |
-|                  | command)                    |                     |
-|                  |                             |                     |
-|                  | 02h-04h-01h-00h             |                     |
-|                  |                             |                     |
-|                  | (During loading/ejection of |                     |
-|                  | the object to be scanned)   |                     |
-|                  |                             |                     |
-|                  | 02h-04h-01h-01h             |                     |
-|                  |                             |                     |
-|                  | (During the measurement of  |                     |
-|                  | the correction data)        |                     |
-|                  |                             |                     |
-|                  | 02h-04h-01h-02h             |                     |
-|                  |                             |                     |
-|                  | (During the execution of    |                     |
-|                  | operation for loading the   |                     |
-|                  | object to be scanned)       |                     |
-|                  |                             |                     |
-|                  | 02h-04h-01h-03h             |                     |
-|                  |                             |                     |
-|                  | (During the execution of    |                     |
-|                  | automatic shading or white  |                     |
-|                  | balance measurement)        |                     |
-|                  |                             |                     |
-|                  | 02h-04h-01h-04h             |                     |
-+------------------+-----------------------------+---------------------+
-| When the TEST    | NO ADDITIONAL SENSE         | The command         |
-| UNIT READY       | INFORMATION                 | terminates with     |
-| command is       |                             | GOOD status.        |
-| received after   | (No error)                  |                     |
-| operation is     |                             |                     |
-| terminated       | 00h-00h-00h-00h             |                     |
-| normally         |                             |                     |
-+------------------+-----------------------------+---------------------+
-| When a command   | COMMAND SEQUENCE ERROR      | The command         |
-| other than the   |                             | terminates with the |
-| basic command is | (A command that makes the   | CHECK CONDITION     |
-| received from    | previous SCAN command       | status. The         |
-| the same         | invalid is received while   | measurement-related |
-| initiator before | the scanning operation is   | operation that is   |
-| the operation    | valid)                      | being performed is  |
-| termination is   |                             | aborted.            |
-| confirmed by the | 05h-2Ch-00h-00h             |                     |
-| TEST UNIT READY  |                             |                     |
-| command          |                             |                     |
-+------------------+-----------------------------+---------------------+
-| When a command   | LOGICAL UNIT COMMUNICATION  | The command         |
-| other than the   | FAILURE                     | terminates with the |
-| basic command is |                             | CHECK CONDITION     |
-| received from    | (The command cannot be      | status. The         |
-| the other        | executed because the        | operation that is   |
-| initiator during | internal operation is being | being performed     |
-| operation        | performed.)                 | continues without   |
-|                  |                             | any influence.      |
-|                  | 0Bh-08h-00h-00h             |                     |
-+------------------+-----------------------------+---------------------+
+<table>
+<colgroup>
+<col style="width: 27%" />
+<col style="width: 41%" />
+<col style="width: 30%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the TEST UNIT READY command is
+received during operation</td>
+<td style="text-align: center;"><p>LOGICAL UNIT IS IN PROCESS OF
+BECOMING READY</p>
+<p>(During the execution of the operation activation command)</p>
+<p>02h-04h-01h-00h</p>
+<p>(During loading/ejection of the object to be scanned)</p>
+<p>02h-04h-01h-01h</p>
+<p>(During the measurement of the correction data)</p>
+<p>02h-04h-01h-02h</p>
+<p>(During the execution of operation for loading the object to be
+scanned)</p>
+<p>02h-04h-01h-03h</p>
+<p>(During the execution of automatic shading or white balance
+measurement)</p>
+<p>02h-04h-01h-04h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the TEST UNIT READY command is
+received after operation is terminated normally</td>
+<td style="text-align: center;"><p>NO ADDITIONAL SENSE INFORMATION</p>
+<p>(No error)</p>
+<p>00h-00h-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with GOOD
+status.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When a command other than the basic
+command is received from the same initiator before the operation
+termination is confirmed by the TEST UNIT READY command</td>
+<td style="text-align: center;"><p>COMMAND SEQUENCE ERROR</p>
+<p>(A command that makes the previous SCAN command invalid is received
+while the scanning operation is valid)</p>
+<p>05h-2Ch-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status. The measurement-related operation that is being
+performed is aborted.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When a command other than the basic
+command is received from the other initiator during operation</td>
+<td style="text-align: center;"><p>LOGICAL UNIT COMMUNICATION
+FAILURE</p>
+<p>(The command cannot be executed because the internal operation is
+being performed.)</p>
+<p>0Bh-08h-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status. The operation that is being performed continues
+without any influence.</td>
+</tr>
+</tbody>
+</table>
 
-+------------------+-----------------------------+--------------------+
-| > When the       | LOGICAL UNIT NOT READY,     | The command        |
-| > operation is   | CAUSE NOT REPORTABLE        | terminates with    |
-| > not terminated |                             | the CHECK          |
-| > normally       | (The internal mechanical    | CONDITION status   |
-|                  | error occurred.)            | for the TEST UNIT  |
-|                  |                             | READY command that |
-|                  | 02h-04h-02h-00h             | is received after  |
-|                  |                             | the operation is   |
-|                  |                             | terminated.        |
-+------------------+-----------------------------+--------------------+
-| When the EXECUTE | COMMAND SEQUENCE ERROR      | The command        |
-| command is       |                             | terminates with    |
-| received before  | (The EXECUTE command is     | the CHECK          |
-| the operation    | received before the         | CONDITION status.  |
-| parameter is set | parameter is set by the SET |                    |
-| by the SET       | PARAMETER command.)         |                    |
-| PARAMETER        |                             |                    |
-| command          | 05h-2Ch-00h-00h             |                    |
-+------------------+-----------------------------+--------------------+
+<table>
+<colgroup>
+<col style="width: 27%" />
+<col style="width: 41%" />
+<col style="width: 30%" />
+</colgroup>
+<tbody>
+<tr>
+<td><blockquote>
+<p>When the operation is not terminated normally</p>
+</blockquote></td>
+<td><p>LOGICAL UNIT NOT READY, CAUSE NOT REPORTABLE</p>
+<p>(The internal mechanical error occurred.)</p>
+<p>02h-04h-02h-00h</p></td>
+<td>The command terminates with the CHECK CONDITION status for the TEST
+UNIT READY command that is received after the operation is
+terminated.</td>
+</tr>
+<tr>
+<td>When the EXECUTE command is received before the operation parameter
+is set by the SET PARAMETER command</td>
+<td><p>COMMAND SEQUENCE ERROR</p>
+<p>(The EXECUTE command is received before the parameter is set by the
+SET PARAMETER command.)</p>
+<p>05h-2Ch-00h-00h</p></td>
+<td>The command terminates with the CHECK CONDITION status.</td>
+</tr>
+</tbody>
+</table>
 
 **2-15. SET PARAMETER Command**
 
 Table 2-15-1 SET PARAMETER command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[E0h\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2      | Operation code                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3 to 5 | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6      | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 7      | Parameter length \[Recommended value: 13d\]                                                           |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 8      | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 9      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [E0h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Operation code</td>
+</tr>
+<tr>
+<td style="text-align: center;">3 to 5</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: center;">Parameter length
+[Recommended value: 13d]</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The SET PARAMETER command is used to set the parameters for the internal
 operation of the unit.
@@ -5797,25 +9754,57 @@ received after the parameters are set by the SET PARAMETER command.
 
 Table 2-15-2 Operation parameter
 
-+------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+:-----------:+
-| Bit   | 7           | 6           | 5           | 4           | 3           | 2           | 1           | 0           |
-|       |             |             |             |             |             |             |             |             |
-| Byte  |             |             |             |             |             |             |             |             |
-+-------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+-------------+
-| 0     | Color specification                                                                                           |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 1 to  | First setting value                                                                                           |
-| 4     |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 5 to  | Second setting value                                                                                          |
-| 8     |                                                                                                               |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 9, 10 | Speed                                                                                                         |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 11    | Torque                                                                                                        |
-+-------+---------------------------------------------------------------------------------------------------------------+
-| 12    | Driving method                                                                                                |
-+-------+---------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Color specification</td>
+</tr>
+<tr>
+<td style="text-align: center;">1 to 4</td>
+<td colspan="8" style="text-align: center;">First setting value</td>
+</tr>
+<tr>
+<td style="text-align: center;">5 to 8</td>
+<td colspan="8" style="text-align: center;">Second setting value</td>
+</tr>
+<tr>
+<td style="text-align: center;">9, 10</td>
+<td colspan="8" style="text-align: center;">Speed</td>
+</tr>
+<tr>
+<td style="text-align: center;">11</td>
+<td colspan="8" style="text-align: center;">Torque</td>
+</tr>
+<tr>
+<td style="text-align: center;">12</td>
+<td colspan="8" style="text-align: center;">Driving method</td>
+</tr>
+</tbody>
+</table>
 
 The parameter of 2 bytes or more is transferred starting from the upper
 byte.
@@ -5851,8 +9840,8 @@ byte.
 > indicates film ejection.
 
 - The color specification field specifies which color is used for
-  performing auto focus when the operation code is 'Color oriented Auto
-  Focus'.
+  performing auto focus when the operation code is ’Color oriented Auto
+  Focus’.
 
 > The setting method of color specification is the same as that for the
 > SET WINDOW command. This field has no meaning when the other operation
@@ -5878,82 +9867,166 @@ byte.
 
 Table 2-15-3 List of operation codes
 
-+:---------:+:--------------------:+:----------------:+:----------:+:-------:+
-| Operation | Internal operation   | Contents of      | Valid      | Support |
-|           | to be set            | operation        | parameters | of this |
-| code      |                      |                  |            | unit    |
-+-----------+----------------------+------------------+------------+---------+
-| 80h       | Initialize           | This unit is     | None       | Yes     |
-|           |                      | initialized in   |            |         |
-|           |                      | the same manner  |            |         |
-|           |                      | as that of power |            |         |
-|           |                      | ON.              |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| 81h       | Return to the origin | Return to the    | None       | Yes     |
-|           |                      | origin           |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| 90h       | Change Unit          |                  | 1st Val    | No      |
-+-----------+----------------------+------------------+------------+---------+
-| 91h       | Auto AF              | Automatic AF     | 1st Val    | Yes     |
-|           |                      | execution        |            |         |
-|           |                      |                  |            |         |
-|           |                      | ON/OFF           |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| A0h       | Auto Focus           | Performs the     | 1st Val,   | Yes     |
-|           |                      | auto focus       | 2nd Val    |         |
-+-----------+----------------------+------------------+------------+---------+
-| A1h       | Color oriented Auto  |                  | 1st Val,   | No      |
-|           | Focus                |                  | 2nd Val,   |         |
-|           |                      |                  | color      |         |
-+-----------+----------------------+------------------+------------+---------+
-| B0h       | Setup Shading Data   | Performs the     | None       | Yes     |
-|           |                      | shading          |            |         |
-|           |                      | measurement      |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| B1h       | Setup Dark Current   | Performs the     | None       | Yes     |
-|           | Correction Data      | dark voltage     |            |         |
-|           |                      | measurement      |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| B2h       | Setup Offset         |                  | None       | No      |
-|           | Correction Data      |                  |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| B4h       | Unload time set      | Setting the      | 1st Val,   | Yes     |
-|           |                      | object unloading | 2nd Val    |         |
-|           |                      | time             |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| C0h       | Stage Move           | Moves the scan   | 1st Val    | Yes     |
-|           |                      | block in the     |            |         |
-|           |                      | scanning         |            |         |
-|           |                      | direction        |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| C1h       | Focus Move           | Moves the scan   | 1st Val    | Yes     |
-|           |                      | block in the AF  |            |         |
-|           |                      | direction        |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| D0h       | Unload object        | Unloads the      | None       | Yes     |
-|           |                      | object           |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| D1h       | Load object          | Loads the object | None       | Yes     |
-+-----------+----------------------+------------------+------------+---------+
-| D2h       | Absolute positioning | Absolute         | 1st Val    | Yes     |
-|           |                      | positioning of   |            |         |
-|           |                      | the object       |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| D3h       | Relative positioning | Relative         | 1st Val    | No      |
-|           |                      | positioning      |            |         |
-+-----------+----------------------+------------------+------------+---------+
-| D4h       | Rotate               | Rotation         | 1st Val    | No      |
-+-----------+----------------------+------------------+------------+---------+
-| D5h       | FD                   | FD movement time | 1st Val,   | Yes     |
-|           |                      | setting          | 2nd Val    |         |
-+-----------+----------------------+------------------+------------+---------+
-| D6h       | SA Lock              | SA lock          | 1^st^ Val  | Yes     |
-|           |                      | mechanism ON/OFF |            |         |
-+-----------+----------------------+------------------+------------+---------+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 32%" />
+<col style="width: 27%" />
+<col style="width: 17%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;"><p>Operation</p>
+<p>code</p></td>
+<td style="text-align: center;">Internal operation to be set</td>
+<td style="text-align: center;">Contents of operation</td>
+<td style="text-align: center;">Valid parameters</td>
+<td style="text-align: center;">Support of this unit</td>
+</tr>
+<tr>
+<td style="text-align: center;">80h</td>
+<td style="text-align: center;">Initialize</td>
+<td style="text-align: left;">This unit is initialized in the same
+manner as that of power ON.</td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">81h</td>
+<td style="text-align: center;">Return to the origin</td>
+<td style="text-align: left;">Return to the origin</td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">90h</td>
+<td style="text-align: center;">Change Unit</td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;">1st Val</td>
+<td style="text-align: center;">No</td>
+</tr>
+<tr>
+<td style="text-align: center;">91h</td>
+<td style="text-align: center;">Auto AF</td>
+<td style="text-align: center;"><p>Automatic AF execution</p>
+<p>ON/OFF</p></td>
+<td style="text-align: center;">1st Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">A0h</td>
+<td style="text-align: center;">Auto Focus</td>
+<td style="text-align: left;">Performs the auto focus</td>
+<td style="text-align: center;">1st Val, 2nd Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">A1h</td>
+<td style="text-align: center;">Color oriented Auto Focus</td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;">1st Val, 2nd Val, color</td>
+<td style="text-align: center;">No</td>
+</tr>
+<tr>
+<td style="text-align: center;">B0h</td>
+<td style="text-align: center;">Setup Shading Data</td>
+<td style="text-align: left;">Performs the shading measurement</td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">B1h</td>
+<td style="text-align: center;">Setup Dark Current Correction Data</td>
+<td style="text-align: left;">Performs the dark voltage measurement</td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">B2h</td>
+<td style="text-align: left;">Setup Offset Correction Data</td>
+<td style="text-align: left;"></td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">No</td>
+</tr>
+<tr>
+<td style="text-align: center;">B4h</td>
+<td style="text-align: center;">Unload time set</td>
+<td style="text-align: left;">Setting the object unloading time</td>
+<td style="text-align: center;">1st Val, 2nd Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">C0h</td>
+<td style="text-align: center;">Stage Move</td>
+<td style="text-align: left;">Moves the scan block in the scanning
+direction</td>
+<td style="text-align: center;">1st Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">C1h</td>
+<td style="text-align: center;">Focus Move</td>
+<td style="text-align: left;">Moves the scan block in the AF
+direction</td>
+<td style="text-align: center;">1st Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">D0h</td>
+<td style="text-align: center;">Unload object</td>
+<td style="text-align: left;">Unloads the object</td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">D1h</td>
+<td style="text-align: center;">Load object</td>
+<td style="text-align: left;">Loads the object</td>
+<td style="text-align: center;">None</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">D2h</td>
+<td style="text-align: center;">Absolute positioning</td>
+<td style="text-align: left;">Absolute positioning of the object</td>
+<td style="text-align: center;">1st Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">D3h</td>
+<td style="text-align: center;">Relative positioning</td>
+<td style="text-align: left;">Relative positioning</td>
+<td style="text-align: center;">1st Val</td>
+<td style="text-align: center;">No</td>
+</tr>
+<tr>
+<td style="text-align: center;">D4h</td>
+<td style="text-align: center;">Rotate</td>
+<td style="text-align: left;">Rotation</td>
+<td style="text-align: center;">1st Val</td>
+<td style="text-align: center;">No</td>
+</tr>
+<tr>
+<td style="text-align: center;">D5h</td>
+<td style="text-align: center;">FD</td>
+<td style="text-align: left;">FD movement time setting</td>
+<td style="text-align: center;">1st Val, 2nd Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr>
+<td style="text-align: center;">D6h</td>
+<td style="text-align: center;">SA Lock</td>
+<td style="text-align: left;">SA lock mechanism ON/OFF</td>
+<td style="text-align: center;">1<sup>st</sup> Val</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+</tbody>
+</table>
 
-1^st^ Val: First setting value
+1<sup>st</sup> Val: First setting value
 
-2^nd^ Val: Second setting value
+2<sup>nd</sup> Val: Second setting value
 
 Color: Color specification
 
@@ -5965,94 +10038,238 @@ Drive: Driving method
 
 Table 2-15-4 Descriptions of each parameter for the operation codes
 
-+------------+----------------+:-------------:+:------------:+:--------------:+:--------:+:-------:+:---------:+
-| Opera-tion | Color          | First setting | Second       | Speed          | Torque   | Driving | Remarks   |
-| code       | specifi-cation | value         | setting      |                |          | method  |           |
-|            |                |               | value        | specifi-cation | (Torque) |         |           |
-|            | (Color)        | (1^st^ Val)   |              |                |          | (Drive) |           |
-|            |                |               | (2^nd^ Val)  | (Speed)        |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| 80h        | \-             | \-            | \-           | \-             | \-       | \-      | No        |
-|            |                |               |              |                |          |         | parameter |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| 81h        | \-             | \-            | \-           | \-             | \-       | \-      | No        |
-|            |                |               |              |                |          |         | parameter |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| 90h        | \-             | \-            | \-           | \-             | \-       | \-      | Not       |
-|            |                |               |              |                |          |         | supported |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| 91h        | \-             | Automatic AF  | \-           | \-             | \-       | \-      |           |
-|            |                | execution     |              |                |          |         |           |
-|            |                |               |              |                |          |         |           |
-|            |                | 0: OFF        |              |                |          |         |           |
-|            |                |               |              |                |          |         |           |
-|            |                | 1: ON         |              |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| A0h        | \-             | Address on    | Address on   | \-             | \-       | \-      |           |
-|            |                | the medium    | the medium   |                |          |         |           |
-|            |                | where AF is   | where AF is  |                |          |         |           |
-|            |                | performed in  | performed in |                |          |         |           |
-|            |                | the           | the          |                |          |         |           |
-|            |                | main-scanning | sub-scanning |                |          |         |           |
-|            |                | direction     | direction    |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| A1h        | \-             | \-            | \-           | \-             | \-       | \-      | Not       |
-|            |                |               |              |                |          |         | supported |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| B0h        | \-             | \-            | \-           | \-             | \-       | \-      | No        |
-|            |                |               |              |                |          |         | parameter |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| B1h        | \-             | \-            | \-           | \-             | \-       | \-      | No        |
-|            |                |               |              |                |          |         | parameter |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| B2h        | \-             | \-            | \-           | \-             | \-       | \-      | Not       |
-|            |                |               |              |                |          |         | supported |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| B4h        | \-             | Setting value | 0: Timer OFF | \-             | \-       | \-      |           |
-|            |                | of the        |              |                |          |         |           |
-|            |                | unloading     | 1: Timer ON  |                |          |         |           |
-|            |                | time          |              |                |          |         |           |
-|            |                |               |              |                |          |         |           |
-|            |                | (unit \[s\],  |              |                |          |         |           |
-|            |                | default 600   |              |                |          |         |           |
-|            |                | \[s\])        |              |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| C0h        | \-             | Address in    | \-           | \-             | \-       | \-      |           |
-|            |                | the scanning  |              |                |          |         |           |
-|            |                | direction     |              |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| C1h        | \-             | Address in    | \-           | \-             | \-       | \-      |           |
-|            |                | the AF        |              |                |          |         |           |
-|            |                | direction     |              |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| D0h        | \-             | \-            | \-           | \-             | \-       | \-      | No        |
-|            |                |               |              |                |          |         | parameter |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| D1h        | \-             | \-            | \-           | \-             | \-       | \-      | No        |
-|            |                |               |              |                |          |         | parameter |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| D2h        | \-             | Address in    | \-           | \-             | \-       | \-      |           |
-|            |                | the           |              |                |          |         |           |
-|            |                | main-scanning |              |                |          |         |           |
-|            |                | direction     |              |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| D3h        | \-             | \-            | \-           | \-             | \-       | \-      | Not       |
-|            |                |               |              |                |          |         | supported |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| D4h        | \-             | \-            | \-           | \-             | \-       | \-      | Not       |
-|            |                |               |              |                |          |         | supported |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| D5h        | \-             | From 0 to     | 0: Loads the | \-             | \-       | \-      |           |
-|            |                | 3200          | object       |                |          |         |           |
-|            |                |               |              |                |          |         |           |
-|            |                | (in units of  | 1: Unloads   |                |          |         |           |
-|            |                | 10 ms, 1 ms   | the object   |                |          |         |           |
-|            |                | for 0)        |              |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
-| D6h        | \-             | 0: OFF        | \-           | \-             | \-       | \-      |           |
-|            |                |               |              |                |          |         |           |
-|            |                | 1: ON         |              |                |          |         |           |
-+------------+----------------+---------------+--------------+----------------+----------+---------+-----------+
+<table style="width:100%;">
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 14%" />
+</colgroup>
+<tbody>
+<tr>
+<td>Opera-tion code</td>
+<td><p>Color specifi-cation</p>
+<p>(Color)</p></td>
+<td style="text-align: center;"><p>First setting value</p>
+<p>(1<sup>st</sup> Val)</p></td>
+<td style="text-align: center;"><p>Second setting value</p>
+<p>(2<sup>nd</sup> Val)</p></td>
+<td style="text-align: center;"><p>Speed</p>
+<p>specifi-cation</p>
+<p>(Speed)</p></td>
+<td style="text-align: center;"><p>Torque</p>
+<p>(Torque)</p></td>
+<td style="text-align: center;"><p>Driving method</p>
+<p>(Drive)</p></td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">80h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">No parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">81h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">No parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">90h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Not supported</td>
+</tr>
+<tr>
+<td style="text-align: center;">91h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><p>Automatic AF execution</p>
+<p>0: OFF</p>
+<p>1: ON</p></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td style="text-align: center;">A0h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Address on the medium where AF is
+performed in the main-scanning direction</td>
+<td style="text-align: center;">Address on the medium where AF is
+performed in the sub-scanning direction</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td style="text-align: center;">A1h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Not supported</td>
+</tr>
+<tr>
+<td style="text-align: center;">B0h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">No parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">B1h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">No parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">B2h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Not supported</td>
+</tr>
+<tr>
+<td style="text-align: center;">B4h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><p>Setting value of the unloading
+time</p>
+<p>(unit [s], default 600 [s])</p></td>
+<td style="text-align: center;"><p>0: Timer OFF</p>
+<p>1: Timer ON</p></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td style="text-align: center;">C0h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Address in the scanning direction</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td style="text-align: center;">C1h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Address in the AF direction</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td style="text-align: center;">D0h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">No parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">D1h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">No parameter</td>
+</tr>
+<tr>
+<td style="text-align: center;">D2h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Address in the main-scanning
+direction</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td style="text-align: center;">D3h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Not supported</td>
+</tr>
+<tr>
+<td style="text-align: center;">D4h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">Not supported</td>
+</tr>
+<tr>
+<td style="text-align: center;">D5h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><p>From 0 to 3200</p>
+<p>(in units of 10 ms, 1 ms for 0)</p></td>
+<td style="text-align: center;"><p>0: Loads the object</p>
+<p>1: Unloads the object</p></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+<tr>
+<td style="text-align: center;">D6h</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><p>0: OFF</p>
+<p>1: ON</p></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"></td>
+</tr>
+</tbody>
+</table>
 
 Note) The address is shown in units of 4000 dpi.
 
@@ -6060,29 +10277,68 @@ Note) The address is shown in units of 4000 dpi.
 
 Table 2-16-1 GET PARAMETER command
 
-+-------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+:----------:+
-| Bit    | 7          | 6          | 5          | 4          | 3          | 2          | 1          | 0          |
-|        |            |            |            |            |            |            |            |            |
-| Byte   |            |            |            |            |            |            |            |            |
-+--------+------------+------------+------------+------------+------------+------------+------------+------------+
-| 0      | Operation code \[E1h\]                                                                                |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 1      | Logical unit number                  | Reserved                                                       |
-|        |                                      |                                                                |
-|        | \[0\]                                | \[0\]                                                          |
-+--------+--------------------------------------+----------------------------------------------------------------+
-| 2      | Operation code                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 3 to 5 | Reserved \[0\]                                                                                        |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 6      | (MSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 7      | Parameter length                                                                                      |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 8      | (LSB)                                                                                                 |
-+--------+-------------------------------------------------------------------------------------------------------+
-| 9      | Control byte \[0\]                                                                                    |
-+--------+-------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [E1h]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Operation code</td>
+</tr>
+<tr>
+<td style="text-align: center;">3 to 5</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">6</td>
+<td colspan="8" style="text-align: left;">(MSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">7</td>
+<td colspan="8" style="text-align: center;">Parameter length</td>
+</tr>
+<tr>
+<td style="text-align: center;">8</td>
+<td colspan="8" style="text-align: right;">(LSB)</td>
+</tr>
+<tr>
+<td style="text-align: center;">9</td>
+<td colspan="8" style="text-align: center;">Control byte [0]</td>
+</tr>
+</tbody>
+</table>
 
 The current settings for the operation specified by the operation code
 can be read by using the GET PARAMETER command.
@@ -6099,34 +10355,69 @@ specified code is returned.
 The data returned for each operation code is the value that is currently
 set in the unit.
 
-**\
+**  
 2-17. RECEIVE DIAGNOSTIC RESULTS Command**
 
 Table 2-17-1 RECEIVE DIAGNOSTIC RESULTS command
 
-+--------------:+:-------------:+:-------------:+:-------------:+:-------------:+:-------------:+:-------------:+:-------------:+:-------------:+
-| Bit           | 7             | 6             | 5             | 4             | 3             | 2             | 1             | 0             |
-|               |               |               |               |               |               |               |               |               |
-| Byte          |               |               |               |               |               |               |               |               |
-+---------------+---------------+---------------+---------------+---------------+---------------+---------------+---------------+---------------+
-| 0             | Operation code \[1Ch\]                                                                                                        |
-+---------------+-----------------------------------------------+-------------------------------------------------------------------------------+
-| 1             | Logical unit number                           | Reserved                                                                      |
-|               |                                               |                                                                               |
-|               | \[0\]                                         | \[0\]                                                                         |
-+---------------+-----------------------------------------------+-------------------------------------------------------------------------------+
-| 2             | Reserved \[0\]                                                                                                                |
-+---------------+-------------------------------------------------------------------------------------------------------------------------------+
-| 3             | (MSB) Allocation length                                                                                                       |
-|               |                                                                                                                               |
-|               | (LSB)                                                                                                                         |
-+---------------+                                                                                                                               |
-| 4             |                                                                                                                               |
-+---------------+-------------------------------------------------------------------------------------------------------------------------------+
-| 5             | Reserved \[0\]                                                                                                                |
-+---------------+-------------------------------------------------------------------------------------------------------------------------------+
-|                                                                                                                                               |
-+-----------------------------------------------------------------------------------------------------------------------------------------------+
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: right;"><p>Bit</p>
+<p>Byte</p></td>
+<td style="text-align: center;">7</td>
+<td style="text-align: center;">6</td>
+<td style="text-align: center;">5</td>
+<td style="text-align: center;">4</td>
+<td style="text-align: center;">3</td>
+<td style="text-align: center;">2</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">0</td>
+</tr>
+<tr>
+<td style="text-align: center;">0</td>
+<td colspan="8" style="text-align: center;">Operation code [1Ch]</td>
+</tr>
+<tr>
+<td style="text-align: center;">1</td>
+<td colspan="3" style="text-align: center;"><p>Logical unit number</p>
+<p>[0]</p></td>
+<td colspan="5" style="text-align: center;"><p>Reserved</p>
+<p>[0]</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">2</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td style="text-align: center;">3</td>
+<td colspan="8" rowspan="2" style="text-align: center;"><p>(MSB)
+Allocation length</p>
+<p>(LSB)</p></td>
+</tr>
+<tr>
+<td style="text-align: center;">4</td>
+</tr>
+<tr>
+<td style="text-align: center;">5</td>
+<td colspan="8" style="text-align: center;">Reserved [0]</td>
+</tr>
+<tr>
+<td colspan="9" style="text-align: left;"></td>
+</tr>
+</tbody>
+</table>
 
 The RECEIVE DIAGNOSTIC RESULTS command is used to read the diagnostic
 data after the SEND DIAGNOSTIC command is executed. When this command is
@@ -6143,32 +10434,46 @@ command output from the other initiator.
 
 Table 2-17-2 Error handling
 
-+:---------------------:+:-------------------------:+:----------------:+
-| Status                | Sense data                | Remarks          |
-+-----------------------+---------------------------+------------------+
-| When the SEND         | INVALID FIELD IN CDB      | The command      |
-| DIAGNOSTIC command is |                           | terminates with  |
-| received with the     | (Some illegal data exists | the CHECK        |
-| specification of      | in the CDB.)              | CONDITION        |
-| parameter when the    |                           | status.          |
-| adapter is not        | 05h-24h-00h-00h           |                  |
-| attached              |                           |                  |
-+-----------------------+---------------------------+------------------+
-| When the RECEIVE      | INVALID COMMAND OPERATION | The command      |
-| DIAGNOSTIC RESULTS    | CODE                      | terminates with  |
-| command is received   |                           | the CHECK        |
-| independently when    | (Op-Code that is not      | CONDITION        |
-| the adapter is not    | supported is received.)   | status.          |
-| attached              |                           |                  |
-|                       | 05h-20h-00h-00h           |                  |
-+-----------------------+---------------------------+------------------+
-| When the RECEIVE      | COMMAND SEQUENCE ERROR    | The command      |
-| DIAGNOSTIC RESULTS    |                           | terminates with  |
-| command is received   | (The RECEIVE DIAGNOSTIC   | the CHECK        |
-| independently when    | RESULT command is         | CONDITION        |
-| the adapter is        | received independently    | status.          |
-| attached              | when the adapter for      |                  |
-|                       | inspection is attached.)  |                  |
-|                       |                           |                  |
-|                       | 05h-2Ch-00h-00h           |                  |
-+-----------------------+---------------------------+------------------+
+<table>
+<colgroup>
+<col style="width: 34%" />
+<col style="width: 39%" />
+<col style="width: 26%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: center;">Status</td>
+<td style="text-align: center;">Sense data</td>
+<td style="text-align: center;">Remarks</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the SEND DIAGNOSTIC command is
+received with the specification of parameter when the adapter is not
+attached</td>
+<td style="text-align: center;"><p>INVALID FIELD IN CDB</p>
+<p>(Some illegal data exists in the CDB.)</p>
+<p>05h-24h-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the RECEIVE DIAGNOSTIC RESULTS
+command is received independently when the adapter is not attached</td>
+<td style="text-align: center;"><p>INVALID COMMAND OPERATION CODE</p>
+<p>(Op-Code that is not supported is received.)</p>
+<p>05h-20h-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status.</td>
+</tr>
+<tr>
+<td style="text-align: center;">When the RECEIVE DIAGNOSTIC RESULTS
+command is received independently when the adapter is attached</td>
+<td style="text-align: center;"><p>COMMAND SEQUENCE ERROR</p>
+<p>(The RECEIVE DIAGNOSTIC RESULT command is received independently when
+the adapter for inspection is attached.)</p>
+<p>05h-2Ch-00h-00h</p></td>
+<td style="text-align: center;">The command terminates with the CHECK
+CONDITION status.</td>
+</tr>
+</tbody>
+</table>
