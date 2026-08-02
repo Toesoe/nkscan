@@ -185,7 +185,7 @@ impl Driver for Ls50Driver {
 
     fn overview(&mut self, progress: &mut ProgressFn<'_>) -> Result<(Image, u16), Error> {
         let capabilities = self.scanner.capabilities();
-        let target_dpi = self.dpi(125)?;
+        let target_dpi = self.dpi(97)?;
 
         let settings = ScanSettings {
             dpi: target_dpi,

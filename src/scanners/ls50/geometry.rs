@@ -43,6 +43,7 @@ pub enum Dpi {
     _500,
     _250,
     _125,
+    _97,
 }
 
 impl Dpi {
@@ -59,7 +60,8 @@ impl Dpi {
             Dpi::_800 => 5,
             Dpi::_500 => 8,
             Dpi::_250 => 16,
-            Dpi::_125 => 32, // full roll preview resolution
+            Dpi::_125 => 32,
+            Dpi::_97 => 41, // 4000/41 = 97.56 DPI, the LS-50's default preview resolution
         }
     }
 
@@ -72,7 +74,7 @@ impl Dpi {
     }
 
     /// Every division the firmware offers, lowest divisor first
-    pub const ALL: [Dpi; 8] = [
+    pub const ALL: [Dpi; 9] = [
         Dpi::_4000,
         Dpi::_2000,
         Dpi::_1333,
@@ -81,6 +83,7 @@ impl Dpi {
         Dpi::_500,
         Dpi::_250,
         Dpi::_125,
+        Dpi::_97
     ];
 }
 
