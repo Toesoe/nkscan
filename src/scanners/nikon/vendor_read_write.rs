@@ -118,19 +118,6 @@ impl Command for VendorRead {
     }
 }
 
-pub struct ExtendedConfigPayloadPreview;
-
-impl VendorRegister for ExtendedConfigPayloadPreview {
-    fn subcode(&self) -> Subcode {
-        Subcode::ExtendedConfig
-    }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        // The precise 9-byte layout validated by the firmware gates
-        vec![0x00, 0x00, 0x00, 0x0E, 0x10, 0x00, 0x00, 0x00, 0x01]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

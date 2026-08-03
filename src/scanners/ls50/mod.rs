@@ -290,8 +290,6 @@ where
             return Err(scsi::Error::Unsupported("Window too narrow").into());
         }
 
-        self.set_extended_config_e0()?;
-
         self.arm(
             settings,
             ChannelExposures::preview_gain(),
@@ -452,18 +450,6 @@ where
         Err(scsi::Error::InvalidResponse(
             "scanner stopped producing image lines",
         ))
-    }
-
-    /// Stages the low-DPI clock modifications using VendorWrite and commits them
-    /// via VendorTrigger to successfully modify the mechanical carriage behavior.
-    pub fn set_extended_config_e0(&mut self) -> Result<(), scsi::Error> {
-        let payload = cdbs::vendor_read_write::ExtendedConfigPayloadPreview;
-
-        let vw = VendorWrite::new(payload);
-        self.transport.send(&vw)?;
-        self.transport.send(&VendorTrigger)?;
-
-        Ok(())
     }
 }
 
