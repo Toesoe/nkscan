@@ -8,9 +8,12 @@
 //! is capable of. The latter is `capability::Capabilities`, a table keyed on the model and the
 //! adapter, which these figures refine.
 
-use crate::scsi::{
-    self, Transport, TransportExt,
-    cdbs::{VendorPage, VpdInquiry, VpdPage},
+use crate::{
+    scanners::ls50::geometry::native_dots,
+    scsi::{
+        self, Transport, TransportExt,
+        cdbs::{VendorPage, VpdInquiry, VpdPage},
+    },
 };
 use tracing::warn;
 
@@ -19,6 +22,9 @@ pub const PAGE: u8 = 0xC1;
 
 /// What every unit seen answers this page with
 pub const ALLOCATION_LENGTH: u8 = 87;
+
+/// The length of a roll the preview scan can traverse, in millimeters. Nikon Scan always asks for 1589mm
+pub const PREVIEW_ROLL_LENGTH_MM: f32 = 1589.0;
 
 impl VendorPage for DeviceLimits {
     const PAGE_CODE: u8 = PAGE;
@@ -94,8 +100,10 @@ impl DeviceLimits {
         self.boundary_y - 1
     }
 
+    /// Coolscans address in units of their native DPI. For LS-50/4000/5000 this is 0.00635mm per unit
+    /// making the roll length of 1589mm 250,236 units
     pub fn preview_roll_length(&self) -> u32 {
-        250_278
+        native_dots(PREVIEW_ROLL_LENGTH_MM)
     }
 
     /// Refuse a window resolution the device says it will not divide to

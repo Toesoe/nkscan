@@ -109,7 +109,7 @@ impl ScanSettings {
 
     /// Millimeters per output pixel. Used to calculate feed offsets for framing
     pub fn mm_per_pixel(&self) -> f32 {
-        25.4 / f32::from(self.res())
+        25.4 * self.pitch() as f32 / f32::from(self.optical())
     }
 
     /// The sensor's own resolution, which is what the firmware divides down
