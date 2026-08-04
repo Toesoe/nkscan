@@ -17,7 +17,6 @@ pub enum Subcode {
     AutoFocus,
     Lamp,
     Eject,
-    ExtendedConfig,
     /// Something we haven't characterized, for probing the firmware's other registers
     Other(u8),
 }
@@ -29,7 +28,6 @@ impl Subcode {
             Subcode::AutoFocus => 0xA0,
             Subcode::Lamp => 0x80,
             Subcode::Eject => 0xD0,
-            Subcode::ExtendedConfig => 0xB4,
             Subcode::Other(code) => code,
         }
     }

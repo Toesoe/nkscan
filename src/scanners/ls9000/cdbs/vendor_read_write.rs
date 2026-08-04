@@ -94,7 +94,7 @@ impl Command for VendorRead {
                 y: long(5),
             },
             // Write-only here, or not a register this model has, so a read is just bytes
-            Subcode::Eject | Subcode::Lamp | Subcode::ExtendedConfig | Subcode::Other(_) => {
+            Subcode::Eject | Subcode::Lamp | Subcode::Other(_) => {
                 VendorPayload::Raw(data.to_vec())
             }
         })

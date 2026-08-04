@@ -24,7 +24,6 @@ pub enum VendorPayload {
     },
     Lamp,
     Eject,
-    ExtendedConfig(Vec<u8>),
     /// Bytes off an uncharacterized subcode, left for the caller to make sense of
     Raw(Vec<u8>),
 }
@@ -36,7 +35,6 @@ impl VendorRegister for VendorPayload {
             VendorPayload::AutoFocus { .. } => Subcode::AutoFocus,
             VendorPayload::Lamp => Subcode::Lamp,
             VendorPayload::Eject => Subcode::Eject,
-            VendorPayload::ExtendedConfig(_) => Subcode::ExtendedConfig,
             // Nothing to write back, so the subcode has to come from the caller instead
             VendorPayload::Raw(_) => Subcode::Other(0x00),
         }
@@ -58,7 +56,6 @@ impl VendorRegister for VendorPayload {
             }
             VendorPayload::Lamp => Vec::new(),
             VendorPayload::Eject => vec![0u8; 13],
-            VendorPayload::ExtendedConfig(_) => vec![0u8; 9],
             VendorPayload::Raw(_) => Vec::new(),
         }
     }
