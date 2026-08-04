@@ -1,0 +1,17 @@
+cc = i686-w64-mingw32-gcc
+
+cflags = -O2 -Wall
+ldflags = -shared -lkernel32 -Wl,--enable-stdcall-fixup
+
+rule cc
+  command = $cc $cflags -c $in -o $out
+  description = CC $out
+
+rule link
+  command = $cc -o $out $in $ldflags nkduscan.def
+  description = LINK $out
+
+build proxy.o: cc proxy.c
+build NKDUSCAN.dll: link proxy.o
+
+default NKDUSCAN.dll

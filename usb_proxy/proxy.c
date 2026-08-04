@@ -238,6 +238,288 @@ static void dump_hex(const unsigned char *data, unsigned int len)
     }
 }
 
+static void dump_read_write(const unsigned char *cdb, const unsigned char *data, unsigned int data_len, bool isWrite)
+{
+    uint8_t dtc    = cdb[2];
+    uint16_t dtq   = (uint16_t)(cdb[4] << 8) | (uint16_t)cdb[5];
+    uint32_t txLen =
+        ((uint32_t)cdb[6] << 16) |
+        ((uint32_t)cdb[7] << 8) |
+        (uint32_t)cdb[8];
+    uint8_t ctrl   = cdb[9];
+
+    uint8_t headerOperationTypeCode = 0;
+
+    log_printf("dtq: %db txlen: %db ctrl=%d", dtq, txLen, ctrl);
+
+    if (!isWrite && (dtc >= 0x80))
+    {
+        if (data_len < 6)
+        {
+            log_write(" short READ header\n");
+            return;
+        }
+
+        headerOperationTypeCode = data[0];
+        uint8_t validBits = data[1];
+        uint32_t validLen =
+            ((uint32_t)data[2] << 24) |
+            ((uint32_t)data[3] << 16) |
+            ((uint32_t)data[4] << 8)  |
+            (uint32_t)data[5];
+
+        log_printf(" validBits: %ub validDataLen: %lub", validBits, validLen);
+
+        data = &data[6]; // skip header
+        data_len -= 6;
+        
+        if (data_len == 0)
+        {
+            log_printf(" header only for code 0x%x", dtc);
+            if (dtc == 0x87)
+            {
+                log_printf("(InitiatorCooperativeActionParameter request");
+                switch (headerOperationTypeCode)
+                {
+                    case 0x01:
+                        log_printf("ThumbnailCreatedByDriver)");
+                        break;
+                    case 0x02:
+                        log_printf("AveragingMultipleReadingByDriver)");
+                        break;
+                    case 0x06:
+                        log_printf("TruncatedByDriver)");
+                        break;
+                    case 0x07:
+                        log_printf("CCDDataCreatedByDriver)");
+                        break;
+                    default:
+                        break;
+                }
+            }
+            log_printf("\n");
+            return;
+        }
+    }
+
+    log_printf("\n");
+
+    switch (dtc)
+    {
+        case 0x00:
+            log_write("00h Image ");
+            break;
+        case 0x02:
+            log_write("02h HalftoneMask ");
+            break;
+        case 0x03:
+            log_write("03h LUT ");
+            break;
+        case 0x80:
+            log_write("80h HistogramData ");
+            break;
+        case 0x81:
+            log_write("81h MaximumValue ");
+            break;
+        case 0x82:
+            log_write("82h MatrixData ");
+            break;
+        case 0x83:
+            log_write("83h FilterData ");
+            break;
+        case 0x84:
+            log_write("84h ShadingData ");
+            break;
+        case 0x85:
+            log_write("85h DarkVoltageCorrectionData ");
+            break;
+        case 0x86:
+            log_write("86h MagneticData ");
+            break;
+        case 0x87:
+        {
+            log_write("87h InitiatorCooperativeActionParameter ");
+
+            uint8_t initiatorType = data[0];
+            log_printf("InitiatorType: ");
+            switch (initiatorType)
+            {
+                case 0x01:
+                    log_printf("ThumbnailCreatedByDriver");
+                    break;
+                case 0x02:
+                    log_printf("AveragingMultipleReadingByDriver");
+                    break;
+                case 0x06:
+                    log_printf("TruncatedByDriver");
+                    break;
+                case 0x07:
+                    log_printf("CCDDataCreatedByDriver");
+                    break;
+                default:
+                    break;
+            }
+            if (initiatorType > 0x02) return; // don't care
+
+            log_printf("\n");
+
+            uint16_t numBytesPerLine = (uint16_t)(data[5] << 8) | (uint16_t)data[6];
+            uint16_t entireLines = (uint16_t)(data[7] << 8) | (uint16_t)data[8];
+            uint16_t linesPerImage = (uint16_t)(data[10] << 8) | (uint16_t)data[11];
+            uint8_t  exposuresPerLine = data[12];
+
+            log_printf("DataPacket: numBytesPerLine %d, entireLines %d, linesPerImage %d, exposuresPerLine %d",
+                numBytesPerLine, entireLines, linesPerImage, exposuresPerLine);
+            break;
+        }
+        case 0x88:
+            log_write("88h BoundaryInformation ");
+            break;
+        case 0x89:
+            log_write("89h AnalogGamma ");
+            break;
+        case 0x8A:
+            log_write("8Ah AnalogGain ");
+            break;
+        case 0x8B:
+            log_write("8Bh DigitalGain ");
+            break;
+        case 0x8C:
+            log_write("8Ch WBExposureValue ");
+            break;
+        case 0x8D:
+        {
+            log_write("8Dh SetupInformation\n");
+
+            uint32_t baseExposureValue = (uint32_t)(data[5] << 24) | (uint32_t)(data[6] << 16) | ((uint32_t)data[7] << 8) | (uint32_t)data[8];
+            uint32_t wbBaseExposureValue = (uint32_t)(data[9] << 24) | (uint32_t)(data[10] << 16) | ((uint32_t)data[11] << 8) | (uint32_t)data[12];
+            uint8_t  numInformationRetainingImgs = data[13];
+
+            log_printf("    baseExposureValue: %d, wbBaseMeasurement: %d, numImages: %d", baseExposureValue, wbBaseExposureValue, numInformationRetainingImgs);
+            break;
+        }
+        case 0x8E:
+        {
+            log_write("8Eh PerforationInformation\n");
+
+            if (data_len < 4)
+            {
+                log_write("short 8E block\n");
+                break;
+            }
+
+            uint32_t paramLen =
+                ((uint32_t)data[0] << 16) |
+                ((uint32_t)data[1] << 8)  |
+                (uint32_t)data[2];
+
+            uint8_t bytesPerParam = data[3];
+
+            log_printf("    paramLen %lu bytesPerParam %u\n",
+                    paramLen,
+                    bytesPerParam);
+
+            if (bytesPerParam != 4)
+            {
+                log_write("unexpected parameter size\n");
+                break;
+            }
+
+            if (paramLen > data_len)
+            {
+                log_printf("parameter length exceeds buffer (%lu > %u)\n",
+                        paramLen,
+                        data_len);
+                break;
+            }
+
+            size_t numEntries = (paramLen - 1) / bytesPerParam;
+
+            for (size_t i = 0; i < numEntries; i++)
+            {
+                size_t off = 4 + (i * bytesPerParam);
+
+                uint16_t perfNum =
+                    ((uint16_t)data[off] << 8) |
+                    (uint16_t)data[off + 1];
+
+                uint8_t patternNum = data[off + 2] & 0x7F;
+                uint8_t pulseNum   = data[off + 3];
+
+                log_printf("    perf %u pattern %u pulse %u\n",
+                        perfNum,
+                        patternNum,
+                        pulseNum);
+            }
+
+            break;
+        }
+        case 0x8F:
+        {
+            log_write("8Fh BoundaryInformationType2 ");
+
+            uint16_t paramLen =
+                ((uint16_t)data[0] << 8) |
+                (uint16_t)data[1];
+
+            uint8_t numImages = data[2];
+
+            log_printf("numImages %d paramLen %d\n", numImages, paramLen);
+
+            for (size_t i = 0; i < numImages; i++)
+            {
+                size_t off = 4 + (i * 8);
+
+                uint32_t imgAddressTop =
+                    ((uint32_t)data[off] << 24) |
+                    ((uint32_t)data[off + 1] << 16) |
+                    ((uint32_t)data[off + 2] << 8) |
+                    (uint32_t)data[off + 3];
+
+                uint16_t imgPerfNumber =
+                    ((uint16_t)data[off + 4] << 8) |
+                    (uint16_t)data[off + 5];
+
+                uint8_t imgPerfDecimal = data[off + 6];
+                uint8_t imgPulseNum    = data[off + 7];
+
+                log_printf(
+                    "   imgAddr %lu, imgPerfNum %u, imgPerfDecimal %u, imgPulseNum %u\n",
+                    imgAddressTop,
+                    imgPerfNumber,
+                    imgPerfDecimal,
+                    imgPulseNum);
+            }
+
+            break;
+        }
+        case 0x90:
+            log_write("90h WBExposureValueAtTheTimeOfShipment ");
+            break;
+        case 0x91:
+            log_write("91h CCDData ");
+            break;
+        case 0x92:
+            log_write("92h DriverSoftwareVersionInformation ");
+            break;
+        case 0x93:
+            log_write("93h LeakVolume ");
+            break;
+        case 0xE0:
+            log_write("E0h InitiatorRAMBuffer ");
+            break;
+        case 0xE1:
+            log_write("E1h InitiatorEEPROMBuffer ");
+            break;
+        default:
+            log_write("Unknown/Reserved ");
+            break;
+    }
+
+    log_printf("\n");
+    dump_hex(data, data_len);
+}
+
 static void dump_sense(const unsigned char *sense, int len)
 {
     if (!sense || len < 14) return;
@@ -292,96 +574,80 @@ static void decode_nikon_vendor(const unsigned char *cdb, int len, int write, co
 
     switch (reg)
     {
-        case 0x40:
-            log_write("    0x40: Scan parameters\n");
-            break;
-
-        case 0x41:
-            log_write("    0x41: Calibration data\n");
-            break;
-
-        case 0x42:
-            log_write("    0x42: Gain values\n");
-            break;
-
-        case 0x43:
-            log_write("    0x43: Offset values\n");
-            break;
-
-        case 0x44:
-            log_write("    0x44: Motor position\n");
-            break;
-
-        case 0x45:
-            log_write("    0x45: Exposure time\n");
-            break;
-
-        case 0x46:
-            log_write("    0x46: Focus position\n");
-            break;
-
-        case 0x47:
-            log_write("    0x47: Lamp settings\n");
-            break;
-
         case 0x80:
-            log_write("    0x80: Lamp on/off trigger\n");
+            log_write("    0x80: Initialize\n");
             break;
 
         case 0x81:
-            log_write("    0x81: Motor init trigger\n");
+            log_write("    0x81: Return to origin\n");
+            break;
+
+        case 0x90:
+            log_write("    0x90: Change unit\n");
             break;
 
         case 0x91:
-            log_write("    0x91: Motor step (direction + count)\n");
+            log_write("    0x91: Auto AF\n");
             break;
 
         case 0xA0:
-            log_write("    0xA0: CCD setup (max 9 bytes)\n");
+            log_write("    0xA0: Autofocus\n");
+            break;
+
+        case 0xA1:
+            log_write("    0xA1: Color-oriented AF\n");
             break;
 
         case 0xB0:
-            log_write("    0xB0: State change trigger\n");
+            log_write("    0xB0: Setup shading data\n");
             break;
 
         case 0xB1:
-            log_write("    0xB1: State change trigger\n");
+            log_write("    0xB1: Setup dark current correction data\n");
             break;
 
-        case 0xB3:
-            log_write("    0xB3: Config write\n");
+        case 0xB2:
+            log_write("    0xB2: Setup offset correction data\n");
             break;
 
         case 0xB4:
-            log_write("    0xB4: Extended config\n");
+            log_write("    0xB4: Unload time set\n");
             break;
 
         case 0xC0:
-            log_write("    0xC0: Gain calibration\n");
+            log_write("    0xC0: Stage move\n");
             break;
 
         case 0xC1:
-            log_write("    0xC1: Offset calibration\n");
+            log_write("    0xC1: Focus move\n");
             break;
 
         case 0xD0:
-            log_write("    0xD0: Diagnostic trigger\n");
+            log_write("    0xD0: Unload object\n");
             break;
 
         case 0xD1:
-            log_write("    0xD1: Diagnostic trigger\n");
+            log_write("    0xD1: Load object\n");
             break;
 
         case 0xD2:
-            log_write("    0xD2: Diagnostic data\n");
+            log_write("    0xD2: Absolute positioning\n");
+            break;
+
+        case 0xD3:
+            log_write("    0xD3: Relative positioning\n");
+            break;
+
+        case 0xD4:
+            log_write("    0xD4: Rotate\n");
             break;
 
         case 0xD5:
-            log_write("    0xD5: Extended diagnostic\n");
+            log_write("    0xD5: FD movement time setting\n");
             break;
 
         case 0xD6:
-            log_write("    0xD6: Persistent settings\n");
+            log_write("    0xD6: SA lock\n");
             break;
 
         default:
@@ -409,11 +675,11 @@ static void decode_nikon_vendor(const unsigned char *cdb, int len, int write, co
     }
 }
 
-static void dump_cdb(const unsigned char *cdb, int len, const unsigned char *data, unsigned int data_len)
+static void dump_cdb(size_t sequence, const unsigned char *cdb, int len, const unsigned char *data, unsigned int data_len)
 {
     if (!cdb || len == 0) return;
 
-    log_write("  CDB: ");
+    log_write("[#%lu] CDB: ", sequence);
 
     for (int i = 0; i < len; i++) log_printf("%02X ", cdb[i]);
 
@@ -422,44 +688,40 @@ static void dump_cdb(const unsigned char *cdb, int len, const unsigned char *dat
     switch (cdb[0])
     {
         case 0x00:
-            log_write("  TEST UNIT READY\n");
+            log_write("TEST UNIT READY\n");
             break;
 
         case 0x12:
-            log_write("  INQUIRY\n");
-            if (len >= 6) log_write("    alloc_len=%u\n", cdb[4]);
+            log_write("INQUIRY\n");
+            if (len >= 6) log_write("  alloc_len=%u\n", cdb[4]);
             break;
 
         case 0x15:
-            log_write("  MODE SELECT(6)\n");
+            log_write("MODE SELECT(6)\n");
             break;
 
         case 0x16:
-            log_write("  RESERVE\n");
+            log_write("RESERVE\n");
             break;
 
         case 0x1A:
-            log_write("  MODE SENSE\n");
+            log_write("MODE SENSE\n");
             break;
 
         case 0x1B:
-            log_write("  SCAN\n");
-            if (len >= 6)
-            {
-                log_write("    immed=%u start=%u loej=%u\n", (cdb[1] >> 1) & 1, cdb[4] & 1, (cdb[4] >> 1) & 1);
-            }
+            log_write("SCAN\n");
             break;
 
         case 0x1D:
-            log_write("  SEND DIAGNOSTIC\n");
+            log_write("SEND DIAGNOSTIC\n");
             break;
 
         case 0x24:
-            log_write("  SET WINDOW\n");
+            log_write("SET WINDOW\n");
 
             if (data && data_len)
             {
-                log_write("    Descriptor (%u bytes)\n", data_len);
+                log_write("  Descriptor (%u bytes)\n", data_len);
 
                 for (unsigned int i = 0; i < data_len; i++)
                 {
@@ -474,49 +736,21 @@ static void dump_cdb(const unsigned char *cdb, int len, const unsigned char *dat
             break;
 
         case 0x25:
-            log_write("  GET WINDOW(10)\n");
+            log_write("GET WINDOW(10)\n");
             break;
 
         case 0x28:
-            log_write("  READ(10)\n");
-            if (len >= 10)
-            {
-                uint32_t lba = ((uint32_t)cdb[2] << 24) | ((uint32_t)cdb[3] << 16) | ((uint32_t)cdb[4] << 8) |
-                               ((uint32_t)cdb[5]);
-
-                uint16_t blocks = ((uint16_t)cdb[7] << 8) | (uint16_t)cdb[8];
-
-                log_write(
-                    "    LBA=0x%08X blocks=0x%04X xfer=%u CDB[6]=0x%02X\n",
-                    lba,
-                    blocks,
-                    data_len,
-                    cdb[6]);
-                dump_hex(data, data_len);
-            }
+            log_write("READ(10) ");
+            dump_read_write(cdb, data, data_len, false);
             break;
 
         case 0x2A:
-            log_write("  WRITE(10)\n");
-            if (len >= 10)
-            {
-                uint32_t lba = ((uint32_t)cdb[2] << 24) | ((uint32_t)cdb[3] << 16) | ((uint32_t)cdb[4] << 8) |
-                               ((uint32_t)cdb[5]);
-
-                uint16_t blocks = ((uint16_t)cdb[7] << 8) | (uint16_t)cdb[8];
-
-                log_write(
-                    "    LBA=0x%08X blocks=0x%04X xfer=%u CDB[6]=0x%02X\n",
-                    lba,
-                    blocks,
-                    data_len,
-                    cdb[6]);
-                dump_hex(data, data_len);
-            }
+            log_write("WRITE(10) ");
+            dump_read_write(cdb, data, data_len, true);
             break;
 
         case 0x3B:
-            log_write("  WRITE BUFFER\n");
+            log_write("WRITE BUFFER\n");
             if (len >= 10)
             {
                 uint32_t lba = ((uint32_t)cdb[2] << 24) | ((uint32_t)cdb[3] << 16) | ((uint32_t)cdb[4] << 8) |
@@ -525,7 +759,7 @@ static void dump_cdb(const unsigned char *cdb, int len, const unsigned char *dat
                 uint16_t blocks = ((uint16_t)cdb[7] << 8) | (uint16_t)cdb[8];
 
                 log_write(
-                    "    LBA=0x%08X blocks=0x%04X xfer=%u CDB[6]=0x%02X\n",
+                    "  LBA=0x%08X blocks=0x%04X xfer=%u CDB[6]=0x%02X\n",
                     lba,
                     blocks,
                     data_len,
@@ -535,7 +769,7 @@ static void dump_cdb(const unsigned char *cdb, int len, const unsigned char *dat
             break;
 
         case 0x3C:
-            log_write("  READ BUFFER\n");
+            log_write("READ BUFFER\n");
             if (len >= 10)
             {
                 uint32_t lba = ((uint32_t)cdb[2] << 24) | ((uint32_t)cdb[3] << 16) | ((uint32_t)cdb[4] << 8) |
@@ -544,7 +778,7 @@ static void dump_cdb(const unsigned char *cdb, int len, const unsigned char *dat
                 uint16_t blocks = ((uint16_t)cdb[7] << 8) | (uint16_t)cdb[8];
 
                 log_write(
-                    "    LBA=0x%08X blocks=0x%04X xfer=%u CDB[6]=0x%02X\n",
+                    "  LBA=0x%08X blocks=0x%04X xfer=%u CDB[6]=0x%02X\n",
                     lba,
                     blocks,
                     data_len,
@@ -554,27 +788,27 @@ static void dump_cdb(const unsigned char *cdb, int len, const unsigned char *dat
             break;
 
         case 0xC0:
-            log_write("  VENDOR C0\n");
+            log_write("VENDOR C0\n");
             decode_nikon_vendor(cdb, len, 1, data, data_len);
             break;
 
         case 0xC1:
-            log_write("  VENDOR C1\n");
+            log_write("VENDOR C1 (EXECUTE)\n");
             decode_nikon_vendor(cdb, len, 0, data, data_len);
             break;
 
         case 0xE0:
-            log_write("  VENDOR E0 (WRITE)\n");
+            log_write("VENDOR E0 (SET PARAMETER)\n");
             decode_nikon_vendor(cdb, len, 1, data, data_len);
             break;
 
         case 0xE1:
-            log_write("  VENDOR E1 (READ)\n");
+            log_write("VENDOR E1 (GET PARAMETER)\n");
             decode_nikon_vendor(cdb, len, 0, data, data_len);
             break;
 
         default:
-            log_write("  UNKNOWN opcode\n");
+            log_write("UNKNOWN opcode\n");
             break;
     }
 }
@@ -915,7 +1149,7 @@ __declspec(dllexport) int WINAPI NkDriverEntry(DWORD op, DWORD param2, DWORD par
 {
     DWORD seq = ++g_seq;
 
-    log_write("[#%lu] NkDriverEntry(op=%lu, param2=0x%08lX, param3=0x%08lX)\r\n", seq, op, param2, param3);
+    //log_write("[#%lu] NkDriverEntry(op=%lu, param2=0x%08lX, param3=0x%08lX)\r\n", seq, op, param2, param3);
 
     if (!g_realNkDriverEntry)
     {
@@ -937,12 +1171,12 @@ __declspec(dllexport) int WINAPI NkDriverEntry(DWORD op, DWORD param2, DWORD par
 
         memcpy(fake.Cdb, (void *)p->cdb_data, p->cdb_length > sizeof(fake.Cdb) ? sizeof(fake.Cdb) : p->cdb_length);
 
-        log_write("SCSI cmd: CdbLength=%d SrbFlags=0x%08X (dir:%s) TransferLen=%d\n", fake.CdbLength, fake.SrbFlags,
-                  p->direction == 1 ? "IN" :
-                  p->direction == 2 ? "OUT" :
-                                      "none",
-                  fake.TransferLength);
-        dump_cdb(fake.Cdb, fake.CdbLength, (BYTE *)p->data_buffer, p->transfer_length);
+        // log_write("SCSI cmd: CdbLength=%d SrbFlags=0x%08X (dir:%s) TransferLen=%d\n", fake.CdbLength, fake.SrbFlags,
+        //           p->direction == 1 ? "IN" :
+        //           p->direction == 2 ? "OUT" :
+        //                               "none",
+        //           fake.TransferLength);
+        dump_cdb(seq, fake.Cdb, fake.CdbLength, (BYTE *)p->data_buffer, p->transfer_length);
 
         if (p->direction == 1)
         {

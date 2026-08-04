@@ -3,3 +3,6 @@
 *.tiff
 nkscan-wb.txt
 result
+compile_commands.json
+.ninja_log
+*.o
