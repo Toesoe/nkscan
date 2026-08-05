@@ -696,6 +696,28 @@ to derive a width, and the qualifier has to carry the table's. And `88h`'s leadi
 word is not a coordinate: `14h` is the total length and `01h` the frame count,
 with the rect following as inclusive maxima of the 13860 × 10000 frame.
 
+### `91h` is the CCD's own response curves
+
+Reading `91h` returns **1140 bytes, 570 u16** — 30 curves of 19 points, with the
+header `91 00 00 00 04 74`. The 19 is not arbitrary: it is the same 19 as `E3h`'s
+transmittance ladder, so `E3h` gives the levels and `91h` gives what each CCD line
+reads at them. Ten curves belong to each of the three lines.
+
+This is what a fork of this project uses to de-band a three-line scan. The rows of
+photosites do not share a transfer curve, so a flat patch comes off the bar with a
+pattern repeating every three sensor rows, which the block interleave spreads into
+a period-36 stripe along the feed at 4000 dpi. The fix is to remap each outer line
+onto the middle one through the shared point index; nothing is measured from the
+image. Two constraints come with it: the map is **not linear**, so it has to be
+applied before multi-sample averaging rather than after, and all four channels
+return identical bytes, so the curves are read once per session.
+
+Worth noting this is probably not an extra at all. `E1h` byte 5 bit 3 is "CCD Data
+Created by Driver", it is set on **both** documented units, and it pairs with
+cooperative ASCQ `07h`. If that bit means what it appears to, correcting the lines
+is an obligation rather than a nicety — and one the LS-5000 family shares. Confirm
+by seeing whether SCAN actually raises `09h-80h-07h`.
+
 ### Behaviour worth knowing
 
 - **Unit attentions queue.** A holder insertion raises two, both `06h-28h-00h`
@@ -723,7 +745,8 @@ with the rect following as inclusive maxima of the 13860 × 10000 frame.
    writing is supported.
 5. **LS-9000 E3h** documented in §2-2-2-7, absent from the page-00h list.
    **Confirmed on hardware:** the page answers anyway, so `errata` must be able
-   to *add* a page, not only override fields.
+   to *add* a page, not only override fields. It is also load-bearing — see the
+   CCD line curves below — so it belongs in `Capabilities`, which it is not in yet.
 6. **LS-9000 analog gain** — 2-11-2 says 4 bytes × 2, §2-11-7's table shows
    2-byte fields. **Settled on hardware: 4-byte IEEE-754.** A READ of `8Ah`
    returns `3F800000` and `3FFFC1BE`, which are exactly 1.0 and 1.998. It also
