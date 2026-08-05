@@ -209,13 +209,11 @@ impl Transport for ScsiScanDevice {
                 key: sb[2] & 0x0F,
                 asc: sb[12],
                 ascq: sb[13],
-                // Unknown here. On the sg path Nikon's 4th tuple element shows
-                // up at byte 15, but that is where `firewire-sbp2` chooses to
-                // repack SBP-2 quadlet 5 -- this driver does its own repack, and
-                // SENSE_LENGTH's 32 bytes exist because Nikon state was
-                // observed past the end of fixed-format sense, which suggests a
-                // different layout. Dump `raw` on real hardware before guessing
-                tsc: None,
+                // Same byte the sg path uses. Confirmed on an LS-9000: this
+                // driver reports 02h-04h-01h and 06h-28h-00h each carrying
+                // their documented 01h here, so both repack SBP-2 quadlet 5 to
+                // bytes 15-17 the same way
+                tsc: Some(sb[15]),
                 raw: sb.to_vec(),
             })
         } else {
