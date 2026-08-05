@@ -1,0 +1,260 @@
+//! Command descriptor blocks
+//!
+//! Payloads live elsewhere: the SET WINDOW descriptor in `window.rs`, READ and
+//! SEND data records in `data.rs`, the SET PARAMETER block in `execute.rs`
+
+/// INQUIRY, 2-2
+///
+/// EVPD 0 asks for the standard INQUIRY data
+/// EVPD 1 asks for the VPD page named in byte 2.
+/// Returns CHECK CONDITION only when the unit cannot produce what was asked for
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Inquiry {
+    /// None for the standard data, Some(code) for a VPD page
+    page: Option<u8>,
+    /// How many bytes to make room for
+    allocation_length: u8,
+}
+
+impl Inquiry {
+    /// The standard INQUIRY data. 36 is the spec's recommended allocation
+    pub fn standard() -> Self {
+        Self {
+            page: None,
+            allocation_length: 36,
+        }
+    }
+
+    /// A Vital Product Data page
+    pub fn vpd(page: u8) -> Self {
+        Self {
+            page: Some(page),
+            allocation_length: u8::MAX,
+        }
+    }
+
+    /// Ask for fewer bytes than the default
+    pub fn with_allocation_length(self, allocation_length: u8) -> Self {
+        Self {
+            allocation_length,
+            ..self
+        }
+    }
+
+    /// How large a buffer the data phase needs
+    pub fn allocation_length(&self) -> usize {
+        self.allocation_length as usize
+    }
+
+    pub fn cdb(&self) -> [u8; 6] {
+        [
+            0x12,
+            // Byte 1: LUN and reserved are zero, bit 0 is EVPD
+            self.page.is_some() as u8,
+            // Byte 2: only meaningful when EVPD is set
+            self.page.unwrap_or(0),
+            0,
+            self.allocation_length,
+            0,
+        ]
+    }
+}
+
+#[derive(Debug)]
+/// TEST UNIT READY, 2-1
+///
+/// No fields: both units are single-LUN (1-1-3-1), and a nonzero LUN is
+/// answered with 05h-25h LOGICAL UNIT NOT SUPPORTED
+pub struct TestUnitReady;
+
+impl TestUnitReady {
+    pub fn cdb(&self) -> [u8; 6] {
+        [0; 6]
+    }
+}
+
+#[derive(Debug)]
+/// RESERVE UNIT, 2-4
+///
+/// Gain exclusive control until we ReleaseUnit
+pub struct ReserveUnit;
+
+impl ReserveUnit {
+    pub fn cdb(&self) -> [u8; 6] {
+        [0x16, 0, 0, 0, 0, 0]
+    }
+}
+
+#[derive(Debug)]
+/// RELEASE UNIT, 2-5
+///
+///  Only the initiator holding the reservation can release it
+pub struct ReleaseUnit;
+
+impl ReleaseUnit {
+    pub fn cdb(&self) -> [u8; 6] {
+        [0x17, 0, 0, 0, 0, 0]
+    }
+}
+
+/// Which copy of a mode page to report, 2-6-2
+///
+/// Saved values (3) are refused with SAVING PARAMETERS NOT SUPPORTED, so there is no variant for them
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageControl {
+    /// Current mode
+    Current = 0,
+    /// Masks the variables you're allowed to change
+    Variable = 1,
+    /// What a power-on restores
+    Default = 2,
+}
+
+#[derive(Debug)]
+/// MODE SENSE (6), 2-6
+///
+/// Measurement Units (03h) is the only page either unit implements, so 3Fh "all pages" returns the same thing
+pub struct ModeSense {
+    page: u8,
+    control: PageControl,
+}
+
+impl ModeSense {
+    pub fn new(page: u8, control: PageControl) -> Self {
+        Self { page, control }
+    }
+
+    /// Header, block descriptor and page come to 20 bytes at most
+    pub fn allocation_length(&self) -> usize {
+        20
+    }
+
+    pub fn cdb(&self) -> [u8; 6] {
+        [
+            0x1A,
+            // PF is bit 4 and must be set. DBD is bit 3, left clear so the
+            // reply carries the block descriptor -- it is eight fixed bytes and
+            // the parser skips whatever length is reported anyway
+            0x10,
+            (self.control as u8) << 6 | self.page,
+            0,
+            self.allocation_length() as u8,
+            0,
+        ]
+    }
+}
+
+#[derive(Debug)]
+/// MODE SELECT (6), 2-3
+pub struct ModeSelect {
+    parameter_list_length: u8,
+}
+
+impl ModeSelect {
+    pub fn new(parameter_list_length: u8) -> Self {
+        Self {
+            parameter_list_length,
+        }
+    }
+
+    pub fn cdb(&self) -> [u8; 6] {
+        // PF (bit 4) must be set, SP (bit 0) must be clear -- neither unit can
+        // save pages, and asking gets common error 1
+        [0x15, 0x10, 0, 0, self.parameter_list_length, 0]
+    }
+}
+
+#[derive(Debug)]
+/// From the spec 2-10
+pub struct GetWindow {
+    /// `None` asks for every window the unit has defined or defaulted;
+    /// `Some(id)` asks for one. Ids are 0 default, 1 R, 2 G, 3 B, 4 neutral gray
+    window: Option<u8>,
+    transfer_length: u32,
+}
+
+impl GetWindow {
+    /// Every window the unit has defined or defaulted
+    pub fn all(transfer_length: u32) -> Self {
+        Self {
+            window: None,
+            transfer_length,
+        }
+    }
+
+    /// One window by identifier
+    pub fn single(window: u8, transfer_length: u32) -> Self {
+        Self {
+            window: Some(window),
+            transfer_length,
+        }
+    }
+
+    pub fn allocation_length(&self) -> usize {
+        self.transfer_length as usize
+    }
+
+    pub fn cdb(&self) -> [u8; 10] {
+        let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
+        [
+            0x25,
+            self.window.is_some() as u8,
+            0,
+            0,
+            0,
+            self.window.unwrap_or(0),
+            hi,
+            mid,
+            lo,
+            0,
+        ]
+    }
+}
+
+#[derive(Debug)]
+/// Table 2-12-1
+/// SEND command transfered the data from initiator to the unit
+pub struct Send {
+    /// "Data type code"
+    dtc: u8,
+    /// "Data type qualifier"
+    dtq: u16,
+    /// Transfer length: u32
+    transfer_length: u32,
+}
+
+impl Send {
+    pub fn allocation_length(&self) -> usize {
+        self.transfer_length as usize
+    }
+
+    pub fn cdb(&self) -> [u8; 10] {
+        let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
+        let [dtq_hi, dtq_lo] = self.dtq.to_be_bytes();
+        [0x2A, 0, self.dtc, 0, dtq_hi, dtq_lo, hi, mid, lo, 0]
+    }
+}
+
+#[derive(Debug)]
+/// ABORT 2-13-1
+///
+/// Aborts a scanning operation started by SCAN
+pub struct Abort;
+
+impl Abort {
+    pub fn cdb(&self) -> [u8; 6] {
+        [0xC0, 0, 0, 0, 0, 0]
+    }
+}
+
+#[derive(Debug)]
+/// EXECUTE 2-14-1
+///
+/// Perform the operation specified by SET PARAMETER
+pub struct Execute;
+
+impl Execute {
+    pub fn cdb(&self) -> [u8; 6] {
+        [0xC1, 0, 0, 0, 0, 0]
+    }
+}
