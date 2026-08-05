@@ -259,6 +259,22 @@ by polling TEST UNIT READY. These codes are that poll's return channel.
 |---|---|
 | `00h-00h-00h-00h` | done, succeeded |
 | `02h-04h-01h-00h..04h` | still working — `00` operation running, `01` load/eject, `02` correction-data measurement, `03` load operation, `04` auto shading/WB |
+
+**The TSC does not tell you what is moving.** An autofocus reports `00h` for its
+whole 11 s run and the stage travels during it, verified by eye. So `00h` means
+"an operation is running", not "nothing mechanical is happening", and which
+operations drive the feed has to come from the operation code — `A0h` takes a
+sub-scanning address, so it moves; `C1h` is the lens alone and does not.
+
+That matters only for timeouts, which is the real hazard here and worth stating
+precisely. The recorded grinding incident was **the kernel** returning
+`DID_TIME_OUT` on a 20 s budget and killing a legitimate move, which left the
+firmware's believed position stale so the next positioning drove from a wrong
+origin. It was not caused by sending anything. `C0h` ABORT is by §2-13 an orderly
+stop of a *scan* — "the scan block stops at that position", re-issue SCAN to read
+again — and returns GOOD even when nothing is running. So the rule is simply:
+never give a command that can move the feed a budget a legitimate move could
+exceed. Timing out a motor command is worse than waiting for it.
 | `02h-04h-02h-00h` | done, **failed** (internal mechanical error) |
 | `02h-04h-03h-xx` | needs physical intervention — LS-5000: `00` adapter ejected, `01` IA-20 LL door, `02` undefined adapter, `03` SA-30 film gate, `04` adapter unlocked. LS-9000: `06` FH-869GR mask unset, `07` undefined holder |
 | `02h-3Ah-00h-xx` | medium not present — LS-5000 `00`, `01`, `03`, `04`; LS-9000 `01` only |
