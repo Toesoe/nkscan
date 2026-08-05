@@ -133,6 +133,10 @@ impl Intervention {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Activity {
     /// An operation activation command is being carried out
+    ///
+    /// Says nothing about what is moving: an autofocus reports this for its
+    /// whole run while the stage travels. Which operations move the feed is a
+    /// property of the operation, not of this
     ActivatingOperation, // 01h-00h
     /// The adapter is initialising, or the medium is being loaded or ejected
     MovingMechanism, // 01h-01h and 01h-03h
@@ -159,14 +163,6 @@ impl Activity {
             Some(0x04) => Self::AutoShadingOrWb,
             _ => Self::Unreported,
         }
-    }
-
-    /// Whether ABORT may be sent while this is in progress
-    ///
-    /// Aborting a stage move grinds the mechanism until a power cycle rather
-    /// than stopping the motor, so cancel has to wait that one out
-    pub fn interruptible(self) -> bool {
-        !matches!(self, Self::MovingMechanism)
     }
 }
 
