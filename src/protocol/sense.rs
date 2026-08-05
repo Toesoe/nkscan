@@ -15,6 +15,8 @@ use crate::transport::{Completion, Sense, Status};
 pub enum Failure {
     #[error("mechanical error")]
     Mechanism, // 02h-04h-02h
+    #[error("command aborted")]
+    Aborted, // 0Bh-4Bh data phase, 0Bh-4Eh overlapped
     #[error("hardware error")]
     Hardware, // 04h
     #[error("medium error")]
@@ -140,7 +142,8 @@ pub enum Activity {
     AutoShadingOrWb, // 01h-04h
     /// Powered on but not finished initialising
     Initializing, // 02h-04h-00h and 02h-05h-00h
-    /// SCSI status BUSY, rather than a sense code
+    /// Busy with something internal, which carries on regardless. SCSI status
+    /// BUSY, or 0Bh-08h
     TargetBusy,
     /// Not ready, and the reason was not one we recognise
     Unreported,
@@ -331,8 +334,12 @@ fn from_sense(s: &Sense) -> Outcome {
         // The vendor cooperative channel, which is not an error
         (0x09, 0x80, q) => NeedsHost(Coop::from(q)),
 
-        // Aborted command
-        (0x0B, ..) => Failed(Failure::Mechanism),
+        // Aborted command, which SCSI lets us retry. 08h is an internal
+        // operation that carries on regardless; 3Eh is still coming up after a
+        // reset and is in neither spec
+        (0x0B, 0x08, _) => Working(Activity::TargetBusy),
+        (0x0B, 0x3E, _) => Working(Activity::Initializing),
+        (0x0B, ..) => Failed(Failure::Aborted),
 
         _ => Failed(Failure::Unrecognized),
     }

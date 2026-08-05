@@ -13,10 +13,13 @@ use crate::{
             Capabilities, Page, address::Address, identity::Identity, other::Features,
             set_window::SetWindowFunction,
         },
-        cdbs::{GetWindow, Inquiry, ModeSelect, ModeSense, PageControl, TestUnitReady},
+        cdbs::{
+            GetWindow, Inquiry, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit,
+            SetWindow, TestUnitReady,
+        },
         mode,
-        sense::{Activity, Outcome, interpret},
-        window::{self, Window},
+        sense::{Activity, Fault, Outcome, Refusal, interpret},
+        window::{self, GetWindowHeader, SetWindowHeader, Window},
     },
     transport::{self, Completion, Data, Transport},
 };
@@ -30,6 +33,8 @@ use tracing::*;
 pub struct Session {
     caps: Capabilities,
     transport: Box<dyn Transport>,
+    /// Whether we hold the unit, so [`Drop`] only releases what it took
+    reserved: bool,
 }
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -37,13 +42,17 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long to wait before asking a busy unit again
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
+/// Long enough for a full-length stage move
+const MOVE_TIMEOUT: Duration = Duration::from_secs(180);
+
 /// A reply we could not make sense of
 fn malformed(what: String) -> Error {
     Error::Transport(io::Error::new(io::ErrorKind::InvalidData, what).into())
 }
 
-/// A ceiling on re-issues, so an unexpected cycle terminates even inside a generous timeout
-const MAX_ATTEMPTS: usize = 200;
+/// A device raising unit attentions forever would spin on refresh, so cap those.
+/// Polling needs no cap: it sleeps, and the deadline already bounds it
+const MAX_CHANGES: usize = 16;
 
 /// Run one INQUIRY and hand back however many bytes actually arrived
 pub fn inquiry(t: &mut dyn Transport, cmd: Inquiry) -> Result<Vec<u8>, Error> {
@@ -90,10 +99,34 @@ impl Session {
     pub fn open(mut transport: Box<dyn Transport>) -> Result<Self, Error> {
         // To start up a session, we need to query the scanner for its capabilites and optionally request exclsuive access (SBP-2)
         let caps = probe(transport.as_mut())?;
-        let mut session = Self { transport, caps };
+        let mut session = Self {
+            transport,
+            caps,
+            reserved: false,
+        };
+        // Hold the unit before touching anything that changes its state
+        session.reserved = session.reserve()?;
         let max = session.caps.address.x_axis.dpi_range.last;
         session.set_units(max)?;
         Ok(session)
+    }
+
+    /// Take the unit, so no other initiator can interleave with us
+    ///
+    /// Only SBP-2 has more than one initiator, but the 5000 documents the
+    /// command too, in 2-4 and not in its own command list, so a unit that has
+    /// never heard of it is not an error. Answers whether we got it
+    fn reserve(&mut self) -> Result<bool, Error> {
+        match self.run(&ReserveUnit.cdb(), Data::None, PROBE_TIMEOUT) {
+            Ok(_) => Ok(true),
+            Err(Error::Device(fault))
+                if matches!(*fault, Fault::Rejected(Refusal::UnknownOpcode, _)) =>
+            {
+                debug!("this unit has no RESERVE UNIT");
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Get the current capabilities of the scanner
@@ -163,20 +196,19 @@ impl Session {
     }
 
     /// Read back every window descriptor the unit currently holds
+    ///
+    /// Two passes: a transfer longer than what is there gets refused, so the
+    /// header has to say how much there is first
     pub fn windows(&mut self) -> Result<Vec<Window>, Error> {
-        /// Bytes 0,1 are the length of everything after them; 6,7 are the length of one descriptor
-        const HEADER: usize = 8;
+        let probe = self.get_window_raw(GetWindow::all(window::HEADER as u32))?;
+        let (probe, _) =
+            GetWindowHeader::from_bytes(&probe).map_err(|e| malformed(e.to_string()))?;
 
-        let header = self.get_window_raw(GetWindow::all(HEADER as u32))?;
-        if header.len() < HEADER {
-            return Err(malformed(format!(
-                "GET WINDOW header was {} bytes, need {HEADER}",
-                header.len()
-            )));
-        }
-        let total = 2 + u32::from(u16::from_be_bytes([header[0], header[1]]));
-        let stride = usize::from(u16::from_be_bytes([header[6], header[7]]));
-        debug!(total, stride, "window descriptors");
+        let data = self.get_window_raw(GetWindow::all(2 + u32::from(probe.data_length)))?;
+        let (header, descriptors) =
+            GetWindowHeader::from_bytes(&data).map_err(|e| malformed(e.to_string()))?;
+        let stride = usize::from(header.descriptor_length);
+        debug!(stride, bytes = descriptors.len(), "window descriptors");
 
         if stride < window::LENGTH {
             return Err(malformed(format!(
@@ -185,12 +217,27 @@ impl Session {
             )));
         }
 
-        let data = self.get_window_raw(GetWindow::all(total))?;
-        data.get(HEADER..)
-            .unwrap_or_default()
+        descriptors
             .chunks_exact(stride)
             .map(|d| Window::try_from(d).map_err(|e| malformed(e.to_string())))
             .collect()
+    }
+
+    /// Define one window
+    pub fn set_window(&mut self, window: &Window) -> Result<(), Error> {
+        window.validate(&self.caps)?;
+
+        let header = SetWindowHeader {
+            descriptor_length: window::LENGTH as u16,
+        };
+        let mut payload = Vec::with_capacity(window::HEADER + window::LENGTH);
+        payload.extend_from_slice(&header.to_bytes());
+        payload.extend_from_slice(&window.to_bytes());
+
+        let cmd = SetWindow::new(payload.len() as u32);
+        debug!(id = window.id, "setting window");
+        self.run(&cmd.cdb(), Data::Out(&payload), MOVE_TIMEOUT)?;
+        Ok(())
     }
 
     /// Issue a command, absorbing everything that means "not done yet", and hand back the completion once it has actually terminated
@@ -203,7 +250,7 @@ impl Session {
         timeout: Duration,
     ) -> Result<Completion, Error> {
         let deadline = Instant::now() + timeout;
-        let mut attempts = 0usize;
+        let mut changes = 0usize;
         // Polling produces the same outcome over and over, so log transitions
         // rather than every pass
         let mut reported: Option<Activity> = None;
@@ -223,7 +270,6 @@ impl Session {
             }
 
             let completion = self.transport.execute(cdb, payload, left)?;
-            attempts += 1;
 
             match interpret(&completion) {
                 Outcome::Complete => return Ok(completion),
@@ -252,6 +298,11 @@ impl Session {
                     // the model, so what we cached may no longer describe the
                     // unit we are about to re-issue against
                     self.refresh()?;
+                    changes += 1;
+                    if changes >= MAX_CHANGES {
+                        warn!(changes, "giving up on a device that will not settle");
+                        return Err(Error::from_outcome(interpret(&completion), &completion));
+                    }
                 }
 
                 // Only SCAN and READ raise these, and neither exists yet
@@ -265,13 +316,19 @@ impl Session {
 
                 terminal => return Err(Error::from_outcome(terminal, &completion)),
             }
+        }
+    }
+}
 
-            // Nothing legitimate cycles this often. Bail with whatever the
-            // device last said rather than spinning to the deadline
-            if attempts >= MAX_ATTEMPTS {
-                warn!(attempts, "giving up on a command that will not settle");
-                return Err(Error::from_outcome(interpret(&completion), &completion));
-            }
+/// A reservation only clears on RELEASE, a reset or a power cycle, so one we
+/// drop on the floor locks the unit out of every other program until then
+impl Drop for Session {
+    fn drop(&mut self) {
+        if !self.reserved {
+            return;
+        }
+        if let Err(e) = self.run(&ReleaseUnit.cdb(), Data::None, PROBE_TIMEOUT) {
+            warn!(%e, "could not release the scanner");
         }
     }
 }

@@ -3,6 +3,7 @@
 use super::caps::set_window::{BitDepth, ColorInterleaving, ScanKind, ScanMode};
 use crate::{error::Error, protocol::caps::Capabilities};
 use bitflags::bitflags;
+use tracing::*;
 
 /// How many bytes one descriptor occupies, per table 2-10-3
 pub const LENGTH: usize = 50;
@@ -243,13 +244,18 @@ impl Window {
                     ),
                 ));
             }
-            // The power-on descriptor is larger than this, so it is not a legal
-            // window and cannot be reused as a template unclamped
-            if size == 0 || size > axis.boundary {
-                return Err(bad(
-                    "window size",
-                    format!("{name} {size} is not within 1 to {}", axis.boundary),
-                ));
+            if size == 0 {
+                return Err(bad("window size", format!("{name} is empty")));
+            }
+            // The boundary is the holder's opening, not the unit's limit. A wider
+            // holder scans past it -- 9996 has been read off a 9000 against 8964
+            // here -- and the unit's own power-on descriptors exceed it too, so
+            // this is worth saying and not worth refusing
+            if size > axis.boundary {
+                warn!(
+                    %name, size, aperture = axis.boundary,
+                    "window reaches past the holder opening"
+                );
             }
             // 2-2-2-3: an axis with no address range has to be read whole
             if !axis.croppable() && size != axis.boundary {
@@ -261,6 +267,35 @@ impl Window {
                     ),
                 ));
             }
+        }
+
+        // Reading every CCD line at once walks the bar in blocks of Line Gap
+        // Count, and C1h quotes its own geometry in whole ones. A width that is
+        // not divides the bar mid-block and the columns come back interleaved
+        // wrong, so it is worth saying -- but only in the mode that reads that way
+        let block = u32::from(caps.address.line_gap);
+        if self
+            .color_interleaving
+            .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
+            && block != 0
+            && !self.size.0.is_multiple_of(block)
+        {
+            warn!(
+                width = self.size.0,
+                block, "width is not a whole number of line-gap blocks"
+            );
+        }
+
+        // The sensor is the one width that really is a limit
+        let ccd = u32::from(caps.address.ccd_pixels);
+        if self.origin.0 + self.size.0 > ccd {
+            return Err(bad(
+                "window size",
+                format!(
+                    "X {} from {} runs past the {ccd} pixel sensor",
+                    self.size.0, self.origin.0
+                ),
+            ));
         }
 
         // Comparing raw bits keeps one loop over three unrelated flag types
@@ -425,6 +460,55 @@ impl Window {
     }
 }
 
+/// Both headers are eight bytes, though they do not agree on what is in them
+pub const HEADER: usize = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Header tacked on to the front of an incoming GET WINDOW payload
+/// Table 2-10-2
+pub struct GetWindowHeader {
+    /// Bytes 0,1. Counts what follows it, so the whole reply is two more
+    pub data_length: u16,
+    /// Bytes 6,7. A unit may report a stride longer than 2-10-3 defines
+    pub descriptor_length: u16,
+}
+
+impl GetWindowHeader {
+    /// Read the header and return the rest of the slice
+    pub fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), TooShort> {
+        if bytes.len() < HEADER {
+            return Err(TooShort { got: bytes.len() });
+        }
+        let data_length = u16::from_be_bytes([bytes[0], bytes[1]]);
+        let descriptor_length = u16::from_be_bytes([bytes[6], bytes[7]]);
+        Ok((
+            Self {
+                data_length,
+                descriptor_length,
+            },
+            &bytes[HEADER..],
+        ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Header tacked on to the front of an outgoing SET WINDOW payload
+/// Table 2-9-2
+pub struct SetWindowHeader {
+    /// Bytes 6,7. Sending 50 against a unit claiming more is fine: 2-9 note 3
+    /// leaves the rest unchanged, and Nikon Scan sends 50
+    pub descriptor_length: u16,
+}
+
+impl SetWindowHeader {
+    /// Pack to bytes to send
+    pub fn to_bytes(&self) -> [u8; HEADER] {
+        let mut bytes = [0u8; HEADER];
+        bytes[6..8].copy_from_slice(&self.descriptor_length.to_be_bytes());
+        bytes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,7 +597,10 @@ mod tests {
     fn sixteen_times_is_fifteen_extra_reads_and_a_mode_bit() {
         let w = Window::try_from(captured::PRESCAN_16X).expect("descriptor");
         assert_eq!(w.multiple_reading, 15);
-        assert_eq!(w.scanning_mode, ScanMode::HIGH_SPEED | ScanMode::MULTI_READING);
+        assert_eq!(
+            w.scanning_mode,
+            ScanMode::HIGH_SPEED | ScanMode::MULTI_READING
+        );
         // High speed is what clears averaging, and it is the preview that asks
         // for high speed -- resolution never selects it on its own
         assert_eq!(w.flags, Flags::POSITIVE);

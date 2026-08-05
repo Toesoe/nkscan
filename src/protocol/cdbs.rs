@@ -258,3 +258,25 @@ impl Execute {
         [0xC1, 0, 0, 0, 0, 0]
     }
 }
+
+#[derive(Debug)]
+/// From the spec 2-9
+pub struct SetWindow {
+    transfer_length: u32,
+}
+
+impl SetWindow {
+    /// One window by identifier
+    pub fn new(transfer_length: u32) -> Self {
+        Self { transfer_length }
+    }
+
+    pub fn allocation_length(&self) -> usize {
+        self.transfer_length as usize
+    }
+
+    pub fn cdb(&self) -> [u8; 10] {
+        let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
+        [0x24, 0, 0, 0, 0, 0, hi, mid, lo, 0]
+    }
+}
