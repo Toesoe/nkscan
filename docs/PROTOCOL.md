@@ -855,6 +855,58 @@ byte 41.
    boundaries) can't be exercised without that hardware — implement to spec,
    cover with unit tests over synthesised VPD pages.
 
+## Decisions a scan has to make
+
+Everything above is capability data. This is what has to be *decided* from it, and
+it is worth keeping separate from the per-call checks already in the code.
+
+A **gate** answers "is this argument legal" — `validate` against the boundary,
+`offers` against `ExecuteOps`, `read_data` against `DataTypes`. Those belong at
+the call site and are cheap. A **strategy** answers "which mechanism does this
+unit use", decides the shape of the whole sequence, and should be resolved once
+from `Capabilities` and then followed. The difference matters because a strategy
+that needs host work we have not written must fail at the start with a reason,
+not arrive as a `09h-80h` partway through a scan.
+
+### Where the frames come from
+
+| Condition | Mechanism |
+|---|---|
+| `FRAME_RECTS` set, `C8h` lengths populated | already known, masked holder |
+| `FRAME_RECTS` set, lengths zero | thumbnail, host finds boundaries, SEND `88h` (2-11-6) |
+| `FRAME_RECTS` clear | perforation counting, READ `8Eh` then SEND `8Fh` |
+| thumbnail unsupported on this adapter | neither; the caller supplies the rect |
+
+Thumbnail support is **per adapter**, not per unit — the LS-5000 says only the
+6SA, 36SA and 240 adapters have it, and its `C1h` thumbnail-resolution columns are
+blank for the others. So this is re-decided whenever the holder changes, which is
+what `3Fh-03h` INQUIRY DATA HAS CHANGED announces.
+
+### What the host owes
+
+`E1h` bytes 4 and 5 are a checklist of work the driver must do before the matching
+feature is usable, each paired with the `09h-80h` ASCQ that will arrive:
+
+| Bit | ASCQ | Gates |
+|---|---|---|
+| Thumbnail | `01h` | thumbnail scanning, and so strip frame discovery |
+| Averaging | `02h` | `multiple_reading` > 0 |
+| Multi-line | `04h` | `MULTILINE_SIMULTANEOUS` in byte 44 |
+| Truncated | `06h` | 8-bit odd widths |
+| CCD data | `07h` | corrected CCD output |
+
+Of these, only single-line image scanning with no multisampling needs nothing —
+which is why it is the configuration to reach for first.
+
+### The rest
+
+- **Resolution**: `PitchRule` plus the dpi range gives the legal ladder. Asking off
+  it is not an error, the unit rounds and says `01h-37h-00h`.
+- **Sensor mode**: a caller's choice, not derivable, and the multi-line arm is
+  gated on the registration obligation above.
+- **X cropping**: allowed unless `C1h`'s X address range is a single point, in
+  which case the width has to be the boundary exactly.
+
 ## Follow-ups
 
 - Rewrite the `ls9000ed-window-vendor-bytes` memory: bytes 42/44 were
