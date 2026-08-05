@@ -15,10 +15,10 @@ use crate::{
         },
         cdbs::{
             Execute, GetWindow, Inquiry, ModeSelect, ModeSense, PageControl, Read, ReleaseUnit,
-            ReserveUnit, SetParameter, SetWindow, TestUnitReady,
+            ReserveUnit, Scan, SetParameter, SetWindow, TestUnitReady,
         },
         data, mode,
-        sense::{Activity, Fault, Outcome, Refusal, interpret},
+        sense::{Activity, Coop, Fault, Outcome, Refusal, interpret},
         window::{self, GetWindowHeader, SetWindowHeader, Window},
     },
     transport::{self, Completion, Data, Transport},
@@ -345,15 +345,73 @@ impl Session {
         Ok(())
     }
 
+    /// Start a scan of the windows named, and settle every cooperative request
+    /// it raises
+    ///
+    /// 2-7: the unit answers, then scans, so this returns once it has started
+    /// and TEST UNIT READY says when the data is there. A cooperative request
+    /// means it will not start until the initiator has done a job for it, named
+    /// by the `87h` record, after which the command goes out again
+    pub fn scan(&mut self, windows: &[u8]) -> Result<(), Error> {
+        let cmd = Scan::new(windows.len() as u8);
+        let (_, coop) = self.run_cooperative(&cmd.cdb(), Data::Out(windows), MOVE_TIMEOUT)?;
+
+        let Some(coop) = coop else {
+            debug!(?windows, "scanning");
+            return Ok(());
+        };
+
+        // Not an error, but we cannot honor it yet. Read the parameter anyway,
+        // since it names the job precisely and the alternative is guessing from
+        // a 4th sense byte the two specs disagree about. When the first job is
+        // implemented this becomes a loop: do the work, issue SCAN again
+        let record = self.cooperation()?;
+        Err(Error::Unsupported {
+            op: "host cooperation",
+            reason: format!("{coop:?} is not implemented yet, and it wants {record:?}"),
+        })
+    }
+
+    /// Read the initiator cooperative action parameter a SCAN just asked for
+    pub fn cooperation(&mut self) -> Result<data::CooperativeAction, Error> {
+        let (_, values) = self.read_data(data::DataType::Cooperation, 0)?;
+        let data::Values::Bytes(record) = values else {
+            return Err(malformed("87h did not come back as bytes".into()));
+        };
+        data::CooperativeAction::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("87h was {} bytes", record.len())))
+    }
+
     /// Issue a command, absorbing everything that means "not done yet", and hand back the completion once it has actually terminated
     ///
     /// `timeout` is a budget for the whole command including re-issues, not for one transfer.
     pub fn run(
         &mut self,
         cdb: &[u8],
-        mut data: Data<'_>,
+        data: Data<'_>,
         timeout: Duration,
     ) -> Result<Completion, Error> {
+        let (completion, coop) = self.run_cooperative(cdb, data, timeout)?;
+        match coop {
+            None => Ok(completion),
+            Some(coop) => Err(Error::Unsupported {
+                op: "host cooperation",
+                reason: format!("{coop:?} is not implemented yet"),
+            }),
+        }
+    }
+
+    /// As [`run`](Self::run), but hands a cooperative request back rather than
+    /// refusing it
+    ///
+    /// Only SCAN and READ raise one. 2-7 is explicit about what it means: read
+    /// the parameter with `87h`, do the work, and issue the command again
+    pub fn run_cooperative(
+        &mut self,
+        cdb: &[u8],
+        mut data: Data<'_>,
+        timeout: Duration,
+    ) -> Result<(Completion, Option<Coop>), Error> {
         let deadline = Instant::now() + timeout;
         let mut changes = 0usize;
         // Polling produces the same outcome over and over, so log transitions
@@ -377,12 +435,12 @@ impl Session {
             let completion = self.transport.execute(cdb, payload, left)?;
 
             match interpret(&completion) {
-                Outcome::Complete => return Ok(completion),
+                Outcome::Complete => return Ok((completion, None)),
                 Outcome::CompleteWith(adjustment) => {
                     // GET WINDOW is authoritative for what the unit actually
                     // used, so this is a note rather than a result
                     debug!(?adjustment, "the scanner moved a parameter");
-                    return Ok(completion);
+                    return Ok((completion, None));
                 }
 
                 // Not yet. Polling is re-issuing.
@@ -410,14 +468,8 @@ impl Session {
                     }
                 }
 
-                // Only SCAN and READ raise these, and neither exists yet
-                // Basically, the scanner sent data to us which it expects us to now process
-                Outcome::NeedsHost(coop) => {
-                    return Err(Error::Unsupported {
-                        op: "host cooperation",
-                        reason: format!("{coop:?} is not implemented yet"),
-                    });
-                }
+                // The scanner wants post-processing before it will go on
+                Outcome::NeedsHost(coop) => return Ok((completion, Some(coop))),
 
                 terminal => return Err(Error::from_outcome(terminal, &completion)),
             }
