@@ -49,6 +49,12 @@ fn main() -> anyhow::Result<()> {
             session.test_unit_ready(Duration::from_secs(180))?;
             println!("scan finished in {:?}", started.elapsed());
 
+            // Leaving the image unread is what wedges the next session
+            if std::env::args().nth(1).as_deref() == Some("noread") {
+                println!("leaving the image unread");
+                return Ok(());
+            }
+
             // 2-10's formula: pitch is the optical resolution over the asked-for
             // one, and the pixel count is the window over the pitch
             let pitch =

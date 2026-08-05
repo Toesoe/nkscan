@@ -14,8 +14,8 @@ use crate::{
             identity::Identity, other::Features, set_window::SetWindowFunction,
         },
         cdbs::{
-            Execute, GetWindow, Inquiry, ModeSelect, ModeSense, PageControl, Read, ReleaseUnit,
-            ReserveUnit, Scan, SetParameter, SetWindow, TestUnitReady,
+            Abort, Execute, GetWindow, Inquiry, ModeSelect, ModeSense, PageControl, Read,
+            ReleaseUnit, ReserveUnit, Scan, SetParameter, SetWindow, TestUnitReady,
         },
         data, mode,
         sense::{Activity, Coop, Fault, Outcome, Refusal, interpret},
@@ -116,6 +116,8 @@ impl Session {
         };
         // Hold the unit before touching anything that changes its state
         session.reserved = session.reserve()?;
+        // A scan left over from whoever had it last would refuse everything below
+        session.abort()?;
         let max = session.caps.address.x_axis.dpi_range.last;
         session.set_units(max)?;
         Ok(session)
@@ -137,6 +139,30 @@ impl Session {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Stop any scan in progress
+    ///
+    /// 2-13: the scan block stops where it is, and a scan has to be issued again
+    /// to read anything. GOOD comes back even when nothing was running, so this
+    /// is also how to get to a known state.
+    ///
+    /// Worth doing at open. A scan whose data was never read stays valid, and
+    /// while it is, every non-basic command is refused with `05h-2Ch` -- so one
+    /// program exiting early locks out the next one
+    pub fn abort(&mut self) -> Result<(), Error> {
+        match self.run(&Abort.cdb(), Data::None, PROBE_TIMEOUT) {
+            Ok(_) => {}
+            Err(Error::Device(fault))
+                if matches!(*fault, Fault::Rejected(Refusal::UnknownOpcode, _)) =>
+            {
+                debug!("this unit has no ABORT");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
+        // An operation activation command, so it answers before it acts
+        self.test_unit_ready(MOVE_TIMEOUT)
     }
 
     /// Get the current capabilities of the scanner
