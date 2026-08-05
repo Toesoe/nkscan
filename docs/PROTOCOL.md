@@ -516,10 +516,21 @@ Two things follow, both in terms of the reported values rather than this unit's:
   not block-aligned** (10000), which is a third independent reason it was never a
   legal window.
 
-**The aperture is not a limit.** `C1h`'s boundary is what the loaded holder's
-opening exposes, and a wider holder scans past it. The unit's own defaults exceed
-it too. So `validate` warns rather than refuses, and keeps a hard bound only at
-`ccd_pixels`, where the pixels genuinely run out.
+**SET WINDOW does not enforce the boundary.** Echoing back a descriptor the unit
+already held — 10000 × 13860 against the 8964 × 13176 it reports with an FH-869GR
+loaded — was accepted.
+
+Note what that does and does not show. SET WINDOW only records parameters; the
+geometry is not exercised until SCAN and READ have to produce the pixels, and
+**whether SCAN accepts an over-aperture window is untested**. So the honest
+reading is that the refusal belongs at scan time if it belongs anywhere, which is
+why `validate` warns instead, keeping a hard bound only at `ccd_pixels`. Revisit
+once SCAN exists.
+
+The same command settles two smaller things. A header declaring 50 against a unit
+whose `C1h` claims 59 is accepted, as 2-9 note 3 promises. And it completed in
+28 ms with no observed movement, so a window that does not change the origin
+moves no mechanism.
 
 Both axes are croppable, so the LS-5000's forced-full-width rule does not apply
 here. The Y offset range runs to 34644 — 220 mm, the length of the strip in the
