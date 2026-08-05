@@ -2,6 +2,7 @@
 
 pub mod caps;
 pub mod cdbs;
+pub mod data;
 pub mod mode;
 pub mod sense;
 pub mod session;

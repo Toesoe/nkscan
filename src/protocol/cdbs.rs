@@ -212,6 +212,38 @@ impl GetWindow {
 }
 
 #[derive(Debug)]
+/// Table 2-11-1
+/// READ transfers data from the unit to us
+pub struct Read {
+    /// "Data type code"
+    dtc: u8,
+    /// "Data type qualifier": color element up top, element width below
+    dtq: u16,
+    /// Blocks, and a block is a byte here
+    transfer_length: u32,
+}
+
+impl Read {
+    pub fn new(dtc: u8, color: u8, width_code: u8, transfer_length: u32) -> Self {
+        Self {
+            dtc,
+            dtq: u16::from(color) << 8 | u16::from(width_code),
+            transfer_length,
+        }
+    }
+
+    pub fn allocation_length(&self) -> usize {
+        self.transfer_length as usize
+    }
+
+    pub fn cdb(&self) -> [u8; 10] {
+        let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
+        let [dtq_hi, dtq_lo] = self.dtq.to_be_bytes();
+        [0x28, 0, self.dtc, 0, dtq_hi, dtq_lo, hi, mid, lo, 0]
+    }
+}
+
+#[derive(Debug)]
 /// Table 2-12-1
 /// SEND command transfered the data from initiator to the unit
 pub struct Send {
@@ -224,8 +256,12 @@ pub struct Send {
 }
 
 impl Send {
-    pub fn allocation_length(&self) -> usize {
-        self.transfer_length as usize
+    pub fn new(dtc: u8, color: u8, width_code: u8, transfer_length: u32) -> Self {
+        Self {
+            dtc,
+            dtq: u16::from(color) << 8 | u16::from(width_code),
+            transfer_length,
+        }
     }
 
     pub fn cdb(&self) -> [u8; 10] {
@@ -248,6 +284,30 @@ impl Abort {
 }
 
 #[derive(Debug)]
+/// SET PARAMETER 2-15-1
+///
+/// Loads the parameters for the operation EXECUTE will then run. Byte 2 is the
+/// operation, not the opcode
+pub struct SetParameter {
+    operation: u8,
+    parameter_length: u32,
+}
+
+impl SetParameter {
+    pub fn new(operation: u8, parameter_length: u32) -> Self {
+        Self {
+            operation,
+            parameter_length,
+        }
+    }
+
+    pub fn cdb(&self) -> [u8; 10] {
+        let [_, hi, mid, lo] = self.parameter_length.to_be_bytes();
+        [0xE0, 0, self.operation, 0, 0, 0, hi, mid, lo, 0]
+    }
+}
+
+#[derive(Debug)]
 /// EXECUTE 2-14-1
 ///
 /// Perform the operation specified by SET PARAMETER
@@ -266,13 +326,9 @@ pub struct SetWindow {
 }
 
 impl SetWindow {
-    /// One window by identifier
+    /// However many bytes of header plus descriptors are going out
     pub fn new(transfer_length: u32) -> Self {
         Self { transfer_length }
-    }
-
-    pub fn allocation_length(&self) -> usize {
-        self.transfer_length as usize
     }
 
     pub fn cdb(&self) -> [u8; 10] {
