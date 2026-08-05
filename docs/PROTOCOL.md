@@ -671,6 +671,31 @@ Two limits of the corpus itself, worth knowing before trusting it:
   shape at any resolution, but no full-resolution-mode scan below 4000 confirms it. The
 default above sidesteps the question entirely.
 
+### What the typed reads return
+
+READ of the header-carrying types works two-phase, the same shape as GET WINDOW:
+the 6-byte data header reports what the unit holds regardless of the transfer
+length asked for, so one short read sizes the real one. Read with no scan run:
+
+| Type | 2-11-2 says | Header says | Decodes as |
+|---|---|---|---|
+| `93h` leak volume | 2 × 3 = 6 | 6 | three u16 over 1e6 — `0.001048, 0.001005, 0.000625` |
+| `8Ch` WB exposure | 4 × 1 = 4 | 4 | one u32, 237289 × 10 ns = 2.37 ms |
+| `8Ah` analog gain | 4 × 2 = 8 | **16** | f32 — `1.0`, `1.998` |
+| `88h` boundary | 4 × variable | 20 | `00 14 01 00` then a rect ending `13859 / 9999` |
+
+**Analog gain is where the header lies.** 2-11-6 promises that for a fixed count
+the length is width × count, which is 8 here, and the unit reports 16. The extra
+eight bytes are stale — they differ run to run, and one read returned `3623h`,
+which is 13859, a boundary value from an earlier command. So where 2-11-2 fixes a
+count it wins, and the header is only authoritative where the table says Variable.
+
+Two smaller notes. The header's bits-per-element field reads 32 for the 4-byte
+types but **0** for leak volume, where 2-11-2 says 2 bytes — so it cannot be used
+to derive a width, and the qualifier has to carry the table's. And `88h`'s leading
+word is not a coordinate: `14h` is the total length and `01h` the frame count,
+with the rect following as inclusive maxima of the 13860 × 10000 frame.
+
 ### Behaviour worth knowing
 
 - **Unit attentions queue.** A holder insertion raises two, both `06h-28h-00h`
@@ -700,7 +725,10 @@ default above sidesteps the question entirely.
    **Confirmed on hardware:** the page answers anyway, so `errata` must be able
    to *add* a page, not only override fields.
 6. **LS-9000 analog gain** — 2-11-2 says 4 bytes × 2, §2-11-7's table shows
-   2-byte fields. 4-byte IEEE-754 is the consistent reading.
+   2-byte fields. **Settled on hardware: 4-byte IEEE-754.** A READ of `8Ah`
+   returns `3F800000` and `3FFFC1BE`, which are exactly 1.0 and 1.998. It also
+   returns *16* bytes rather than the 8 the table promises, and the third and
+   fourth words are not plausible gains, so there are four slots with two live.
 7. **LS-5000 shading** — "47352 valid data × 2 bytes" is wrong; 47352 is the
    *byte* count (23676 × u16 = 3946 px × 3 line-modes × 2 gains).
 8. **LS-5000 image buffer** — C1h table says 256 KB, prose says 64 KB.

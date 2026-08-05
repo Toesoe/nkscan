@@ -31,7 +31,10 @@ fn main() -> anyhow::Result<()> {
         .into_iter()
         .find(|w| w.id == 1)
         .expect("the red window");
-    println!("echoing back id {} {:?} {:?}", window.id, window.origin, window.size);
+    println!(
+        "echoing back id {} {:?} {:?}",
+        window.id, window.origin, window.size
+    );
 
     match session.set_window(&window) {
         Ok(()) => println!("ACCEPTED -- the boundary is advisory"),
