@@ -41,6 +41,8 @@ pub enum DataTypeCode {
     HalftoneMask,
     GammaFunction,
     ScanStatus,
+    PerfInformation,
+    BoundaryInformationType2,
     Vendor(u8),
 }
 
@@ -51,6 +53,8 @@ impl DataTypeCode {
             DataTypeCode::HalftoneMask => 0x02,
             DataTypeCode::GammaFunction => 0x03,
             DataTypeCode::ScanStatus => 0x87,
+            DataTypeCode::PerfInformation => 0x8E,
+            DataTypeCode::BoundaryInformationType2 => 0x8F,
             DataTypeCode::Vendor(x) => x,
         }
     }
