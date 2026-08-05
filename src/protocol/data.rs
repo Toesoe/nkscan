@@ -1,6 +1,6 @@
 //! READ and SEND data types. Section 2-11
 
-use super::caps::other::DataTypes;
+use super::{caps::other::DataTypes, sense::Coop};
 
 /// The header 2-11-6 puts in front of every type from 80h up
 pub const HEADER: usize = 6;
@@ -282,6 +282,52 @@ impl Operation {
         b[1..5].copy_from_slice(&self.first.to_be_bytes());
         b[5..9].copy_from_slice(&self.second.to_be_bytes());
         b
+    }
+}
+
+/// What the scanner wants doing, and the numbers to do it with
+///
+/// 2-11-5, read back with `87h` once a SCAN says a job is pending. All four jobs
+/// share this one 18-byte format, and each fills in only the fields it needs.
+/// `E1h` says which jobs a unit can ever ask for; this arrives when one actually is
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CooperativeAction {
+    /// Byte 0, and the same namespace as the `09h-80h` ASCQ that announced it
+    ///
+    /// Dispatch on this rather than on the sense: the two specs give the same
+    /// job different 4th sense bytes, while the type code agrees
+    pub kind: Coop,
+    /// Bytes 5,6
+    pub bytes_per_line: u16,
+    /// Bytes 7,8. Scanning lines times frames
+    pub entire_lines: u16,
+    /// Byte 9
+    pub bits_per_color: u8,
+    /// Bytes 10,11
+    pub lines_per_image: u16,
+    /// Byte 12. Exposures per line, which is what averaging needs
+    pub readings_per_line: u8,
+    /// Bytes 13,14. Line Gap Count over the scanning pitch, filled in only by
+    /// the multi-line record
+    pub registration_gap: u16,
+}
+
+impl CooperativeAction {
+    /// The 1 x 18 that 2-11-2 gives `87h`
+    pub const LENGTH: usize = 18;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let b: &[u8; Self::LENGTH] = b.get(..Self::LENGTH)?.try_into().ok()?;
+        let be16 = |i: usize| u16::from_be_bytes([b[i], b[i + 1]]);
+        Some(Self {
+            kind: Coop::from(b[0]),
+            bytes_per_line: be16(5),
+            entire_lines: be16(7),
+            bits_per_color: b[9],
+            lines_per_image: be16(10),
+            readings_per_line: b[12],
+            registration_gap: be16(13),
+        })
     }
 }
 

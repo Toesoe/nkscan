@@ -212,6 +212,25 @@ impl GetWindow {
 }
 
 #[derive(Debug)]
+/// SCAN, 2-7
+///
+/// Trigger a scan.
+/// The data out is the window identifier list, one byte each, and 2-7 gives the length as [0..4]
+pub struct Scan {
+    windows: u8,
+}
+
+impl Scan {
+    pub fn new(windows: u8) -> Self {
+        Self { windows }
+    }
+
+    pub fn cdb(&self) -> [u8; 6] {
+        [0x1B, 0, 0, 0, self.windows, 0]
+    }
+}
+
+#[derive(Debug)]
 /// Table 2-11-1
 /// READ transfers data from the unit to us
 pub struct Read {
