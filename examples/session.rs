@@ -37,9 +37,10 @@ fn main() -> anyhow::Result<()> {
         DataType::WhiteBalanceExposure,
         DataType::AnalogGain,
         DataType::Boundary,
+        DataType::CcdData,
     ] {
         match session.read_data(kind, 0) {
-            Ok((h, values)) => println!("{kind:?} bits={} {values:?}", h.bits),
+            Ok((h, values)) => println!("{kind:?} len={} -> {values:.0?}", h.length),
             Err(e) => println!("{kind:?} -> {e}"),
         }
     }
