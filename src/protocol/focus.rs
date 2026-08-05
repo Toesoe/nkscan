@@ -13,8 +13,12 @@ const AUTO_AF: u8 = 0x91;
 /// Focus Move, C1h. Moves the scan block in the AF direction
 const FOCUS_MOVE: u8 = 0xC1;
 
-/// Focusing runs the lens, not the stage, so it settles in seconds
+/// A focus move drives the lens alone and settles in seconds
 const FOCUS_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Autofocus takes an address on the medium, and the sub-scanning half of that
+/// is the feed, so reaching it can move the stage
+const AUTOFOCUS_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// [`Session::execute`] checks this too, but checking before the arguments means a unit that cannot do the thing says so, rather than faulting a coordinate
 fn offers(session: &Session, operation: u8) -> Result<(), Error> {
@@ -74,7 +78,7 @@ impl Session {
                 first: x,
                 second: y,
             },
-            FOCUS_TIMEOUT,
+            AUTOFOCUS_TIMEOUT,
         )
     }
 
