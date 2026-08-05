@@ -376,10 +376,19 @@ Note SKSV (byte 15 bit 7) is **clear**, so this is not SPC sense-key-specific
 being used properly — Nikon is using the vendor half of the field. A conformant
 reader would discard it, and an SPC progress indicator would have byte 15 ≥ `80h`.
 
-Two caveats. That TSC rides in quadlet 5 is Nikon's choice and portable; that it
-lands at *byte 15* is `firewire-sbp2`'s repack. Where `scsiscan.sys` puts it is
-unknown — that driver's `SENSE_LENGTH = 32` exists because Nikon state was seen
-past the end of fixed-format sense, which suggests a different layout.
+**`scsiscan.sys` agrees.** Running our own code on Windows against the same unit
+gives `02h-04h-01h` and `06h-28h-00h` each carrying their documented `01h` at byte
+15, so both drivers repack quadlet 5 to bytes 15–17 the same way and the index is
+portable, not a Linux artifact. Sense there is `70h` fixed-format with an
+additional length of 11 — 19 bytes total, nothing beyond, so `SENSE_LENGTH = 32`
+is slack rather than the extra Nikon state the RE notes suspected.
+
+That run also turned up two unit attentions absent from both specs, and they are
+plain SPC codes: **`06h-3Fh-04h` COMPONENT DEVICE ATTACHED** on a cold start with
+no holder, and **`06h-3Fh-03h` INQUIRY DATA HAS CHANGED** on holder insertion.
+The second is the device asking us to re-probe — which is right, since the holder
+id and both boundaries in `C1h` really do change — and it is the cleanest possible
+confirmation that capabilities are dynamic rather than per-model.
 
 ### Values that disagree with the documents
 
@@ -498,19 +507,21 @@ LS-9000 spec calls unused and the LS-5000 calls microcode downloading.
 
 ### What Nikon Scan actually sends, read through the spec
 
-The six sessions in `/mnt/storage/NikonScanDecomp/scan_captures/` were reverse
+The sessions in `/mnt/storage/NikonScanDecomp/scan_captures/` were reverse
 engineered before we had the documents. Reading their SET WINDOW payloads
-against 2-10-3 for the first time settles several things the RE could not.
+against 2-10-3 settles what the RE could not.
 
-Every descriptor in the corpus is one of four shapes. Decoded into the flags in
-`window.rs` and `caps/set_window.rs`, with the raw byte in brackets:
+Decoded into the flags in `window.rs` and `caps/set_window.rs`, with the raw byte
+in brackets, every descriptor in the corpus is one of these:
 
 | Phase | dpi | `multiple_reading` | `flags` (41) | `scanning_kind` (42) | `scanning_mode` (43) | `color_interleaving` (44) |
 |---|---|---|---|---|---|---|
 | Calibration preamble | 4000 | 0 | `AVERAGING\|POSITIVE` [`81`] | `IMAGE` [`01`] | `NORMAL_QUALITY` [`02`] | `LINE_WITHOUT_DISTANCE` [`02`] |
 | Thumbnail | 83 | 0 | `AVERAGING\|POSITIVE` [`81`] | `THUMBNAIL` [`02`] | `NORMAL_QUALITY` [`02`] | `LINE_WITHOUT_DISTANCE` [`02`] |
 | Preview / prescan | 666 | n−1 | `POSITIVE` [`01`] | `IMAGE` [`01`] | `HIGH_SPEED` [`04`] | `MULTILINE_SIMULTANEOUS` [`40`] |
-| Scan | 4000 | n−1 | `AVERAGING\|POSITIVE` [`81`] | `IMAGE` [`01`] | `NORMAL_QUALITY` [`02`] | either of the two above |
+| Scan, single line | 4000 | n−1 | `AVERAGING\|POSITIVE` [`81`] | `IMAGE` [`01`] | `NORMAL_QUALITY` [`02`] | `LINE_WITHOUT_DISTANCE` [`02`] |
+| Scan, multi line, full res | 4000 | n−1 | `AVERAGING\|POSITIVE` [`81`] | `IMAGE` [`01`] | `NORMAL_QUALITY` [`02`] | `MULTILINE_SIMULTANEOUS` [`40`] |
+| Scan, multi line, reduced | 2000 | n−1 | `POSITIVE` [`01`] | `IMAGE` [`01`] | `HIGH_SPEED` [`04`] | `MULTILINE_SIMULTANEOUS` [`40`] |
 
 With multisampling on, `scanning_mode` gains `MULTI_READING` [`|10`] — so the
 prescan of the 16× session is `HIGH_SPEED|MULTI_READING` [`14`] and its scan is
@@ -519,18 +530,34 @@ prescan of the 16× session is `HIGH_SPEED|MULTI_READING` [`14`] and its scan is
 `window.rs`'s tests decode three of these straight out of the corpus, so the
 mapping is checked rather than asserted.
 
-**Byte 44 is the sensor-mode choice, not a resolution consequence.** This is the
-finding that matters, and it needed two sessions to see. `full_session_cold_start`
-and `singleline_ccd` both scan at 4000 dpi, Normal Quality, averaging on, and
-differ in byte 44 alone: `40h` for what Nikon Scan calls the normal CCD mode,
-`02h` for what it calls **Super Fine**. So `40h` — 2-10's "3 line simultaneous
-reading" — is the multi-line sensor read whole, and `02h` is the one-line read.
-Nothing about it follows from dpi, and a three-line scan at full resolution
-(`81/02/40`) is a combination no dpi-driven rule can produce.
+**Byte 44 is the sensor mode, chosen by the caller.** Two 4000 dpi scans —
+`full_session_cold_start` and `singleline_ccd` — run at the same resolution,
+quality and averaging and differ in byte 44 alone: `40h` for what Nikon Scan calls
+the normal CCD mode, `02h` for what it calls **Super Fine**. So `40h` (2-10's
+"3 line simultaneous reading") is the multi-line sensor read whole, `02h` is the
+one-line read, and neither follows from resolution: `40h` appears at 4000 and at
+2000 alike.
 
-That also means **Super Fine is the safe default**: `02h` needs no host
-re-registration, so it never enters the `09h-80h-04h` cooperative path, and it
-bins the bar correctly at every resolution, which the multi-line read does not.
+**Bytes 41 and 43 do follow resolution, but only inside multi-line mode.** The
+whole rule, and it is small:
+
+> averaging off and high speed ⟺ byte 44 is `40h` **and** dpi < optical
+
+Every row above satisfies it. The 83 dpi thumbnail keeps `81/02` because it is a
+one-line read, so low resolution alone never selects high speed; the 2000 dpi
+multi-line scan takes `01/04` because both halves hold. This is exactly the old
+`averaging()` predicate — `quality == Preview || (ccd == ThreeLine && dpi < 4000)`
+— since a preview is always multi-line, which made its two arms one condition
+written twice. That predicate was hardware-verified and is now corroborated by
+Nikon Scan itself.
+
+It also *works*: the 2000 dpi multi-line scan produced a 4482 × 4482 TIFF against
+the 4000 dpi one's 8964 × 8964. Exactly halved, so the bar binned.
+
+Two consequences for us. Multi-line is the faster mode and the one Nikon Scan
+defaults to, but it sets the `MULTI_LINE` cooperation bit and so needs host
+re-registration. **Single line needs no cooperation at any resolution**, which
+makes it the only mode we can drive correctly today.
 
 **Multiple reading** is confirmed exactly as 2-10 words it — scans per line is
 `multiple_reading + 1`, in byte 40's high nibble:
@@ -597,11 +624,14 @@ Two limits of the corpus itself, worth knowing before trusting it:
   CHECK CONDITION happened, but never what it said — so none of the `09h-80h`
   cooperative codes above can be confirmed from here, only from the spec and from
   our own hardware.
-- **It has no reduced-resolution multi-line scan.** Nikon Scan only ever sends
-  multi-line at 4000 dpi, so which of bytes 41, 43 and 44 actually makes the
-  sensor bar bin below that is still open — the three always move together in
-  this data. One NikonScan capture at 2000 dpi with the normal CCD mode would
-  settle it. The
+- **Which single byte bins the bar is still unisolated.** The 2000 dpi multi-line
+  capture shows Nikon Scan moving 41, 43 and 44 together, and the result is
+  correctly halved, so reproducing the shape is enough. Nothing in the corpus
+  separates the three, and there is no reason to care until something wants a
+  combination Nikon Scan never sends.
+- **There is no reduced-resolution *single*-line capture.** Nikon Scan sends
+  `81/02/02` for the 83 dpi thumbnail, which suggests one-line reads keep that
+  shape at any resolution, but no full-resolution-mode scan below 4000 confirms it. The
 default above sidesteps the question entirely.
 
 ### Behaviour worth knowing

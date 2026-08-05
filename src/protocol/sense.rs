@@ -210,10 +210,40 @@ pub enum Adjustment {
 }
 
 /// Why cached state is stale
+///
+/// Every one of these means the command did *not* run: drop what we cached and
+/// re-issue. They are told apart only so a log says which happened, since the
+/// unit changes underneath us with no other warning
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Change {
-    /// The command was *not* executed; drop what we cached and re-issue
-    UnitAttention,
+    /// A holder went in or came out
+    MediumChanged, // 28h-00h
+    /// Powered on, reset, or told to reset
+    Reset, // 29h-xx
+    /// Another initiator moved a mode parameter
+    ModeParameters, // 2Ah-01h
+    /// The VPD pages themselves now read differently, which is exactly the
+    /// signal to re-probe. Undocumented by both specs, raised on holder
+    /// insertion, and standard SPC
+    Capabilities, // 3Fh-03h
+    /// Something attached below the unit. Seen once, on a cold start with no
+    /// holder in
+    Attached, // 3Fh-04h
+    /// A unit attention we have no name for
+    Unreported,
+}
+
+impl Change {
+    fn from_code(asc: u8, ascq: u8) -> Self {
+        match (asc, ascq) {
+            (0x28, 0x00) => Self::MediumChanged,
+            (0x29, _) => Self::Reset,
+            (0x2A, 0x01) => Self::ModeParameters,
+            (0x3F, 0x03) => Self::Capabilities,
+            (0x3F, 0x04) => Self::Attached,
+            _ => Self::Unreported,
+        }
+    }
 }
 
 /// What a completion means for what happens next
@@ -296,7 +326,7 @@ fn from_sense(s: &Sense) -> Outcome {
         (0x05, 0x2C, 0x02) => Refused(Refusal::BadWindowCombo),
 
         // Unit attention: the command did not run
-        (0x06, ..) => StateChanged(Change::UnitAttention),
+        (0x06, asc, ascq) => StateChanged(Change::from_code(asc, ascq)),
 
         // The vendor cooperative channel, which is not an error
         (0x09, 0x80, q) => NeedsHost(Coop::from(q)),
