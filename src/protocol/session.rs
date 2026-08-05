@@ -10,8 +10,8 @@ use crate::{
     error::Error,
     protocol::{
         caps::{
-            Capabilities, Page, address::Address, ccd::CcdMeasurement, identity::Identity,
-            other::Features, set_window::SetWindowFunction,
+            Capabilities, Page, address::Address, address::Transfer, ccd::CcdMeasurement,
+            identity::Identity, other::Features, set_window::SetWindowFunction,
         },
         cdbs::{
             Execute, GetWindow, Inquiry, ModeSelect, ModeSense, PageControl, Read, ReleaseUnit,
@@ -370,6 +370,67 @@ impl Session {
             op: "host cooperation",
             reason: format!("{coop:?} is not implemented yet, and it wants {record:?}"),
         })
+    }
+
+    /// Read image data, continuing where the last read stopped
+    ///
+    /// Moves bytes and nothing else: type `00h` has no data header and no length
+    /// of its own, and 2-11 has consecutive reads carry on rather than restart,
+    /// so the caller sizes `buf` from the scan geometry. Unscrambling belongs to
+    /// whatever consumes this.
+    ///
+    /// Answers how much arrived. Short of `buf` means the unit ran out, either
+    /// by transferring less than asked or by answering `05h-2Ch` once the image
+    /// is spent. `line` is the bytes in one scanned line, which `C1h` byte 4 can
+    /// require every read to be a whole number of
+    pub fn read_image(
+        &mut self,
+        buf: &mut [u8],
+        line: usize,
+        bytes_per_pixel: u8,
+    ) -> Result<usize, Error> {
+        let width = data::width_code(bytes_per_pixel).ok_or_else(|| Error::Unsupported {
+            op: "image read",
+            reason: format!("{bytes_per_pixel} bytes a pixel is not a width 2-11-4 encodes"),
+        })?;
+
+        let mut chunk = self.transport.max_transfer();
+        if line > 0
+            && self
+                .caps
+                .address
+                .transfer
+                .intersects(Transfer::READ_LINE | Transfer::READ_LINE_COLS)
+        {
+            chunk = (chunk / line).max(1) * line;
+        }
+
+        let code = data::DataType::Image.row().code;
+        let mut done = 0;
+        while done < buf.len() {
+            let want = chunk.min(buf.len() - done);
+            let cmd = Read::new(code, 0, width, want as u32);
+            let slice = &mut buf[done..done + want];
+
+            match self.run(&cmd.cdb(), Data::In(slice), MOVE_TIMEOUT) {
+                Ok(completion) => {
+                    done += completion.transferred;
+                    if completion.transferred < want {
+                        break;
+                    }
+                }
+                // 2-11-5: reading past the end of the image is how it says the
+                // image is spent, not a fault
+                Err(Error::Device(fault))
+                    if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) =>
+                {
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        debug!(bytes = done, "read image");
+        Ok(done)
     }
 
     /// Read the initiator cooperative action parameter a SCAN just asked for
