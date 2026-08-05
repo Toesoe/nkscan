@@ -3,3 +3,6 @@
 *.tiff
 nkscan-wb.txt
 result
+
+# LibreOffice lock files, from opening the specs
+.~lock.*#
