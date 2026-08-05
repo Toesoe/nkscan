@@ -134,6 +134,15 @@ impl BoundaryInformation {
         }
     }
 
+    fn to_bytes(self) -> [u8; 8] {
+        let mut buf = [0u8; 8];
+        buf[0..4].copy_from_slice(&self.y_top_addr.to_be_bytes());
+        buf[4..6].copy_from_slice(&self.perf_number.to_be_bytes());
+        buf[6] = self.perf_decimal;
+        buf[7] = self.pulse_num;
+        buf
+    }
+
     /// Convert a specific Y pixel coordinate to a logical scanner address
     pub fn generate_addr_from_y_coordinate(pixel_y: u32) -> u32 {
         (pixel_y as f32 * crate::scanners::ls50::geometry::DOTS_PER_INCH as f32 / THUMBNAIL_DPI as f32).round() as u32

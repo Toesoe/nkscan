@@ -450,48 +450,6 @@ where
             "scanner stopped producing image lines",
         ))
     }
-
-    pub fn get_boundary_information(&mut self) -> Result<Vec<BoundaryInformation>, scsi::Error> {
-        let res = self.transport.send(&Read::new(0, DataTypeCode::PerfInformation, 0x3B, 6, 0))?;
-
-        if res.len() < 6 {
-            debug!("invalid header");
-            return Err(scsi::Error::Unsupported("Invalid header"));
-        }
-
-        let request_bytes = u32::from_be_bytes(res[2..6].try_into().unwrap());
-
-        // request again with total payload size
-        let data = self.transport.send(&Read::new(0, DataTypeCode::PerfInformation, 0x3B, request_bytes + 6, 0))
-        .ok().unwrap();
-
-        let payload_len = u32::from_be_bytes(data[2..6].try_into().unwrap()) as usize;
-
-        if data.len() < 6 + payload_len {
-            return Err(scsi::Error::Unsupported("Truncated response"));
-        }
-        
-        let payload = &data[6..6 + payload_len];
-
-        if payload.len() < 4 {
-            return Err(scsi::Error::Unsupported("Boundary payload too short"));
-        }
-
-        let parameter_len = u16::from_be_bytes(payload[0..2].try_into().unwrap()) as usize;
-        let img_count = payload[2] as usize;
-
-        if parameter_len != 2 + img_count * 8 {
-            return Err(scsi::Error::Unsupported(
-                "BoundaryInformationType2 size mismatch",
-            ));
-        }
-        
-        let boundaries: Vec<_> = BoundaryInformation::parse(payload)
-            .take(img_count)
-            .collect();
-
-       Ok(boundaries)
-    }
 }
 
 #[cfg(test)]
