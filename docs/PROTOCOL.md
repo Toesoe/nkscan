@@ -365,7 +365,7 @@ Everything structural is shared.
 
 ## What the hardware said
 
-Everything below was read off a real **LS-9000 ED, firmware 1.00, FH-869GR
+Everything below was read off a real **LS-9000 ED, firmware 1.00, FH-869S
 holder**, on 2026-08-04. Where it disagrees with either document, it wins.
 
 The pattern across every disagreement is the same direction: **the firmware does
@@ -502,7 +502,7 @@ cycle — so a session must read it rather than assume the documented default.
 
 ### What `C1h` says at rest
 
-With adapter 1 / holder `17h` (FH-869GR) loaded:
+With adapter 1 / holder `17h` (FH-869S) loaded:
 
 | Field | X | Y |
 |---|---|---|
@@ -533,7 +533,7 @@ Two things follow, both in terms of the reported values rather than this unit's:
   legal window.
 
 **SET WINDOW does not enforce the boundary.** Echoing back a descriptor the unit
-already held — 10000 × 13860 against the 8964 × 13176 it reports with an FH-869GR
+already held — 10000 × 13860 against the 8964 × 13176 it reports with an FH-869S
 loaded — was accepted.
 
 Note what that does and does not show. SET WINDOW only records parameters; the
@@ -711,6 +711,26 @@ types but **0** for leak volume, where 2-11-2 says 2 bytes — so it cannot be u
 to derive a width, and the qualifier has to carry the table's. And `88h`'s leading
 word is not a coordinate: `14h` is the total length and `01h` the frame count,
 with the rect following as inclusive maxima of the 13860 × 10000 frame.
+
+### `C8h` publishes the frames, but not their length
+
+The unit sets `FRAME_RECTS` in `C1h` byte 16, so §2-2-2-6's additional address
+page is populated: byte 4 is a frame count, then 16 bytes of Left / Top / Width /
+Length per frame. With one 6×9 strip loaded it reads
+
+| Images | Left | Top | Width | Length |
+|---|---|---|---|---|
+| 1 | 518 | 2236 | 8964 | **0** |
+
+**Left 518 is exactly the X offset Nikon Scan sent in every captured SET WINDOW**,
+so it takes the rect straight from this page rather than deriving one.
+
+The zero length is the interesting part, and it matches §2-11-3: "when the
+thumbnail scanning is performed for the strip film, the length is also measured at
+the same time". So a strip's frames are published with their cross-film geometry
+known from the holder and their extent along the feed unknown until a thumbnail
+pass measures it. That orders the scan flow for us — thumbnail before frames are
+fully defined, not after.
 
 ### `91h` is the CCD's own response curves
 
