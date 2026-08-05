@@ -20,6 +20,17 @@ fn main() -> anyhow::Result<()> {
     session.test_unit_ready(Duration::from_secs(30))?;
 
     println!("units: {}", session.units()?);
+    if let Some(ccd) = &session.capabilities().ccd {
+        println!(
+            "ccd {:?} res={} scans={} types={} curves={} points={:?}",
+            ccd.colors,
+            ccd.resolution,
+            ccd.scans,
+            ccd.types,
+            ccd.curves(),
+            ccd.points
+        );
+    }
     println!(
         "holder {:?} bounds {} x {}",
         session.capabilities().address.holder_id,
