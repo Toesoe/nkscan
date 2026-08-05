@@ -119,6 +119,7 @@ pub trait Transport: Send {
 
     /// Perform a SCSI transaction with the "command data block" bytes `cdb` writing/reading the data phase contained in `data`.
     ///
-    /// This returns errors on link-layer errors and Ok on completion which includes sense data carried along the way
+    /// This returns errors on link-layer errors and Ok on completion which includes sense data carried along the way.
+    /// `timeout` is not a promise as some backends (like Windows), don't have a mechanism for it.
     fn execute(&mut self, cdb: &[u8], data: Data, timeout: Duration) -> Result<Completion, Error>;
 }

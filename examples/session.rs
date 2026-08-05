@@ -20,6 +20,7 @@ fn main() -> anyhow::Result<()> {
     session.test_unit_ready(Duration::from_secs(30))?;
 
     println!("units: {}", session.units()?);
+    println!("holder {:?} bounds {} x {}", session.capabilities().address.holder_id, session.capabilities().address.x_axis.boundary, session.capabilities().address.y_axis.boundary);
 
     for w in session.windows()? {
         println!("{} -> {:?}", w.id, w.validate(session.capabilities()));

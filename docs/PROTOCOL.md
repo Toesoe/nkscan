@@ -495,6 +495,32 @@ With adapter 1 / holder `17h` (FH-869GR) loaded:
 | Offset address | 0–8963 | 0–34644 |
 | Boundary (max window) | 8964 | 13176 |
 
+### Geometry is quantised by Line Gap Count
+
+Reading every CCD line at once walks the bar in blocks of Line Gap Count columns,
+so on a unit with more than one line the geometry comes in whole blocks. `C1h`
+quotes its own figures that way: with `line_gap` 12 and 3 lines, the X aperture
+8964 is 747 blocks, the Y aperture 13176 is 1098, the Y address maximum 34644 is
+2887. The block count also survives the pitch ladder, which is what makes it
+structure rather than coincidence — `line_gap / pitch` columns per block, 747
+blocks at every step from 4000 down to 333 dpi.
+
+Two things follow, both in terms of the reported values rather than this unit's:
+
+- **The widest legal window is the largest whole block count under `ccd_pixels`,
+  not `ccd_pixels`.** Here 10000 is not a whole number of blocks; 833 of them is
+  9996, four pixels short. That is exactly the width someone has read off a 9000
+  using a 65 mm holder, so a "multiple of 12" rule is not a workaround, it is the
+  quantisation.
+- **The power-on descriptor's X size is the one figure the unit reports that is
+  not block-aligned** (10000), which is a third independent reason it was never a
+  legal window.
+
+**The aperture is not a limit.** `C1h`'s boundary is what the loaded holder's
+opening exposes, and a wider holder scans past it. The unit's own defaults exceed
+it too. So `validate` warns rather than refuses, and keeps a hard bound only at
+`ccd_pixels`, where the pixels genuinely run out.
+
 Both axes are croppable, so the LS-5000's forced-full-width rule does not apply
 here. The Y offset range runs to 34644 — 220 mm, the length of the strip in the
 holder — while a single window may be at most 13176 long (83.6 mm). CCD 10000
