@@ -1,4 +1,3 @@
-use crate::scanners::ls50::boundaries::BoundaryInformation;
 use crate::scanners::nikon::status_usb::UsbStatus as Status;
 use crate::scanners::nikon::usb::{POLL_INTERVAL, READY_TIMEOUT, UsbCoolscan, is_not_ready};
 use crate::{
@@ -32,8 +31,11 @@ pub mod capabilities;
 pub mod cdbs;
 pub mod decode;
 pub mod dtc;
+pub mod frame_detection;
 pub mod geometry;
 pub mod window;
+
+use frame_detection::FrameDetector;
 
 /// For [`UsbTransport::open`](crate::scsi::usb::UsbTransport::open)
 pub const VENDOR_ID: u16 = 0x04B0;
@@ -307,6 +309,10 @@ where
             height = frame.rgb.height(),
             "Image drained"
         );
+
+        let detector = FrameDetector::default();
+        let boundaries = detector.detect_frame_boundaries(&frame);
+
         Ok(frame)
     }
 
