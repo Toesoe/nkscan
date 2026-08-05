@@ -10,8 +10,8 @@ use crate::{
     error::Error,
     protocol::{
         caps::{
-            Capabilities, Page, address::Address, identity::Identity, other::Features,
-            set_window::SetWindowFunction,
+            Capabilities, Page, address::Address, ccd::CcdMeasurement, identity::Identity,
+            other::Features, set_window::SetWindowFunction,
         },
         cdbs::{
             Execute, GetWindow, Inquiry, ModeSelect, ModeSense, PageControl, Read, ReleaseUnit,
@@ -86,6 +86,16 @@ pub fn probe(t: &mut dyn Transport) -> Result<Capabilities, Error> {
         address: Address::try_from(&vpd(t, Address::PAGE_CODE)?)?,
         features: Features::try_from(&vpd(t, Features::PAGE_CODE)?)?,
         set_window: SetWindowFunction::try_from(&vpd(t, SetWindowFunction::PAGE_CODE)?)?,
+        // Neither spec lists this one in page 00h, so a refusal means the unit
+        // has not got it rather than that anything went wrong
+        ccd: match vpd(t, CcdMeasurement::PAGE_CODE) {
+            Ok(page) => Some(CcdMeasurement::try_from(&page)?),
+            Err(Error::Device(fault)) if matches!(*fault, Fault::Rejected(..)) => {
+                debug!("this unit has no CCD measurement page");
+                None
+            }
+            Err(e) => return Err(e),
+        },
     })
 }
 

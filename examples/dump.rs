@@ -13,7 +13,10 @@ use clap::Parser;
 use nkscan::{
     device::{self, Selector},
     protocol::{
-        caps::{self, Page, address::Address, other::Features, set_window::SetWindowFunction},
+        caps::{
+            self, Page, address::Address, ccd::CcdMeasurement, other::Features,
+            set_window::SetWindowFunction,
+        },
         cdbs::Inquiry,
         session,
     },
@@ -94,7 +97,15 @@ fn main() -> anyhow::Result<()> {
             .join(" ")
     );
 
-    for &code in listed.iter().chain(UNLISTED) {
+    // Our unit lists E3h even though its spec's table 2-2-1-2 does not, but ask
+    // anyway for one that follows the document
+    let unlisted: Vec<u8> = UNLISTED
+        .iter()
+        .copied()
+        .filter(|code| !listed.contains(code))
+        .collect();
+
+    for &code in listed.iter().chain(&unlisted) {
         if code == 0x00 {
             continue;
         }
@@ -137,6 +148,7 @@ fn decode(code: u8, bytes: &[u8]) -> Option<String> {
         Address::PAGE_CODE => Some(show(Address::try_from(&page))),
         Features::PAGE_CODE => Some(show(Features::try_from(&page))),
         SetWindowFunction::PAGE_CODE => Some(show(SetWindowFunction::try_from(&page))),
+        CcdMeasurement::PAGE_CODE => Some(show(CcdMeasurement::try_from(&page))),
         _ => None,
     }
 }

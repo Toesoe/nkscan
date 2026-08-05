@@ -4,6 +4,7 @@
 //! These are primarily built from the "page code field list" data starting from table 2-2-1-2
 
 pub mod address;
+pub mod ccd;
 pub mod identity;
 pub mod other;
 pub mod set_window;
@@ -29,6 +30,8 @@ pub struct Capabilities {
     pub address: address::Address,
     pub features: other::Features,
     pub set_window: set_window::SetWindowFunction,
+    /// Missing from the page-00h list, so a unit may genuinely not have it
+    pub ccd: Option<ccd::CcdMeasurement>,
 }
 
 /// One page from "Vital Product Data"

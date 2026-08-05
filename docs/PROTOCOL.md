@@ -743,10 +743,12 @@ by seeing whether SCAN actually raises `09h-80h-07h`.
    **Settled: `0Dh`.** CCD-data cooperation is real.
 4. **LS-9000 8Dh** marked reserved in 2-11-2, but E1h byte 9 bit 5 says setup-info
    writing is supported.
-5. **LS-9000 E3h** documented in §2-2-2-7, absent from the page-00h list.
-   **Confirmed on hardware:** the page answers anyway, so `errata` must be able
-   to *add* a page, not only override fields. It is also load-bearing — see the
-   CCD line curves below — so it belongs in `Capabilities`, which it is not in yet.
+5. **LS-9000 E3h** documented in §2-2-2-7, but missing from that document's own
+   table 2-2-1-2, which lists only `C1h C8h D1h E1h F0h F8h`. **The hardware is
+   the consistent one:** it reports 19 pages and `E3h` is among them, so the
+   omission is the spec's and no errata mechanism is needed to recover it —
+   enumerating page 00h from the device finds it. One more reason not to trust a
+   page list transcribed from paper.
 6. **LS-9000 analog gain** — 2-11-2 says 4 bytes × 2, §2-11-7's table shows
    2-byte fields. **Settled on hardware: 4-byte IEEE-754.** A READ of `8Ah`
    returns `3F800000` and `3FFFC1BE`, which are exactly 1.0 and 1.998. It also
