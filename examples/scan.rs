@@ -18,6 +18,7 @@
 //! cargo run --example scan -- rgb halfy     # preview at 666x333, as Nikon Scan does
 //! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
+//! cargo run --example scan -- rgb thumb     # run a thumbnail pass first
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -32,7 +33,11 @@ use std::{
 use nkscan::{
     device::{self, Selector},
     protocol::{
-        caps::{Capabilities, address::Axis, set_window::ColorInterleaving},
+        caps::{
+            Capabilities,
+            address::Axis,
+            set_window::{ColorInterleaving, ScanKind, ScanMode},
+        },
         window::{Composition, Window},
     },
     scan::{Exposure, Focus, expose},
@@ -123,6 +128,37 @@ fn main() -> anyhow::Result<()> {
         println!("{what}: {e:?}");
     };
     show("exposures as held", &windows);
+
+    // Every capture opens with one of these, and this unit has never measured
+    // the strip: C8h reports a frame length of 0. See whether it settles the
+    // mechanism down
+    if has("thumb") {
+        let caps = session.capabilities();
+        let dpi = caps.address.thumbnail_resolution.start;
+        let mut thumb = windows[0].clone();
+        thumb.resolution = (dpi, dpi);
+        thumb.scanning_kind = ScanKind::THUMBNAIL;
+        thumb.scanning_mode = ScanMode::NORMAL_QUALITY;
+        thumb.composition = Composition::MultilevelBW;
+        thumb.origin.1 = 0;
+        thumb.size.1 = caps.address.y_axis.address_range.last;
+        println!("thumbnail at {dpi} dpi over {:?}", thumb.size);
+
+        let started = Instant::now();
+        session.set_window(&thumb)?;
+        match session.scan(std::slice::from_ref(&thumb)) {
+            Ok(layout) => {
+                session.test_unit_ready(Duration::from_secs(300))?;
+                let mut buf = vec![0u8; layout.total_bytes() as usize];
+                let got = session.read_image(&layout, &mut buf)?;
+                println!("thumbnail read {got} bytes in {:?}", started.elapsed());
+            }
+            Err(e) => println!("thumbnail refused: {e}"),
+        }
+        session.refresh()?;
+        let frames = session.capabilities().frames.clone();
+        println!("frames now: {frames:?}");
+    }
 
     // Before metering, which is the order in the captures: autofocus, then the
     // preview passes that decide the exposures. So AE measures a focused frame
