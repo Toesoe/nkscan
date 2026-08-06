@@ -9,7 +9,7 @@ use crate::{
     error::Error,
     protocol::{
         caps::other::DataTypes,
-        data::{DataType, Op},
+        data::{Boundary, DataType, Op},
     },
     session::Session,
 };
@@ -17,10 +17,12 @@ use tracing::*;
 
 /// Put the unit into the state Nikon Scan leaves it in before its first scan
 ///
-/// Every step is gated on what the unit advertises, and each is skipped rather
-/// than fatal where it is not offered: this whole sequence is undocumented, so
-/// refusing to work without it would be worse than going ahead.
-pub fn run(session: &mut Session) -> Result<(), Error> {
+/// `frames` is where the caller believes the frames are, from
+/// [`framing::table`](super::framing::table). Everything else is gated on what
+/// the unit advertises, and each step is skipped rather than fatal where it is
+/// not offered: this whole sequence is undocumented, so refusing to work
+/// without it would be worse than going ahead.
+pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
     // The CCD's own response curves. The captures read these per channel
     // before anything else
     if offers(session, DataTypes::CCD_DATA_READ) {
@@ -62,14 +64,18 @@ pub fn run(session: &mut Session) -> Result<(), Error> {
         }
     }
 
-    // Read the frame boundaries and write them straight back
+    // Say where the frames are. This is the step the stage cares about: against
+    // the one whole-sensor rectangle the unit holds until it is told otherwise,
+    // a frame-kind SET WINDOW homes instead of stepping to the frame. The unit
+    // wants its current table read before it takes a new one
     if offers(session, DataTypes::BOUNDARY_READ) && offers(session, DataTypes::BOUNDARY_WRITE) {
         match session.boundaries() {
-            Ok(boundary) => {
-                debug!(frames = boundary.frames.len(), "returning the boundary");
-                session.set_boundaries(&boundary)?;
-            }
-            Err(e) => debug!(%e, "no boundary to return"),
+            Ok(held) => debug!(frames = held.frames.len(), "the table the unit held"),
+            Err(e) => debug!(%e, "no boundary to read"),
+        }
+        if !frames.frames.is_empty() {
+            debug!(frames = frames.frames.len(), "sending the frame table");
+            session.set_boundaries(frames)?;
         }
     }
 

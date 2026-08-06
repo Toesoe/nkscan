@@ -5,11 +5,14 @@
 //! written fails here with a reason, rather than part-way through a scan.
 
 use crate::{
-    protocol::caps::{
-        Capabilities,
-        address::CoordinateBase,
-        other::{DataTypes, HostCooperation},
-        set_window::ScanKind,
+    protocol::{
+        caps::{
+            Capabilities,
+            address::CoordinateBase,
+            other::{DataTypes, HostCooperation},
+            set_window::ScanKind,
+        },
+        data::{Boundary, Rect},
     },
     session::Session,
 };
@@ -75,6 +78,53 @@ impl Framing {
     }
 }
 
+/// The frame table to send before the first pass
+///
+/// 2-11-6: until the host says where the frames are, the unit answers `88h`
+/// with one rectangle over the whole sensor. A frame-kind SET WINDOW against
+/// that table drives the stage to its home stop and back rather than stepping
+/// to the frame, and autofocus takes three times as long. Both Nikon Scan and
+/// the pre-rewrite driver write this before anything moves.
+///
+/// A holder that publishes its own lengths needs nothing from the caller. A
+/// strip publishes an opening and no length, so `length` is the film format,
+/// tiled from the front edge until the opening runs out. That is a starting
+/// point: film does not land at a fixed offset, and a thumbnail is what finds
+/// where the frames actually sit
+pub fn table(caps: &Capabilities, length: u32) -> Boundary {
+    let Some(published) = caps.frames.as_ref() else {
+        return Boundary::default();
+    };
+    let mut frames = Vec::new();
+    for (n, opening) in published.images.iter().enumerate() {
+        let right = opening.left + opening.width;
+        // Where this opening stops: the next one begins, or the axis ends
+        let stop = published
+            .images
+            .get(n + 1)
+            .map_or(caps.address.y_axis.address_range.last, |next| next.top);
+        let rect = |top| Rect {
+            top,
+            left: opening.left,
+            bottom: top + length,
+            right,
+        };
+        match opening.length {
+            Some(measured) => frames.push(Rect {
+                bottom: opening.top + measured,
+                ..rect(opening.top)
+            }),
+            None => frames.extend(
+                (0..)
+                    .map(|f| opening.top + f * length)
+                    .take_while(|top| top + length <= stop)
+                    .map(rect),
+            ),
+        }
+    }
+    Boundary { frames }
+}
+
 /// Whether this unit and holder thumbnail
 ///
 /// Support follows the adapter rather than the model: the LS-5000 offers it on
@@ -114,6 +164,8 @@ mod tests {
         p[18..20].copy_from_slice(&4000u16.to_be_bytes());
         p[20..22].copy_from_slice(&4000u16.to_be_bytes());
         p[22..24].copy_from_slice(&666u16.to_be_bytes());
+        // Y addresses run to the end of the strip
+        p[46..50].copy_from_slice(&34644u32.to_be_bytes());
         if thumb {
             p[70..72].copy_from_slice(&83u16.to_be_bytes());
             p[72..74].copy_from_slice(&83u16.to_be_bytes());
@@ -193,6 +245,51 @@ mod tests {
         assert_eq!(
             Framing::choose(&caps(false, false, false, false)),
             Framing::Caller
+        );
+    }
+
+    /// The nominal write from `another_normal_scan_of_one_frame`, where the
+    /// user asked Nikon Scan for 6x4.5: four frames butted from the opening's
+    /// front edge, stopping where the next one would run off the strip
+    #[test]
+    fn a_strip_tiles_the_format_the_way_the_capture_does() {
+        let table = table(&caps(true, true, false, false), 6696);
+        assert_eq!(
+            table.frames.first(),
+            Some(&Rect {
+                top: 2236,
+                left: 518,
+                bottom: 8932,
+                right: 9482
+            })
+        );
+        assert_eq!(table.frames.len(), 4);
+        assert_eq!(table.frames.last().map(|f| f.bottom), Some(29020));
+    }
+
+    /// A masked holder publishes its own geometry, so the format is ignored
+    #[test]
+    fn a_measured_holder_is_taken_as_published() {
+        let table = table(&caps(true, true, false, true), 6696);
+        assert_eq!(
+            table.frames,
+            [Rect {
+                top: 2236,
+                left: 518,
+                bottom: 2236 + 13176,
+                right: 9482
+            }]
+        );
+    }
+
+    /// Nothing to say without rectangles, and sending an empty table would only
+    /// undo whatever the unit already had
+    #[test]
+    fn a_holder_that_publishes_nothing_gets_no_table() {
+        assert!(
+            table(&caps(false, false, true, false), 6696)
+                .frames
+                .is_empty()
         );
     }
 
