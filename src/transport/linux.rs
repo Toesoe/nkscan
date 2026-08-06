@@ -228,6 +228,24 @@ impl SgTransport {
 impl Transport for SgTransport {
     #[instrument(skip_all, fields(cdb = ?cdb, ?data))]
     fn execute(&mut self, cdb: &[u8], data: Data, timeout: Duration) -> Result<Completion, Error> {
+        // A trace comparable with the NKDSBP2 proxy logs, so a session can be
+        // diffed against a Nikon Scan capture command for command
+        if tracing::enabled!(target: "nkscan::cdb", Level::TRACE) {
+            let hex = |b: &[u8]| {
+                b.iter()
+                    .map(|x| format!("{x:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            match &data {
+                Data::Out(out) => {
+                    trace!(target: "nkscan::cdb", "CDB ({} bytes): {}\n  DATA-OUT ({} bytes): {}",
+                        cdb.len(), hex(cdb), out.len(), hex(out))
+                }
+                _ => trace!(target: "nkscan::cdb", "CDB ({} bytes): {}", cdb.len(), hex(cdb)),
+            }
+        }
+
         let mut cmd = cdb.to_vec();
         let mut sb = [0u8; SENSE_REQUEST_LEN];
 
