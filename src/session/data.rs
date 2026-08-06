@@ -120,8 +120,17 @@ impl Session {
     /// Where the unit currently thinks each frame is, 2-11-6
     pub fn boundaries(&mut self) -> Result<data::Boundary, Error> {
         let (_, record) = self.read_record(data::DataType::Boundary, 0)?;
-        data::Boundary::from_bytes(&record)
-            .ok_or_else(|| malformed(format!("Boundary was {} bytes", record.len())))
+        let boundary = data::Boundary::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("Boundary was {} bytes", record.len())))?;
+        self.frames = Some(boundary.clone());
+        Ok(boundary)
+    }
+
+    /// The frame table as far as this session knows it
+    ///
+    /// `None` until something has read or written one
+    pub fn frames(&self) -> Option<&data::Boundary> {
+        self.frames.as_ref()
     }
 
     /// Tell the unit where each frame is
@@ -130,7 +139,9 @@ impl Session {
     /// sends them, which is the only way a holder that cannot measure its own
     /// frames comes to know their length
     pub fn set_boundaries(&mut self, boundary: &data::Boundary) -> Result<(), Error> {
-        self.send_data(data::DataType::Boundary, 0, &boundary.to_bytes())
+        self.send_data(data::DataType::Boundary, 0, &boundary.to_bytes())?;
+        self.frames = Some(boundary.clone());
+        Ok(())
     }
 
     /// The exposures the unit measured for neutral white when it started up

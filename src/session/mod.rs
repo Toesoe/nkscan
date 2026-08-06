@@ -21,6 +21,7 @@ use crate::{
         cdbs::{
             Abort, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit, TestUnitReady,
         },
+        data::Boundary,
         mode,
         sense::{Activity, Change, Coop, Fault, Outcome, Refusal, interpret},
     },
@@ -38,6 +39,11 @@ pub struct Session {
     transport: Box<dyn Transport>,
     /// What a step of a window coordinate is currently worth
     divisor: u16,
+    /// The frame table as far as we know it, from the last read or write
+    ///
+    /// Both the stage and autofocus resolve against it, so it is worth holding
+    /// on to. `None` means nobody has looked yet, and nothing is checked
+    frames: Option<Boundary>,
     /// Whether we hold the unit, so [`Drop`] only releases what it took
     reserved: bool,
 }
@@ -80,6 +86,7 @@ impl Session {
             caps,
             divisor,
             reserved: false,
+            frames: None,
         };
         // INQUIRY answers while the unit is still initializing, so probing says
         // nothing about readiness. Everything below is a real command, and a

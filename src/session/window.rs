@@ -4,6 +4,7 @@ use super::{MOVE_TIMEOUT, PROBE_TIMEOUT, Session, malformed};
 use crate::{
     error::Error,
     protocol::{
+        caps::set_window::ScanKind,
         cdbs::{GetWindow, Scan, SetWindow},
         data::CooperativeAction,
         image::Layout,
@@ -54,8 +55,32 @@ impl Session {
     }
 
     /// Define one window
+    ///
+    /// This is what moves the stage. An image window inside a frame the unit
+    /// knows about steps straight to it; one the table does not cover sends the
+    /// holder out to the home stop and back, twenty times slower. The unit
+    /// takes it either way and the image is the same, so this says so rather
+    /// than refusing
     pub fn set_window(&mut self, window: &Window) -> Result<(), Error> {
         window.validate(&self.caps)?;
+
+        // Thumbnails deliberately span everything, so only an image window has
+        // a frame to sit in
+        if window.scanning_kind.contains(ScanKind::IMAGE)
+            && let Some(frames) = self.frames()
+            && !frames.frames.is_empty()
+        {
+            let (left, top) = window.origin;
+            let (right, bottom) = (left + window.size.0, top + window.size.1);
+            if frames.holding(top, left, bottom, right).is_none() {
+                warn!(
+                    id = window.id,
+                    ?window.origin,
+                    ?window.size,
+                    "no frame holds this window, so the stage will home to reach it"
+                );
+            }
+        }
 
         let header = SetWindowHeader {
             descriptor_length: window::LENGTH as u16,
