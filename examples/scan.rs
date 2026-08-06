@@ -33,7 +33,11 @@ use std::{
 use nkscan::{
     device::{self, Selector},
     protocol::{
-        caps::{Capabilities, address::Axis, set_window::ColorInterleaving},
+        caps::{
+            Capabilities,
+            address::Axis,
+            set_window::{ColorInterleaving, ScanKind, ScanMode},
+        },
         window::{Composition, Window},
     },
     scan::{Exposure, Focus, expose, thumbnail},
@@ -110,8 +114,11 @@ fn main() -> anyhow::Result<()> {
             w.origin.0 = aperture.0;
             w.size.0 = aperture.1;
         }
-        // The unit keeps whatever the last run left in these, so set it either
-        // way rather than inheriting a previous experiment
+        // The unit keeps whatever the last run left in these, so say what we
+        // want rather than inheriting a previous experiment
+        w.scanning_kind = ScanKind::IMAGE;
+        w.scanning_mode = ScanMode::HIGH_SPEED;
+        w.multiple_reading = 0;
         w.color_interleaving = match has("multiline") {
             true => ColorInterleaving::MULTILINE_SIMULTANEOUS,
             false => ColorInterleaving::LINE_WITHOUT_DISTANCE,
