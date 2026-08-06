@@ -1,7 +1,7 @@
 //! REMOVE LATER: does a minimal scan owe the host anything?
 //!
-//! Takes the descriptors the unit already holds, shrinks them to a small patch
-//! at the lowest resolution, and starts a scan. Single line, no multisampling,
+//! Takes the descriptors the unit already holds, sets a window at the chosen
+//! frame's front edge, and starts a scan. Single line, no multisampling,
 //! 16 bit -- none of the four triggers 2-11-5 lists, so in theory it should
 //! raise no cooperative request at all.
 //!
@@ -15,13 +15,17 @@
 //! cargo run --example scan -- rgb afy=600   # autofocus at a raw sub-scan address
 //! cargo run --example scan -- rgb aftop     # focus the window origin, not its middle
 //! cargo run --example scan -- rgb aty=11976 # put the window at a given Y
+//! cargo run --example scan -- rgb frame=1   # the second of the unit's frames
+//! cargo run --example scan -- rgb len=6696  # 6x4.5 frames rather than 6x6
 //! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
 //! cargo run --example scan -- rgb thumb     # run a thumbnail pass first
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
-//! This moves the stage: the window origin comes from the frame rectangle.
+//! This moves the stage: the window origin comes from the frame's front edge.
+//! Those edges are nominal until a thumbnail has measured them (2-11-6), so the
+//! preamble tiles `len` along the opening the holder publishes.
 
 use std::{
     fs::File,
@@ -37,9 +41,10 @@ use nkscan::{
             address::Axis,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
+        data::Boundary,
         window::{Composition, Window},
     },
-    scan::{Exposure, Focus, Framing, expose, preamble, thumbnail},
+    scan::{Exposure, Focus, Framing, expose, framing, preamble, thumbnail},
     session::Session,
 };
 
@@ -72,15 +77,48 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // The setup the captures run once before the first pass, and the last
-    // difference left between our session and Nikon Scan's
+    // The setup the captures run once before the first pass. len=N is the film
+    // format, which nothing advertises
+    let format = arg("len").unwrap_or(8964);
+    let table = framing::table(session.capabilities(), format);
     if !has("nopreamble") {
         let started = Instant::now();
-        preamble::run(&mut session)?;
+        preamble::run(&mut session, &table)?;
         println!("preamble in {:?}", started.elapsed());
     }
 
-    // The lowest resolution this unit offers, over a small patch of the frame
+    // The captures open with the whole-strip pass before any frame placement:
+    // it is what finds where the frames are. Run it first so the stage does not
+    // go out to a frame and then all the way back to the strip start
+    if has("thumb") {
+        let began = Instant::now();
+        println!(
+            "thumbnail available={} framing {:?} ready={} host builds={}",
+            thumbnail::available(&session),
+            Framing::of(&session),
+            Framing::of(&session).ready(),
+            thumbnail::host_builds(&session)
+        );
+        match thumbnail::scan(&mut session) {
+            Ok(t) => println!(
+                "thumbnail {} bytes of an expected {} in {:?}, owes {:?}",
+                t.data.len(),
+                t.layout.total_bytes(),
+                began.elapsed(),
+                t.cooperation
+            ),
+            Err(e) => println!("thumbnail refused: {e}"),
+        }
+        session.refresh()?;
+        println!("frames now: {:?}", session.capabilities().frames);
+    }
+
+    // 2-11-6: where the unit thinks each frame is, which the preamble has just
+    // told it
+    let boundary = session.boundaries()?;
+    println!("boundaries: {boundary:?}");
+
+    // The lowest resolution this unit offers, over the frame the window lands on
     let caps = session.capabilities();
     let dpi = caps.address.x_axis.dpi_range.start;
     let aperture = (
@@ -90,7 +128,7 @@ fn main() -> anyhow::Result<()> {
             .map_or(0, |f| f.left),
         caps.address.x_axis.boundary,
     );
-    let (mut origin, size) = place(caps, PATCH);
+    let (mut origin, size) = place(caps, &boundary, arg("frame").or(Some(1)));
     // aty=N puts the window where we want it, so the scan can be moved onto
     // film autofocus will actually accept
     if let Some(y) = arg("aty") {
@@ -142,38 +180,6 @@ fn main() -> anyhow::Result<()> {
         println!("{what}: {e:?}");
     };
     show("exposures as held", &windows);
-
-    // Every capture opens with one of these, and this unit has never measured
-    // the strip: C8h reports a frame length of 0. See whether it settles the
-    // mechanism down
-    if has("thumb") {
-        let began = Instant::now();
-        println!(
-            "thumbnail available={} framing {:?} ready={} host builds={}",
-            thumbnail::available(&session),
-            Framing::of(&session),
-            Framing::of(&session).ready(),
-            thumbnail::host_builds(&session)
-        );
-        match thumbnail::scan(&mut session) {
-            Ok(t) => println!(
-                "thumbnail {} bytes of an expected {} in {:?}, owes {:?}",
-                t.data.len(),
-                t.layout.total_bytes(),
-                began.elapsed(),
-                t.cooperation
-            ),
-            Err(e) => println!("thumbnail refused: {e}"),
-        }
-        // 2-11-6: after a thumbnail of strip film the host sets the coordinate
-        // information. Until it does, the unit has no frame lengths
-        match session.boundaries() {
-            Ok(b) => println!("boundaries: {b:?}"),
-            Err(e) => println!("boundaries unreadable: {e}"),
-        }
-        session.refresh()?;
-        println!("frames now: {:?}", session.capabilities().frames);
-    }
 
     // Before metering, which is the order in the captures: autofocus, then the
     // preview passes that decide the exposures. So AE measures a focused frame
@@ -270,47 +276,42 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// How big a patch to ask for, before any axis says otherwise
-const PATCH: u32 = 1200;
+/// Where Nikon Scan put the window in the reference capture, and the frame's
+/// front edge a scan is supposed to sit at: frame 2 of the 6x9 strip
+/// (`docs/CAPTURES.md`), origin `(518, 12720)`, size `(8964, 8964)`.
+///
+/// Until this unit has measured a strip it answers `88h` with one rectangle
+/// covering the whole sensor, so "read the boundary" is not enough to know
+/// where the frames are; the measured geometry from `--frame` wins when the
+/// unit has it, and this is what a scan falls back to.
+const NIKON_ORIGIN: (u32, u32) = (518, 12720);
+const NIKON_SIZE: (u32, u32) = (8964, 8964);
 
-/// Put a window at the far end of what this holder offers, using only what the
-/// unit advertises so any scanner and any holder land somewhere legal
+/// Put a window at the front edge of the chosen measured frame, or at the
+/// window Nikon Scan itself used when nothing is measured.
 ///
-/// Full sensor width, since the CCD reaches past the holder aperture and the
-/// film border it catches is worth seeing. `patch` only bounds the length.
-///
-/// Answers `(origin, size)`
-fn place(caps: &Capabilities, patch: u32) -> ((u32, u32), (u32, u32)) {
+/// The unit's rectangles (`88h`) are in window-origin coordinates, so the
+/// frame's front edge is its own top-left corner and its size is the whole
+/// rectangle -- the stage goes to the frame and stays there. No frame is
+/// measured until the host has done the boundary write-back 2-11-6 asks for,
+/// so without `--frame` the Nikon Scan geometry stands in.
+fn place(caps: &Capabilities, boundary: &Boundary, pick: Option<u32>) -> ((u32, u32), (u32, u32)) {
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
 
-    // 2-2-2-3: an axis with no address range has to be read whole
-    let width = if x.croppable() {
-        u32::from(caps.address.ccd_pixels)
-    } else {
-        x.boundary
-    };
-    let height = if y.croppable() {
-        patch.min(y.boundary)
-    } else {
-        y.boundary
-    };
+    // A frame the unit has measured: its front edge is the origin, its extent
+    // is the window -- the capture's window is the whole frame
+    if let Some(frame) = pick.and_then(|n| boundary.frames.get(n as usize)) {
+        let origin = (frame.left, frame.top);
+        let size = (frame.right - frame.left, frame.bottom - frame.top);
+        let clamp =
+            |v: u32, axis: &Axis| v.clamp(axis.address_range.start, axis.address_range.last);
+        return ((clamp(origin.0, x), clamp(origin.1, y)), size);
+    }
 
-    // Where a frame starts is published; where it ends is only published for a
-    // holder that has measured it. Failing that the boundary is the longest
-    // window this holder allows, which is as far as the scannable region goes
-    let last = caps.frames.as_ref().and_then(|f| f.images.last());
-    let (left, top) = match last {
-        // Full width means starting at the sensor, not at the frame
-        Some(frame) => (
-            0,
-            frame.top + frame.length.unwrap_or(y.boundary).saturating_sub(height),
-        ),
-        None => (
-            x.address_range.start,
-            y.address_range.start + y.boundary.saturating_sub(height),
-        ),
-    };
-
-    let clamp = |v: u32, axis: &Axis| v.clamp(axis.address_range.start, axis.address_range.last);
-    ((clamp(left, x), clamp(top, y)), (width, height))
+    // Nothing measured, and the unit's one rectangle is the whole sensor:
+    // reproduce the window Nikon Scan itself used for this holder
+    (
+        (NIKON_ORIGIN.0, NIKON_ORIGIN.1),
+        (NIKON_SIZE.0, NIKON_SIZE.1),
+    )
 }

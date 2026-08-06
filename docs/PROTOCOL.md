@@ -1057,13 +1057,31 @@ search that ran and failed -- both report `01h-61h-02h`.
 `02h-04h-02h` and diagnose to `01h-61h-02h`. Only the elapsed time and the
 absence of an `ActivatingOperation` poll separate them.
 
-**SET WINDOW homes the stage** whenever anything else has moved it: the holder
-goes nearly fully out and then back to the window origin, about 5.5 s. Already
-positioned, the same command takes 6-19 ms. Aiming autofocus at the window
-origin instead of its center does not avoid it -- tested, still homed, still
-5.3 s. Nikon Scan autofocuses every frame of a batch without the stage cycling
-like this, so something about the way we ask for it is causing the homing and it
-is not the AF address.
+## The frame table is what the stage steps against
+
+Until the host writes `88h`, the unit answers it with one rectangle covering the
+whole sensor, and every frame-kind SET WINDOW drives the holder nearly out the
+front and back again. Send a table that actually contains the window and the
+same command steps to the frame.
+
+Measured on an FH-869S strip, same window and same autofocus address either way:
+
+| Step | one whole-sensor rect | 3-frame table |
+|---|---|---|
+| autofocus | 34.9 s | 11.8 s |
+| SET WINDOW after AF | 5.57 s | 2.35 s |
+| SET WINDOW between metering passes | 4.37 s | 18 ms |
+| SET WINDOW before the scan | 4.32 s | 18 ms |
+
+The 2.35 s that survives is the real move: autofocus leaves the stage at the
+window center and the scan starts at its front edge, half a frame away. Nikon
+Scan makes exactly that move and no other.
+
+Both Nikon Scan and the pre-rewrite driver write the table before anything
+moves: four 6696-dot frames butted together from the opening's front edge, which
+is `C8h`'s `top`, with `C8h`'s left edge and width. Only the frame length is the
+caller's -- nothing advertises the film format. Nikon Scan rewrites it with the
+measured edges once a thumbnail has found them. See `scan::framing::table`.
 
 ## Sense codes the specs do not list
 
