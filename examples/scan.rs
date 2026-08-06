@@ -12,6 +12,7 @@
 //! cargo run --example scan -- rgb noae      # skip metering
 //! cargo run --example scan -- rgb nofocus   # skip autofocus
 //! cargo run --example scan -- diagnose      # read a pending fault and stop
+//! cargo run --example scan -- rgb afy=600   # autofocus at a raw sub-scan address
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -43,6 +44,10 @@ fn main() -> anyhow::Result<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let has = |flag: &str| args.iter().any(|a| a == flag);
+    let arg = |name: &str| {
+        args.iter()
+            .find_map(|a| a.strip_prefix(&format!("{name}="))?.parse::<u32>().ok())
+    };
     let ids: &[u8] = if has("rgb") { &[1, 2, 3] } else { &[1] };
 
     let devices = device::list();
@@ -103,8 +108,20 @@ fn main() -> anyhow::Result<()> {
     // and the stage is in the frame by now, and AF wants a window selected
     if !has("nofocus") {
         let started = Instant::now();
-        let focused = Focus::default().apply(&mut session, &windows)?;
-        println!("focus: {focused:?} in {:?}", started.elapsed());
+        // afy=N drives the sub-scanning address straight, to find out which
+        // coordinate space AF actually wants. 2-15 calls it an address on the
+        // medium, while C1h says SET WINDOW addresses are mechanism positions
+        let focused = match arg("afy") {
+            Some(y) => {
+                println!("autofocus at raw y={y}");
+                match session.autofocus(5000, y, None) {
+                    Ok(()) => "Yes".to_string(),
+                    Err(e) => format!("{e}"),
+                }
+            }
+            None => format!("{:?}", Focus::default().apply(&mut session, &windows)?),
+        };
+        println!("focus: {focused} in {:?}", started.elapsed());
     }
 
     let started = Instant::now();
