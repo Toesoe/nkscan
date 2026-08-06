@@ -72,7 +72,7 @@ pub struct Sense {
     /// Incorrect length indicator, byte 2 bit 5. The transfer was shorter than
     /// asked for, and 2-11 uses it to say a read ran past what the unit holds
     pub ili: bool,
-    /// Bytes 3-6, when the valid bit says they mean anything. Under [`ili`] this
+    /// Bytes 3-6, when the valid bit says they mean anything. Under `ili` this
     /// is how far short the transfer fell
     pub information: Option<u32>,
     /// The full raw sense buffer

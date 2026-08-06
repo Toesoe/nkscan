@@ -1,6 +1,6 @@
 //! Metering we do ourselves, for units with no hardware AE
 //!
-//! [`Exposure`](super::Exposure) decides when this is needed. We take an
+//! `Exposure` decides when this is needed. We take an
 //! ordinary low-resolution pass and work out the per-channel exposures from it.
 //! Nikon Scan does the same: nothing in the capture corpus uses a setup scan
 //! kind or reads `DataType::MaxValue`.

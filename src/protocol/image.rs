@@ -111,8 +111,7 @@ fn read_granule(caps: &Capabilities, line: usize, channels: usize) -> usize {
 impl Layout {
     /// Work out what a scan of `windows` will produce
     ///
-    /// `divisor` is the measurement unit in force, which
-    /// [`Session`](crate::session::Session) pins at open
+    /// `divisor` is the measurement unit in force, from the mode page
     pub fn new(caps: &Capabilities, windows: &[Window], divisor: u16) -> Result<Self, Error> {
         // Every rule about the set itself, including that they agree on
         // everything shaping the stream

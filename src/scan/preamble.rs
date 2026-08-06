@@ -8,7 +8,7 @@
 use crate::{
     error::Error,
     protocol::{
-        caps::other::DataTypes,
+        caps::{Capabilities, other::DataTypes},
         data::{Boundary, DataType, Op},
     },
     session::Session,
@@ -21,7 +21,7 @@ use tracing::*;
 pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
     // The CCD's own response curves. The captures read these per channel
     // before anything else
-    if offers(session, DataTypes::CCD_DATA_READ) {
+    if offers(session.capabilities(), DataTypes::CCD_DATA_READ) {
         for color in 0..=3 {
             if let Err(e) = session.read_data(DataType::CcdData, color) {
                 debug!(color, %e, "no CCD data for this channel");
@@ -53,7 +53,9 @@ pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
     }
 
     // Say where the frames are
-    if offers(session, DataTypes::BOUNDARY_READ) && offers(session, DataTypes::BOUNDARY_WRITE) {
+    if offers(session.capabilities(), DataTypes::BOUNDARY_READ)
+        && offers(session.capabilities(), DataTypes::BOUNDARY_WRITE)
+    {
         match session.boundaries() {
             Ok(held) => debug!(frames = held.frames.len(), "the table the unit held"),
             Err(e) => debug!(%e, "no boundary to read"),
@@ -68,6 +70,6 @@ pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
     Ok(())
 }
 
-fn offers(session: &Session, bit: DataTypes) -> bool {
-    session.capabilities().features.data_types.contains(bit)
+fn offers(caps: &Capabilities, bit: DataTypes) -> bool {
+    caps.features.data_types.contains(bit)
 }
