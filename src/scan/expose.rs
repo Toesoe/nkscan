@@ -53,13 +53,12 @@ pub fn expose(
         }
 
         Exposure::Host(metering) => {
-            // Locking holds the channels in whatever proportion they start in,
-            // so starting from the last session's exposures would lock in its
-            // drift. 8Ch is the unit's own neutral, measured at start-up
-            let seeded = match metering.lock_white_balance {
-                true => seed_white_balance(session, windows)?,
-                false => windows.to_vec(),
-            };
+            // Exposures persist in the unit across sessions, so metering from
+            // whatever is in the descriptors compounds run over run. 8Ch is the
+            // unit's own neutral, measured at start-up, so we start there every
+            // time. Locking needs it to mean anything at all, and unlocked it
+            // still saves the extra pass a stale exposure would cost by clipping
+            let seeded = seed_white_balance(session, windows)?;
             let pass = prescan_windows(session, &seeded);
             let layout = run(session, &pass)?;
 
