@@ -64,7 +64,7 @@ impl Session {
             (&caps.address.x_axis, 'X', x),
             (&caps.address.y_axis, 'Y', y),
         ] {
-            if value < axis.address_range.start || value > axis.address_range.last {
+            if !axis.address_range.contains(&value) {
                 return Err(Error::Unsupported {
                     op: "autofocus address",
                     reason: format!(
@@ -104,7 +104,7 @@ impl Session {
     pub fn focus_to(&mut self, position: u16) -> Result<(), Error> {
         offers(self, Op::FocusMove)?;
         let range = self.capabilities().address.focus_range;
-        if position < range.start || position > range.last {
+        if !range.contains(&position) {
             return Err(Error::Unsupported {
                 op: "focus position",
                 reason: format!("{position} is outside {} to {}", range.start, range.last),
