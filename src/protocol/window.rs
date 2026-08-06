@@ -37,8 +37,10 @@ pub struct Window {
     pub auto: bool,
     /// Resolution in DPI (X/Y). Bytes 2-5
     ///
-    /// Only X is a setting. SET WINDOW ignores Y outright and GET WINDOW answers
-    /// it with whatever X is, so the two can never actually differ.
+    /// 2-10 byte 4-5 says Y is ignored and GET WINDOW answers it with X. It is
+    /// not: a 10000x1200 window at 666x333 returns 100 lines where a square 666
+    /// returns 200, so Y sets the stepping down the frame. Nikon Scan halves it
+    /// for every preview pass.
     ///
     /// An X the unit cannot do is rounded to `optical / round(optical / asked)`
     /// and reported with `01h-37h-00h`
