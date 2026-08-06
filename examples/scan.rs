@@ -13,6 +13,7 @@
 //! cargo run --example scan -- rgb nofocus   # skip autofocus
 //! cargo run --example scan -- diagnose      # read a pending fault and stop
 //! cargo run --example scan -- rgb afy=600   # autofocus at a raw sub-scan address
+//! cargo run --example scan -- rgb aftop     # focus the window origin, not its middle
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -110,7 +111,13 @@ fn main() -> anyhow::Result<()> {
                     Err(e) => format!("{e}"),
                 }
             }
-            None => format!("{:?}", Focus::default().apply(&mut session, &windows)?),
+            // Focusing at the window origin leaves the stage where the scan
+            // begins, so the SET WINDOW after it has nothing to move
+            None => {
+                let at = if has("aftop") { (0.5, 0.0) } else { (0.5, 0.5) };
+                let focus = Focus::Auto { at, color: None };
+                format!("{:?}", focus.apply(&mut session, &windows)?)
+            }
         };
         println!("focus: {focused} in {:?}", started.elapsed());
     }
