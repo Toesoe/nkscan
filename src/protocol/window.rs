@@ -13,6 +13,10 @@ pub const LENGTH: usize = 50;
 /// This one is not mentioned in either spec and was REed
 pub const IR: u8 = 9;
 
+/// The default color, which is green: 2-11-3 gives qualifier 00h as the
+/// G-component. 2-7 will only scan it on its own
+pub const DEFAULT: u8 = 0;
+
 /// Byte 26 of a descriptor vs byte 10 of `D1h`, deepest first so a search for what a unit offers finds the best of them
 const DEPTHS: [(u8, BitDepth); 6] = [
     (16, BitDepth::BIT_16),
@@ -194,12 +198,118 @@ impl TryFrom<&[u8]> for Window {
     }
 }
 
+/// How many planes a composition puts in the stream, per 2-10-6
+///
+/// Only the two multi-level codes are supported, and [`Window::validate`]
+/// refuses the rest
+fn planes(composition: Composition) -> Option<usize> {
+    match composition {
+        Composition::MultilevelBW => Some(1),
+        Composition::MultilevelRGB => Some(3),
+        _ => None,
+    }
+}
+
+/// Check the rules that span a whole window set rather than one descriptor
+///
+/// These are what SCAN refuses rather than SET WINDOW: a descriptor is legal on
+/// its own and only the combination is not. Each descriptor is checked by
+/// [`Window::validate`] when it is set
+pub fn validate_set(windows: &[Window]) -> Result<(), Error> {
+    let bad = |op: &'static str, reason: String| Error::Unsupported { op, reason };
+
+    let Some((first, rest)) = windows.split_first() else {
+        return Err(bad("window set", "a scan needs at least one window".into()));
+    };
+
+    // 2-7: "The default color is valid when only the default color is read"
+    if windows.len() > 1 && windows.iter().any(|w| w.id == DEFAULT) {
+        return Err(bad(
+            "window set",
+            "the default color cannot be scanned alongside another".into(),
+        ));
+    }
+
+    // 2-7 calls a disagreement here an invalid combination of windows. A set
+    // carries one descriptor per channel so each can hold its own exposure
+    let common = |w: &Window| {
+        (
+            w.resolution.0,
+            w.size,
+            w.origin,
+            w.bpp,
+            w.composition,
+            w.color_interleaving,
+            w.scanning_kind,
+            w.scanning_mode,
+            w.multiple_reading,
+            w.flags,
+        )
+    };
+    if let Some(odd) = rest.iter().find(|w| common(w) != common(first)) {
+        return Err(bad(
+            "window set",
+            format!(
+                "window {} differs from window {} in a parameter common to the set",
+                odd.id, first.id
+            ),
+        ));
+    }
+
+    // 2-10 byte 40: the read positions are all zero, or all nonzero and
+    // distinct. SCAN answers anything else with 05h-2Ch-02h
+    let orders: Vec<u8> = windows.iter().map(|w| w.color_ordering).collect();
+    if !orders.iter().all(|&o| o == 0) {
+        if let Some(w) = windows.iter().find(|w| w.color_ordering == 0) {
+            return Err(bad(
+                "color ordering",
+                format!(
+                    "window {} leaves the order to the unit while the rest of the set pins it",
+                    w.id
+                ),
+            ));
+        }
+        for (n, &order) in orders.iter().enumerate() {
+            if orders[..n].contains(&order) {
+                return Err(bad(
+                    "color ordering",
+                    format!("read position {order} is claimed twice"),
+                ));
+            }
+        }
+    }
+
+    // 2-10-6's composition says how many planes the stream carries, and the id
+    // list says how many channels are being scanned. A unit answers a
+    // disagreement with common error 2, 05h-26h, which no section documents
+    let planes = planes(first.composition).ok_or_else(|| {
+        bad(
+            "image composition",
+            format!(
+                "{:?} puts no known number of planes in the stream",
+                first.composition
+            ),
+        )
+    })?;
+    if planes != windows.len() {
+        return Err(bad(
+            "image composition",
+            format!(
+                "{:?} carries {planes} plane(s) and this set scans {} channel(s)",
+                first.composition,
+                windows.len()
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
 impl Window {
     /// Check this descriptor against what the unit says it will accept
     ///
-    /// Per-window rules only. Color ordering carries one more rule that spans a
-    /// whole window set -- every window either 0 or a distinct nonzero -- which
-    /// cannot be seen from here, and which SCAN answers with `05h-2Ch-02h`
+    /// Per-window rules only. The rules spanning a whole set are
+    /// [`validate_set`], since a descriptor can be legal alone and not in company
     ///
     /// A resolution off the unit's ladder is deliberately not refused: 2-10 says
     /// the unit rounds it and reports `01h-37h-00h`, so it is an adjustment
@@ -651,5 +761,66 @@ mod tests {
     #[test]
     fn a_short_descriptor_is_refused() {
         assert!(Window::try_from(&LS9000[..LENGTH - 1]).is_err());
+    }
+
+    fn set(ids: &[u8], composition: Composition) -> Vec<Window> {
+        ids.iter()
+            .map(|&id| {
+                let mut w = Window::try_from(&[0u8; LENGTH][..]).unwrap();
+                w.id = id;
+                w.composition = composition;
+                w
+            })
+            .collect()
+    }
+
+    /// What the hardware refused with common error 2: three channels declared
+    /// as a one-plane composition
+    #[test]
+    fn the_composition_has_to_carry_one_plane_per_channel() {
+        assert!(validate_set(&set(&[1], Composition::MultilevelBW)).is_ok());
+        assert!(validate_set(&set(&[1, 2, 3], Composition::MultilevelRGB)).is_ok());
+        assert!(validate_set(&set(&[1, 2, 3], Composition::MultilevelBW)).is_err());
+        assert!(validate_set(&set(&[1], Composition::MultilevelRGB)).is_err());
+    }
+
+    /// 2-7: "The default color is valid when only the default color is read"
+    #[test]
+    fn the_default_color_scans_alone_or_not_at_all() {
+        assert!(validate_set(&set(&[DEFAULT], Composition::MultilevelBW)).is_ok());
+        assert!(validate_set(&set(&[DEFAULT, 1, 3], Composition::MultilevelRGB)).is_err());
+    }
+
+    /// 2-10 byte 40, which SCAN answers with 05h-2Ch-02h
+    #[test]
+    fn a_window_set_orders_every_color_or_none() {
+        let ordered = |orders: &[u8]| {
+            let mut windows = set(&[1, 2, 3], Composition::MultilevelRGB);
+            for (w, &o) in windows.iter_mut().zip(orders) {
+                w.color_ordering = o;
+            }
+            validate_set(&windows)
+        };
+        assert!(ordered(&[0, 0, 0]).is_ok());
+        assert!(ordered(&[1, 2, 3]).is_ok());
+        assert!(ordered(&[1, 0, 3]).is_err());
+        assert!(ordered(&[1, 2, 2]).is_err());
+    }
+
+    /// 2-7 calls a disagreement an invalid combination of windows, but the
+    /// per-channel exposure is exactly what a set is meant to differ in
+    #[test]
+    fn a_set_agrees_on_everything_but_its_exposures() {
+        let mut windows = set(&[1, 2, 3], Composition::MultilevelRGB);
+        windows[2].exposure = 71125;
+        assert!(validate_set(&windows).is_ok());
+
+        windows[2].size.0 = 9000;
+        assert!(validate_set(&windows).is_err());
+    }
+
+    #[test]
+    fn an_empty_window_set_is_refused() {
+        assert!(validate_set(&[]).is_err());
     }
 }

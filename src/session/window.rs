@@ -73,8 +73,8 @@ impl Session {
     /// there. A cooperative request means it will not start until the initiator
     /// has done a job for it, named by the `87h` record
     pub fn scan(&mut self, windows: &[Window]) -> Result<Layout, Error> {
+        // Checks every rule spanning the set on the way
         let layout = Layout::new(&self.caps, windows, self.divisor)?;
-        check_ordering(windows)?;
 
         let ids: Vec<u8> = windows.iter().map(|w| w.id).collect();
         let cmd = Scan::new(ids.len() as u8);
@@ -93,57 +93,5 @@ impl Session {
             op: "host cooperation",
             reason: format!("{coop:?} is not implemented yet, and it wants {record:?}"),
         })
-    }
-}
-
-/// 2-10 byte 40: across a window set the read positions must be all zero, or all
-/// nonzero with no repeats. SCAN answers anything else with `05h-2Ch-02h`
-fn check_ordering(windows: &[Window]) -> Result<(), Error> {
-    let bad = |reason: String| Error::Unsupported {
-        op: "color ordering",
-        reason,
-    };
-    let orders: Vec<u8> = windows.iter().map(|w| w.color_ordering).collect();
-
-    if orders.iter().all(|&o| o == 0) {
-        return Ok(());
-    }
-    if let Some(w) = windows.iter().find(|w| w.color_ordering == 0) {
-        return Err(bad(format!(
-            "window {} leaves the order to the unit while the rest of the set pins it",
-            w.id
-        )));
-    }
-    for (n, &order) in orders.iter().enumerate() {
-        if orders[..n].contains(&order) {
-            return Err(bad(format!("read position {order} is claimed twice")));
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn set(orders: &[u8]) -> Vec<Window> {
-        orders
-            .iter()
-            .enumerate()
-            .map(|(n, &order)| {
-                let mut w = Window::try_from(&[0u8; window::LENGTH][..]).unwrap();
-                w.id = n as u8 + 1;
-                w.color_ordering = order;
-                w
-            })
-            .collect()
-    }
-
-    #[test]
-    fn a_window_set_orders_every_color_or_none() {
-        assert!(check_ordering(&set(&[0, 0, 0])).is_ok());
-        assert!(check_ordering(&set(&[1, 2, 3])).is_ok());
-        assert!(check_ordering(&set(&[1, 0, 3])).is_err());
-        assert!(check_ordering(&set(&[1, 2, 2])).is_err());
     }
 }

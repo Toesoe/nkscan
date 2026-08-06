@@ -21,6 +21,7 @@ use std::{
 
 use nkscan::{
     device::{self, Selector},
+    protocol::window::Composition,
     session::Session,
 };
 
@@ -52,12 +53,21 @@ fn main() -> anyhow::Result<()> {
         w.resolution = (dpi, dpi);
         w.origin = (518, 2236);
         w.size = (1200, 1200);
+        // 2-10-6 has one code for a one-plane output and one for three
+        w.composition = if ids.len() > 1 {
+            Composition::MultilevelRGB
+        } else {
+            Composition::MultilevelBW
+        };
         windows.push(w);
     }
     println!("{:#?}", windows[0]);
     println!(
         "exposures: {:?}",
-        windows.iter().map(|w| (w.id, w.exposure)).collect::<Vec<_>>()
+        windows
+            .iter()
+            .map(|w| (w.id, w.exposure))
+            .collect::<Vec<_>>()
     );
 
     let started = Instant::now();

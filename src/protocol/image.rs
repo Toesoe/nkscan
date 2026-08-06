@@ -8,7 +8,7 @@ use crate::{
     protocol::{
         caps::{Capabilities, address::Transfer, set_window::ColorInterleaving},
         data::width_code,
-        window::Window,
+        window::{Window, validate_set},
     },
 };
 
@@ -58,26 +58,10 @@ impl Layout {
             reason,
         };
 
-        let Some((first, rest)) = windows.split_first() else {
-            return Err(bad("a scan needs at least one window".into()));
-        };
-        // A set carries one descriptor per channel so each can hold its own
-        // exposure. Anything that shapes the stream has to agree across them
-        let shape = |w: &Window| {
-            (
-                w.resolution.0,
-                w.size,
-                w.bpp,
-                w.color_interleaving,
-                w.multiple_reading,
-            )
-        };
-        if let Some(odd) = rest.iter().find(|w| shape(w) != shape(first)) {
-            return Err(bad(format!(
-                "window {} does not describe the same image as window {}",
-                odd.id, first.id
-            )));
-        }
+        // Every rule about the set itself, including that they agree on
+        // everything shaping the stream
+        validate_set(windows)?;
+        let first = &windows[0];
 
         let optical = u32::from(caps.address.x_axis.optical_dpi);
         let asked = u32::from(first.resolution.0);
@@ -168,8 +152,15 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::caps::{
-        Page, address::Address, identity::Identity, other::Features, set_window::SetWindowFunction,
+    use crate::protocol::{
+        caps::{
+            Page,
+            address::{Address, PitchRule},
+            identity::Identity,
+            other::Features,
+            set_window::SetWindowFunction,
+        },
+        window::{Composition, LENGTH},
     };
 
     /// An LS-9000 cut down to the fields a layout reads
@@ -212,17 +203,26 @@ mod tests {
     }
 
     fn window(id: u8, dpi: u16, size: (u32, u32)) -> Window {
-        let mut w = Window::try_from(&[0u8; crate::protocol::window::LENGTH][..]).unwrap();
+        let mut w = Window::try_from(&[0u8; LENGTH][..]).unwrap();
         w.id = id;
         w.resolution = (dpi, dpi);
         w.size = size;
         w.bpp = 16;
         w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
+        w.composition = Composition::MultilevelBW;
         w
     }
 
+    /// Three channels, so the composition has to be the three-plane one
     fn rgb(dpi: u16, size: (u32, u32)) -> Vec<Window> {
-        [1, 2, 3].iter().map(|&id| window(id, dpi, size)).collect()
+        [1, 2, 3]
+            .iter()
+            .map(|&id| {
+                let mut w = window(id, dpi, size);
+                w.composition = Composition::MultilevelRGB;
+                w
+            })
+            .collect()
     }
 
     /// The one scan an LS-9000 has actually run: a 1200 x 1200 window at 666
@@ -263,8 +263,6 @@ mod tests {
     /// A gap of 1 makes every even pitch legal and nothing odd past 1
     #[test]
     fn the_one_plus_even_rule_drops_odd_pitches() {
-        use crate::protocol::caps::address::PitchRule;
-
         assert_eq!(PitchRule::OnePlusEven.snap(1), 1);
         assert_eq!(PitchRule::OnePlusEven.snap(2), 2);
         assert_eq!(PitchRule::OnePlusEven.snap(3), 2);
