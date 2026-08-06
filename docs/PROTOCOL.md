@@ -9,12 +9,12 @@ in `docs/` (LS-5000 = USB/35 mm, LS-9000 = FireWire/medium-format).
 
 Reading both end to end shows they are **one protocol**, not two. Identical
 opcode table, identical CDBs including the vendor ones (C0h/C1h/E0h/E1h),
-identical mode pages, identical READ/SEND data header, and -- the decisive part --
+identical mode pages, identical READ/SEND data header, and. The decisive part --
 **window descriptor bytes 0-49 are byte-for-byte identical**.
 
 More importantly, every behavioral difference between the two is *advertised by
 the device itself* in the INQUIRY VPD pages. So the design is not "one command
-layer plus two model profiles" -- it is one command layer over a `Capabilities`
+layer plus two model profiles". It is one command layer over a `Capabilities`
 struct parsed at runtime, with no model variants at all. Model identity is
 needed only to key a (normally empty) errata table.
 
@@ -53,7 +53,7 @@ VPD field that reports it.
 Two consequences worth calling out, because they look like model logic but
 aren't:
 
-- **Frame boundaries.** The mechanism follows the film format -- 135 film seeks by
+- **Frame boundaries.** The mechanism follows the film format: 135 film seeks by
   counting perforations (read 8Eh, write back 8Fh with perforation/decimal/pulse),
   120 film seeks by rectangle (scanner publishes C8h/C9h, host corrects via 88h).
   But *which one applies is advertised*, so this is a branch on capability, not
@@ -76,25 +76,25 @@ Four residuals. Only the first is a real gap.
 
 1. **The IR / Digital ICE channel is absent from both specs.** Table 2-10-4 in
    each documents window identifiers 0-3 (+4 neutral gray, unsupported) and
-   nothing else -- the word "infrared" appears nowhere in either document. The
+   nothing else. The word "infrared" appears nowhere in either document. The
    capture in `RE_FINDINGS.md` §6 shows Nikon Scan sending **four** SET WINDOW
    calls per pass with **window ID 9 = IR**, IR first. The LS-5000 spec hints
    obliquely (SCAN accepts a 4-entry window list; Colour Ordering2 defines a
    "fourth color") but never names it. **The RE work is still the only source
-   here** -- this should be modelled as an extension beyond the documented
+   here**. This should be modelled as an extension beyond the documented
    window-ID enum, not dropped.
 2. **Window descriptor bytes 50-57.** Declared 58 (LS-9000) / 61 (LS-5000) in
    C1h, but both descriptor tables stop at byte 49. Moot in practice: Nikon Scan
    puts `0x0032` (50) in the SET WINDOW header and sends exactly the documented
    50 bytes. Emit 50; the spec's "lacking part shall be unchanged" rule makes it
    well-defined.
-3. **Sense-block shape** -- 8-byte `status/key/ASC/ASCQ/TSC` vs SBP-2 8-quadlet
+3. **Sense-block shape**: 8-byte `status/key/ASC/ASCQ/TSC` vs SBP-2 8-quadlet
    with `Information`/`FRU`. This is determined by *transport*, not model, so
    `transport/` already knows which to parse.
 4. **Devices that misreport.** Proven necessary by the docs themselves: the
    LS-9000's E1h summary bytes 6-10 contradict its own per-bit tables, and E3h is
    documented but missing from the page-00h list. Needs a thin override table
-   keyed on INQUIRY Product Identification + revision -- an errata list, not a
+   keyed on INQUIRY Product Identification + revision. An errata list, not a
    model variant. Starts empty except for known-bad fields.
 
 ---
@@ -111,7 +111,7 @@ src/protocol/
     other.rs      E1h -> host-coop bits, data-type registry, EXECUTE support
     pages.rs      00h page list; C8h/C9h frame rects; E2h op ranges; FRU identity
     errata.rs     overrides keyed on product id + revision (near-empty)
-  cdb.rs          all 17 CDB builders -- no variants
+  cdb.rs          all 17 CDB builders. No variants
   window.rs       50-byte descriptor codec + 8-byte header; window IDs incl. IR=9
   resolution.rs   PitchRule::{OnePlusEven, DivisorsOf(u8)} + rounding + ROUNDED sense
   data.rs         READ/SEND data types, gated on caps
@@ -124,7 +124,7 @@ Design points:
 
 - `Capabilities` is built by **parsing INQUIRY at open time**, then consulted for
   every decision. Nothing branches on model. This is what makes LS-40 / LS-50 /
-  LS-4000 / LS-8000 work without their own specs -- they self-describe.
+  LS-4000 / LS-8000 work without their own specs. They self-describe.
 - Unsupported operations fail from the capability check with a clear error
   (`Unsupported { op, reason }`), before any CDB is built. That replaces the old
   `capability/unsupported.rs` machinery.
@@ -143,10 +143,10 @@ Design points:
 
 ## Sense data: there is no sense-code chapter
 
-LS-5000 §1-1-5-2 says the sense buffer is filled from **"table 4-1-1"** -- but
+LS-5000 §1-1-5-2 says the sense buffer is filled from **"table 4-1-1"**. But
 neither document has a section 3 or 4; both end at §2-17-1. Verified against the
 original `.docx`, so this isn't a conversion loss: the reference dangles. The
-LS-9000 doesn't even make the promise -- §1-1-10 defines the SBP-2 quadlet layout
+LS-9000 doesn't even make the promise: §1-1-10 defines the SBP-2 quadlet layout
 and never gives a code list.
 
 So the codes are **distributed across per-command tables**, and the only global
@@ -162,15 +162,15 @@ it. Tuples are `key-ASC-ASCQ-TSC`, matching LS-5000 bytes 1..4.
 
 ### Wire format is transport's problem
 
-- **LS-5000 (USB)** -- 8 bytes: `status, sense_key, ASC, ASCQ, TSC, 3× reserved`
-- **LS-9000 (SBP-2)** -- 8 quadlets: `sfmt/status/V/M/E/I/key/ASC/ASCQ`, then
+- **LS-5000 (USB)**: 8 bytes: `status, sense_key, ASC, ASCQ, TSC, 3× reserved`
+- **LS-9000 (SBP-2)**: 8 quadlets: `sfmt/status/V/M/E/I/key/ASC/ASCQ`, then
   `Information`, `CDB-dependent`, `FRU`, vendor-dependent
 
 **Neither device implements REQUEST SENSE.** Sense is always auto-delivered with
 the status, so there is no CHECK CONDITION → REQUEST SENSE round trip to write.
 
 **Unresolved:** §2-11 specifies that short reads return CHECK CONDITION with
-`ILI=1`, `valid=1` and Information set to the residual -- the mechanism for
+`ILI=1`, `valid=1` and Information set to the residual. The mechanism for
 detecting the end of a thumbnail scan of unknown length. SBP-2 has homes for all
 three (`V`/`I` bits in quadlet 2, `Information` in quadlet 3). The LS-5000's
 8-byte block has none of them; bytes 5-7 are explicitly Reserved. The USB
@@ -182,7 +182,7 @@ Host-side plumbing rather than spec content, but it determines what actually
 lands in `sense.rs`.
 
 **`hdr.status` and the sense buffer are different planes.** `hdr.status` is the
-raw one-byte SCSI status from the target -- the same `00h`/`02h`/`08h`/`18h`
+raw one-byte SCSI status from the target. The same `00h`/`02h`/`08h`/`18h`
 values as the specs' table 1-1-5-1 / 1-1-10-1. It says *that* something happened.
 `sbp` carries the sense data and says *what*. Neither substitutes for the other.
 `masked_status` and `msg_status` are SCSI-1-era legacy (`masked_status` is just
@@ -199,7 +199,7 @@ status          the target's SCSI status byte
 sbp             sense data, valid only when DRIVER_SENSE is set
 ```
 
-A `DID_TIME_OUT` with `status == 0` is not success -- the command never came back
+A `DID_TIME_OUT` with `status == 0` is not success. The command never came back
 and `status` is meaningless. `hdr.info & SG_INFO_CHECK` is a cheap composite test
 if a single early branch is wanted.
 
@@ -209,7 +209,7 @@ observed a 32-byte sense buffer on the Windows transport, so the 18-byte
 assumption baked into a lot of pass-through code is wrong here.
 
 **No REQUEST SENSE round trip.** The kernel mid-layer performs auto-sense, so
-`sbp` is already populated on return -- which lines up with both devices, neither
+`sbp` is already populated on return, which lines up with both devices, neither
 of which implements the REQUEST SENSE opcode.
 
 **`hdr.resid`** = `dxfer_len - actually_transferred`, the Linux-side equivalent of
@@ -225,18 +225,18 @@ block into an ordinary fixed-format sense buffer first:
 | byte 1 (sense key + valid/mark/eom/ili) | byte 2 |
 | bytes 4-7 (Information) | bytes 3-6 |
 | bytes 8-11 (CDB-dependent) | bytes 8-11 |
-| byte 2 (sense_code) | byte 12 -- **ASC** |
-| byte 3 (sense_qualifier) | byte 13 -- **ASCQ** |
+| byte 2 (sense_code) | byte 12, **ASC** |
+| byte 3 (sense_qualifier) | byte 13, **ASCQ** |
 | byte 12 (FRU) | byte 14 |
 | bytes 13+ (sense-key dependent) | byte 15+ |
 
-So the parse is ordinary SPC -- `sense[2] & 0x0F` key, `sense[12]` ASC,
-`sense[13]` ASCQ, `sense[14]` FRU -- and §1-1-10's quadlet diagram only describes
+So the parse is ordinary SPC: `sense[2] & 0x0F` key, `sense[12]` ASC,
+`sense[13]` ASCQ, `sense[14]` FRU, and §1-1-10's quadlet diagram only describes
 what the device emitted, not what arrives.
 
 **This gives a concrete test for the homeless 4th byte.** It must land in the
 sense-key-dependent region, i.e. `sense[15]` onward after repacking. Trigger a
-known 4-tuple -- `09h-80h-04h-01h` is easy, any sub-4000 dpi three-line scan --
+known 4-tuple (`09h-80h-04h-01h` is easy, any sub-4000 dpi three-line scan)
 with `mx_sb_len = 64`, dump all `sb_len_wr` bytes, and look for the `01`.
 
 **None of this applies to the LS-5000** unless it enumerates as usb-storage.
@@ -249,7 +249,7 @@ BOT, so that path parses the 8-byte status block directly off libusb and has no
 Modelling these as a flat `Error` enum will produce a driver that fails on
 success. They split cleanly by sense key.
 
-#### 1. Key `02h` -- the asynchronous progress channel
+#### 1. Key `02h`: the asynchronous progress channel
 
 SCAN, EXECUTE and ABORT are *operation activation commands*: they return GOOD
 **immediately** and perform the work in the background. Completion is discovered
@@ -258,12 +258,12 @@ by polling TEST UNIT READY. These codes are that poll's return channel.
 | Code | Meaning |
 |---|---|
 | `00h-00h-00h-00h` | done, succeeded |
-| `02h-04h-01h-00h..04h` | still working -- `00` operation running, `01` load/eject, `02` correction-data measurement, `03` load operation, `04` auto shading/WB |
+| `02h-04h-01h-00h..04h` | still working: `00` operation running, `01` load/eject, `02` correction-data measurement, `03` load operation, `04` auto shading/WB |
 
 **The TSC does not tell you what is moving.** An autofocus reports `00h` for its
 whole 11 s run and the stage travels during it, verified by eye. So `00h` means
 "an operation is running", not "nothing mechanical is happening", and which
-operations drive the feed has to come from the operation code -- `A0h` takes a
+operations drive the feed has to come from the operation code: `A0h` takes a
 sub-scanning address, so it moves; `C1h` is the lens alone and does not.
 
 That matters only for timeouts, which is the real hazard here and worth stating
@@ -271,13 +271,13 @@ precisely. The recorded grinding incident was **the kernel** returning
 `DID_TIME_OUT` on a 20 s budget and killing a legitimate move, which left the
 firmware's believed position stale so the next positioning drove from a wrong
 origin. It was not caused by sending anything. `C0h` ABORT is by §2-13 an orderly
-stop of a *scan* -- "the scan block stops at that position", re-issue SCAN to read
-again -- and returns GOOD even when nothing is running. So the rule is simply:
+stop of a *scan*: "the scan block stops at that position", re-issue SCAN to read
+again, and returns GOOD even when nothing is running. So the rule is simply:
 never give a command that can move the feed a budget a legitimate move could
 exceed. Timing out a motor command is worse than waiting for it.
 | `02h-04h-02h-00h` | done, **failed** (internal mechanical error) |
-| `02h-04h-03h-xx` | needs physical intervention -- LS-5000: `00` adapter ejected, `01` IA-20 LL door, `02` undefined adapter, `03` SA-30 film gate, `04` adapter unlocked. LS-9000: `06` FH-869GR mask unset, `07` undefined holder |
-| `02h-3Ah-00h-xx` | medium not present -- LS-5000 `00`, `01`, `03`, `04`; LS-9000 `01` only |
+| `02h-04h-03h-xx` | needs physical intervention: LS-5000: `00` adapter ejected, `01` IA-20 LL door, `02` undefined adapter, `03` SA-30 film gate, `04` adapter unlocked. LS-9000: `06` FH-869GR mask unset, `07` undefined holder |
+| `02h-3Ah-00h-xx` | medium not present: LS-5000 `00`, `01`, `03`, `04`; LS-9000 `01` only |
 | `02h-05h-00h-00h` | operable, but still initializing after power-on |
 | `02h-04h-00h-00h` | needs an initializing command (LS-5000 only) |
 
@@ -285,16 +285,16 @@ exceed. Timing out a motor command is worse than waiting for it.
 the actual fault you then issue SEND DIAGNOSTIC, which reports the concrete error
 -- **and clears it** (§2-8). One shot; if you skip it the detail is gone.
 
-#### 2. Key `05h` -- programming errors
+#### 2. Key `05h`: programming errors
 
 | Code | Meaning |
 |---|---|
 | `05h-1Ah-00h-00h` | PARAMETER LIST LENGTH ERROR |
 | `05h-20h-00h-00h` | INVALID COMMAND OPERATION CODE (LS-5000 only) |
-| `05h-24h-00h-00h` | INVALID FIELD IN CDB -- common error 1 |
+| `05h-24h-00h-00h` | INVALID FIELD IN CDB: common error 1 |
 | `05h-25h-00h-00h` | LOGICAL UNIT NOT SUPPORTED (LUN ≠ 0) |
-| `05h-26h-00h-00h` | INVALID FIELD IN PARAMETER LIST -- common error 2 |
-| `05h-2Ch-00h-00h` | COMMAND SEQUENCE ERROR -- **overloaded, see below** |
+| `05h-26h-00h-00h` | INVALID FIELD IN PARAMETER LIST: common error 2 |
+| `05h-2Ch-00h-00h` | COMMAND SEQUENCE ERROR: **overloaded, see below** |
 | `05h-2Ch-02h-00h` | INVALID COMBINATION OF WINDOWS SPECIFIED |
 
 **The `2Ch` trap.** `05h-2Ch-00h-00h` covers four unrelated situations: READ
@@ -303,7 +303,7 @@ command issued mid-operation; **and reading past the end of the image data**.
 That last one means *normal end-of-image is reported as a command sequence
 error*. Treat `2Ch` as fatal and every completed scan looks like a failure.
 
-#### 3. Key `09h` / ASC `80h` -- cooperative handshake, not an error
+#### 3. Key `09h` / ASC `80h`: cooperative handshake, not an error
 
 **ASCQ is the cooperative operation type code, and it is the same value as
 byte 0 of the READ 87h record.** A CHECK CONDITION here means "stop, read 87h,
@@ -313,7 +313,7 @@ do this post-processing, re-issue".
 |---|---|---|---|
 | `01h` | THUMBNAIL CREATED BY DRIVER | `02h` (IA-20), `06h` (SA-21/30) | `04h` |
 | `02h` | AVERAGING MULTIPLE READING | `00h` | `00h` |
-| `04h` | MULTI LINE SIMULTANEOUS READING | -- | `01h` |
+| `04h` | MULTI LINE SIMULTANEOUS READING | n/a | `01h` |
 | `06h` | TRUNCATED BY DRIVER | `01h` | `00h` |
 | `07h` | CCD DATA CREATED BY DRIVER | `00h` | `00h` |
 
@@ -321,27 +321,27 @@ do this post-processing, re-issue".
 `coop.rs` as a control-flow signal. Dispatch the actual work on the record's own
 type byte rather than the ASCQ, and the 4th-byte variation never reaches you.
 
-#### 4. Keys `06h` / `0Bh` -- environment and contention
+#### 4. Keys `06h` / `0Bh`: environment and contention
 
 | Code | Meaning |
 |---|---|
-| `06h-xxh-xxh-xxh` | UNIT ATTENTION -- LS-9000 triggers: power-on, holder removed, holder exchanged |
-| `06h-2Ah-01h-00h` | MODE PARAMETERS CHANGED -- raised to *other* initiators after a MODE SELECT |
-| `0Bh-08h-00h-00h` | LU COMMUNICATION FAILURE -- busy with an internal operation |
+| `06h-xxh-xxh-xxh` | UNIT ATTENTION: LS-9000 triggers: power-on, holder removed, holder exchanged |
+| `06h-2Ah-01h-00h` | MODE PARAMETERS CHANGED: raised to *other* initiators after a MODE SELECT |
+| `0Bh-08h-00h-00h` | LU COMMUNICATION FAILURE: busy with an internal operation |
 | `0Bh-4Bh-00h-00h` | DATA PHASE ERROR |
 | `0Bh-4Eh-00h-00h` | OVERLAPPED COMMANDS ATTEMPTED |
 
 INQUIRY must **not** clear a pending Unit Attention (LS-5000 §2-2 item 5).
 
-#### 5. Key `01h` -- success with adjustment
+#### 5. Key `01h`: success with adjustment
 
 | Code | Meaning |
 |---|---|
-| `01h-37h-00h-00h` | **ROUNDED PARAMETER** -- resolution snapped to the nearest legal pitch |
+| `01h-37h-00h-00h` | **ROUNDED PARAMETER**: resolution snapped to the nearest legal pitch |
 
 Sense key 1 is RECOVERED ERROR: the SET WINDOW succeeded. Read the actual value
 back with GET WINDOW. This arrives as CHECK CONDITION and means "fine, carry
-on" -- miss it and every non-native resolution looks like a failure.
+on". Miss it and every non-native resolution looks like a failure.
 
 ### Where the models actually differ
 
@@ -351,13 +351,13 @@ Everything structural is shared.
 
 ### Undefined terms and open questions
 
-- **"Basic command"** is used three times in each spec -- the rule being that
-  issuing a non-basic command mid-operation *aborts the operation* -- and is
+- **"Basic command"** is used three times in each spec. The rule being that
+  issuing a non-basic command mid-operation *aborts the operation*, and is
   never defined. TEST UNIT READY is clearly one; beyond that it is guesswork,
   and guessing wrong destroys in-flight work.
 - **"TSC"** is named once (LS-5000 §1-1-5-2) and defined nowhere. It is the 4th
   element of every tuple, so the per-command tables specify it implicitly.
-- ~~**The 4th byte has no home in the SBP-2 status block**~~ -- **settled**, see
+- ~~**The 4th byte has no home in the SBP-2 status block**~~: **settled**, see
   "TSC lives at sense byte 15" below. It rides in quadlet 5's
   `sense_key-dependent` field.
 
@@ -389,37 +389,37 @@ unit attentions, both `06h-28h-00h`, differing only at byte 15 (`01h` then
 `00h`). Nothing else in the buffer distinguishes them.
 
 Note SKSV (byte 15 bit 7) is **clear**, so this is not SPC sense-key-specific
-being used properly -- Nikon is using the vendor half of the field. A conformant
+being used properly. Nikon is using the vendor half of the field. A conformant
 reader would discard it, and an SPC progress indicator would have byte 15 ≥ `80h`.
 
 **`scsiscan.sys` agrees.** Running our own code on Windows against the same unit
 gives `02h-04h-01h` and `06h-28h-00h` each carrying their documented `01h` at byte
 15, so both drivers repack quadlet 5 to bytes 15-17 the same way and the index is
 portable, not a Linux artifact. Sense there is `70h` fixed-format with an
-additional length of 11 -- 19 bytes total, nothing beyond, so `SENSE_LENGTH = 32`
+additional length of 11: 19 bytes total, nothing beyond, so `SENSE_LENGTH = 32`
 is slack rather than the extra Nikon state the RE notes suspected.
 
 That run also turned up two unit attentions absent from both specs, and they are
 plain SPC codes: **`06h-3Fh-04h` COMPONENT DEVICE ATTACHED** on a cold start with
 no holder, and **`06h-3Fh-03h` INQUIRY DATA HAS CHANGED** on holder insertion.
-The second is the device asking us to re-probe -- which is right, since the holder
-id and both boundaries in `C1h` really do change -- and it is the cleanest possible
+The second is the device asking us to re-probe, which is right, since the holder
+id and both boundaries in `C1h` really do change, and it is the cleanest possible
 confirmation that capabilities are dynamic rather than per-model.
 
 ### Values that disagree with the documents
 
 | Field | Spec | Hardware |
 |---|---|---|
-| `C1h` window descriptor length (5,6) | 58 | **59** -- and the real stride is 50 |
-| `D1h` byte 4 scanning kind | `03h` | **`1Bh`** -- bits 3,4 set, both called Reserved |
-| `E1h` byte 5 cooperation | `05h` | **`0Dh`** -- per-bit table was right |
-| `E1h` byte 6 data types | `ACh` / `80h` | **`A0h`** -- neither |
+| `C1h` window descriptor length (5,6) | 58 | **59**: and the real stride is 50 |
+| `D1h` byte 4 scanning kind | `03h` | **`1Bh`**: bits 3,4 set, both called Reserved |
+| `E1h` byte 5 cooperation | `05h` | **`0Dh`**: per-bit table was right |
+| `E1h` byte 6 data types | `ACh` / `80h` | **`A0h`**: neither |
 | `E1h` byte 15 max-value depth | `0` | **16** |
 
 **`D1h` byte 4.** Bits 3 and 4 are `Reserved [-]` in §2-2-2-4's table, which also
 gives the byte as `03h`. Both are set on hardware.
 
-Bit 3 is **not actually undocumented** -- the LS-9000 contradicts itself. Its own
+Bit 3 is **not actually undocumented**. The LS-9000 contradicts itself. Its own
 §2-10 byte 42 table, which is bit-for-bit identical to the LS-5000's, names bit 3
 *Set up Scanning2*. Byte 11 of the same `D1h` page corroborates it a third time:
 §2-2-2-4 defines that field as "effective when Setup Scan2 of the Scanning Kind
@@ -430,7 +430,7 @@ Bit 4 is the real unknown. Both specs' byte-42 tables call it reserved; only the
 LS-5000's `D1h` table names it, as *Histogram Scanning*. The bit is set on an
 LS-9000 and that is all that is known.
 
-**`E1h` byte 6.** `A0h` means gamma/LUT read and write are **off** -- confirming
+**`E1h` byte 6.** `A0h` means gamma/LUT read and write are **off**. Confirming
 §2-11-4's prose over the `ACh` summary, and matching the no-hardware-LUT finding
 -- while Max Value Data reading is **on**, which both the summary and the per-bit
 table deny. Corroborated independently by byte 15 reading 16 where the spec says 0.
@@ -438,7 +438,7 @@ table deny. Corroborated independently by byte 15 reading 16 where the spec says
 ### The infrared window is real, and the device says so
 
 GET WINDOW at power-on returns **five** descriptors, identifiers `0, 1, 2, 3, 9`.
-Identifier **9 is infrared** -- neither spec mentions it (table 2-10-4 stops at 4,
+Identifier **9 is infrared**. Neither spec mentions it (table 2-10-4 stops at 4,
 with an unsupported neutral gray), so this is the device confirming what only the
 RE captures previously showed.
 
@@ -449,7 +449,7 @@ kind, normal quality, line-without-CCD-distance, AE `FFh`, `color_ordering` **0*
 That size is **not a legal window**. 10000 is `C1h`'s CCD pixel count exactly, and
 both figures exceed the boundaries the same page publishes (8964 × 13176). The
 power-on descriptor describes the hardware maximum, not something SET WINDOW would
-accept, so it is a poor template -- clamp to the boundary before reusing it.
+accept, so it is a poor template. Clamp to the boundary before reusing it.
 
 Exposures are per channel, in 10 ns units, and are usable seeds:
 
@@ -468,14 +468,14 @@ Exposures are per channel, in 10 ns units, and are usable seeds:
 - **The transfer length must not exceed what exists.** 512 bytes was refused;
   8, 66 and 240 were accepted against a real total of 258. So the correct idiom
   is two-phase: read the 8-byte header, then re-issue for `2 + length`.
-- The header carries **both** lengths -- bytes 0,1 the total after themselves,
+- The header carries **both** lengths. Bytes 0,1 the total after themselves,
   bytes 6,7 one descriptor. Take the stride from there rather than assuming.
 - This header shape differs from SET WINDOW's parameter header, which puts its
   length at bytes 6,7 and nothing at 0,1. Do not share a codec.
 
 ### Measurement units, and what `C1h` is counting in
 
-The mode page behaves exactly as documented -- the one place so far where it does.
+The mode page behaves exactly as documented. The one place so far where it does.
 Current and Default both read **1200**; the Variable mask is `ff ff` over the
 divisor and `00` over the basic measurement unit, verbatim 2-6-2; the block
 descriptor is the documented `density 0 / blocks 0 / block length 1`. MODE SELECT
@@ -484,12 +484,12 @@ to 4000 and back round-trips.
 Two things the specs never say, both settled here:
 
 - **`C1h` is quoted in maximum-resolution units, whatever the divisor is.** The X
-  boundary reads 8964, which is 56.9 mm at 4000 dpi -- the 6 cm film width. At 1200
+  boundary reads 8964, which is 56.9 mm at 4000 dpi. The 6 cm film width. At 1200
   it would be 190 mm, wider than the machine. The divisor does not enter into it.
 - **GET WINDOW reports stored values, not converted ones.** All five descriptors
   came back byte-identical at divisor 1200 and at 4000. So the numbers in a
   descriptor mean whatever the divisor was when they were *set*, and the page
-  gives no way to tell which -- GET WINDOW after a divisor change is ambiguous.
+  gives no way to tell which: GET WINDOW after a divisor change is ambiguous.
 
 Together those argue for setting the divisor to the maximum resolution once at
 open and leaving it: one step is then one pixel, and window coordinates, `C1h`
@@ -497,8 +497,8 @@ addresses and `C1h` boundaries are all in the same unit with no conversion
 anywhere. The alternative, 1200, needs §2-10's second formula and two extra
 roundings on every axis.
 
-The divisor survives us -- it holds until the next MODE SELECT, a reset or a power
-cycle -- so a session must read it rather than assume the documented default.
+The divisor survives us. It holds until the next MODE SELECT, a reset or a power
+cycle, so a session must read it rather than assume the documented default.
 
 ### What `C1h` says at rest
 
@@ -518,7 +518,7 @@ so on a unit with more than one line the geometry comes in whole blocks. `C1h`
 quotes its own figures that way: with `line_gap` 12 and 3 lines, the X aperture
 8964 is 747 blocks, the Y aperture 13176 is 1098, the Y address maximum 34644 is
 2887. The block count also survives the pitch ladder, which is what makes it
-structure rather than coincidence -- `line_gap / pitch` columns per block, 747
+structure rather than coincidence: `line_gap / pitch` columns per block, 747
 blocks at every step from 4000 down to 333 dpi.
 
 Two things follow, both in terms of the reported values rather than this unit's:
@@ -533,8 +533,8 @@ Two things follow, both in terms of the reported values rather than this unit's:
   legal window.
 
 **SET WINDOW does not enforce the boundary.** Echoing back a descriptor the unit
-already held -- 10000 × 13860 against the 8964 × 13176 it reports with an FH-869S
-loaded -- was accepted.
+already held, 10000 × 13860 against the 8964 × 13176 it reports with an FH-869S
+loaded, was accepted.
 
 Note what that does and does not show. SET WINDOW only records parameters; the
 geometry is not exercised until SCAN and READ have to produce the pixels, and
@@ -549,13 +549,13 @@ whose `C1h` claims 59 is accepted, as 2-9 note 3 promises. And it completed in
 moves no mechanism.
 
 Both axes are croppable, so the LS-5000's forced-full-width rule does not apply
-here. The Y offset range runs to 34644 -- 220 mm, the length of the strip in the
-holder -- while a single window may be at most 13176 long (83.6 mm). CCD 10000
+here. The Y offset range runs to 34644: 220 mm, the length of the strip in the
+holder, while a single window may be at most 13176 long (83.6 mm). CCD 10000
 pixels, 3 lines, line gap 12, `DivisorsOf(12)` pitch, 16-bit, image buffer 256 KB,
 focus range 0-450, one frame loaded.
 
 Two smaller notes from the same dump. `set_parameter_len` is **15**, not the 13
-the EXECUTE block was assumed to be. And byte 4 bit 0 is **set** -- the field the
+the EXECUTE block was assumed to be. And byte 4 bit 0 is **set**. The field the
 LS-9000 spec calls unused and the LS-5000 calls microcode downloading.
 
 ### What Nikon Scan actually sends, read through the spec
@@ -576,7 +576,7 @@ in brackets, every descriptor in the corpus is one of these:
 | Scan, multi line, full res | 4000 | n−1 | `AVERAGING\|POSITIVE` [`81`] | `IMAGE` [`01`] | `NORMAL_QUALITY` [`02`] | `MULTILINE_SIMULTANEOUS` [`40`] |
 | Scan, multi line, reduced | 2000 | n−1 | `POSITIVE` [`01`] | `IMAGE` [`01`] | `HIGH_SPEED` [`04`] | `MULTILINE_SIMULTANEOUS` [`40`] |
 
-With multisampling on, `scanning_mode` gains `MULTI_READING` [`|10`] -- so the
+With multisampling on, `scanning_mode` gains `MULTI_READING` [`|10`], so the
 prescan of the 16× session is `HIGH_SPEED|MULTI_READING` [`14`] and its scan is
 `NORMAL_QUALITY|MULTI_READING` [`12`].
 
@@ -584,7 +584,7 @@ prescan of the 16× session is `HIGH_SPEED|MULTI_READING` [`14`] and its scan is
 mapping is checked rather than asserted.
 
 **Byte 44 is the sensor mode, chosen by the caller.** Two 4000 dpi scans --
-`full_session_cold_start` and `singleline_ccd` -- run at the same resolution,
+`full_session_cold_start` and `singleline_ccd`. Run at the same resolution,
 quality and averaging and differ in byte 44 alone: `40h` for what Nikon Scan calls
 the normal CCD mode, `02h` for what it calls **Super Fine**. So `40h` (2-10's
 "3 line simultaneous reading") is the multi-line sensor read whole, `02h` is the
@@ -599,7 +599,7 @@ whole rule, and it is small:
 Every row above satisfies it. The 83 dpi thumbnail keeps `81/02` because it is a
 one-line read, so low resolution alone never selects high speed; the 2000 dpi
 multi-line scan takes `01/04` because both halves hold. This is exactly the old
-`averaging()` predicate -- `quality == Preview || (ccd == ThreeLine && dpi < 4000)`
+`averaging()` predicate: `quality == Preview || (ccd == ThreeLine && dpi < 4000)`
 -- since a preview is always multi-line, which made its two arms one condition
 written twice. That predicate was hardware-verified and is now corroborated by
 Nikon Scan itself.
@@ -612,7 +612,7 @@ defaults to, but it sets the `MULTI_LINE` cooperation bit and so needs host
 re-registration. **Single line needs no cooperation at any resolution**, which
 makes it the only mode we can drive correctly today.
 
-**Multiple reading** is confirmed exactly as 2-10 words it -- scans per line is
+**Multiple reading** is confirmed exactly as 2-10 words it. Scans per line is
 `multiple_reading + 1`, in byte 40's high nibble:
 
 | Session | `multiple_reading` | raw byte 40 |
@@ -637,7 +637,7 @@ byte 5 = `0Dh`:
 | `TRUNCATED` | 8-bit odd widths | `09h-80h-06h` |
 | `CCD_DATA` | raw CCD readout | `09h-80h-07h` |
 
-So multisampling is not a descriptor field we can simply set -- the scanner returns
+So multisampling is not a descriptor field we can simply set. The scanner returns
 *n* readings per line and expects us to average them. Nothing in the corpus'
 descriptor bytes says so; only `E1h` does. The one configuration needing no
 cooperation at all is a plain single-line image scan, which is why that is what
@@ -648,16 +648,16 @@ Three other things the descriptors show that the tables above do not:
 - **`composition` is `MultilevelRGB` in every scan window**, even though each
   window carries a single color. Not `MultilevelBW`, which is what "one window is
   one channel" would suggest.
-- **The Y resolution is sent as a different number from X** -- the 666 dpi prescan
-  sends 333 -- confirming 2-10's claim that SET WINDOW ignores the field.
+- **The Y resolution is sent as a different number from X**: the 666 dpi prescan
+  sends 333. Confirming 2-10's claim that SET WINDOW ignores the field.
 - **X offset and width can sum past the boundary.** A scan sends offset 518 with
   width 8964, which is the full boundary; 518 + 8964 = 9482, over the 8964 limit
   but inside the 10000-pixel CCD. So the two are bounded separately, and the sum
   is bounded by the sensor rather than by the boundary. `validate` checks them
   independently, which matches, but neither spec states the sum rule.
 
-Two smaller confirmations. The thumbnail pass is `02h` in byte 42 -- genuinely a
-thumbnail scan, not an overview of some other kind -- and it uses Normal Quality
+Two smaller confirmations. The thumbnail pass is `02h` in byte 42. Genuinely a
+thumbnail scan, not an overview of some other kind, and it uses Normal Quality
 and line ordering at 83 dpi, so low resolution alone never selects high speed.
 
 And the IR window (id 9) is in the **scan** set only when Digital ICE is on:
@@ -674,7 +674,7 @@ Two limits of the corpus itself, worth knowing before trusting it:
 
 - **It contains no sense data.** The proxy dumps the sense buffer before the call,
   so all six traces show 32 zero bytes everywhere. `SRB_Status=0x84` marks where a
-  CHECK CONDITION happened, but never what it said -- so none of the `09h-80h`
+  CHECK CONDITION happened, but never what it said, so none of the `09h-80h`
   cooperative codes above can be confirmed from here, only from the spec and from
   our own hardware.
 - **Which single byte bins the bar is still unisolated.** The 2000 dpi multi-line
@@ -695,19 +695,19 @@ length asked for, so one short read sizes the real one. Read with no scan run:
 
 | Type | 2-11-2 says | Header says | Decodes as |
 |---|---|---|---|
-| `93h` leak volume | 2 × 3 = 6 | 6 | three u16 over 1e6 -- `0.001048, 0.001005, 0.000625` |
+| `93h` leak volume | 2 × 3 = 6 | 6 | three u16 over 1e6: `0.001048, 0.001005, 0.000625` |
 | `8Ch` WB exposure | 4 × 1 = 4 | 4 | one u32, 237289 × 10 ns = 2.37 ms |
-| `8Ah` analog gain | 4 × 2 = 8 | **16** | f32 -- `1.0`, `1.998` |
+| `8Ah` analog gain | 4 × 2 = 8 | **16** | f32: `1.0`, `1.998` |
 | `88h` boundary | 4 × variable | 20 | `00 14 01 00` then a rect ending `13859 / 9999` |
 
 **Analog gain is where the header lies.** 2-11-6 promises that for a fixed count
 the length is width × count, which is 8 here, and the unit reports 16. The extra
-eight bytes are stale -- they differ run to run, and one read returned `3623h`,
+eight bytes are stale. They differ run to run, and one read returned `3623h`,
 which is 13859, a boundary value from an earlier command. So where 2-11-2 fixes a
 count it wins, and the header is only authoritative where the table says Variable.
 
 Two smaller notes. The header's bits-per-element field reads 32 for the 4-byte
-types but **0** for leak volume, where 2-11-2 says 2 bytes -- so it cannot be used
+types but **0** for leak volume, where 2-11-2 says 2 bytes, so it cannot be used
 to derive a width, and the qualifier has to carry the table's. And `88h`'s leading
 word is not a coordinate: `14h` is the total length and `01h` the frame count,
 with the rect following as inclusive maxima of the 13860 × 10000 frame.
@@ -729,12 +729,12 @@ The zero length is the interesting part, and it matches §2-11-3: "when the
 thumbnail scanning is performed for the strip film, the length is also measured at
 the same time". So a strip's frames are published with their cross-film geometry
 known from the holder and their extent along the feed unknown until a thumbnail
-pass measures it. That orders the scan flow for us -- thumbnail before frames are
+pass measures it. That orders the scan flow for us. Thumbnail before frames are
 fully defined, not after.
 
 ### `91h` is the CCD's own response curves
 
-Reading `91h` returns **1140 bytes, 570 u16** -- 30 curves of 19 points, with the
+Reading `91h` returns **1140 bytes, 570 u16**: 30 curves of 19 points, with the
 header `91 00 00 00 04 74`. The 19 is not arbitrary: it is the same 19 as `E3h`'s
 transmittance ladder, so `E3h` gives the levels and `91h` gives what each CCD line
 reads at them. Ten curves belong to each of the three lines.
@@ -751,7 +751,7 @@ return identical bytes, so the curves are read once per session.
 Worth noting this is probably not an extra at all. `E1h` byte 5 bit 3 is "CCD Data
 Created by Driver", it is set on **both** documented units, and it pairs with
 cooperative ASCQ `07h`. If that bit means what it appears to, correcting the lines
-is an obligation rather than a nicety -- and one the LS-5000 family shares. Confirm
+is an obligation rather than a nicety, and one the LS-5000 family shares. Confirm
 by seeing whether SCAN actually raises `09h-80h-07h`.
 
 ### Behaviour worth knowing
@@ -769,12 +769,12 @@ by seeing whether SCAN actually raises `09h-80h-07h`.
 ## Spec errata to encode (with a comment citing the section)
 
 1. **LS-9000 LUT.** Table 2-11-2 lists `03h` as R/S 2×16384; §2-11-4 says *"This
-   unit does not support READ/SEND of the LUT."* Prose wins -- and it matches the
+   unit does not support READ/SEND of the LUT."* Prose wins, and it matches the
    existing no-hardware-LUT finding (gamma 2.2 is host-side). Don't implement 03h.
 2. **LS-9000 E1h bytes 6-10.** Summary bytes vs per-bit tables disagree (byte 6
    `ACh` vs `80h`; byte 7 `00h` vs `80h`; byte 8 `D0h` vs `F0h`; byte 9 `3Ah` vs
    `BAh`; byte 10 `48h` agrees). **Settled on hardware:** `A0 80 F0 BA 48`. The
-   per-bit tables win for 7-10, and byte 6 matches *neither* -- see below.
+   per-bit tables win for 7-10, and byte 6 matches *neither*. See below.
 3. **LS-9000 E1h byte 5** declared `05h`, bit table implies `0Dh`.
    **Settled: `0Dh`.** CCD-data cooperation is real.
 4. **LS-9000 8Dh** marked reserved in 2-11-2, but E1h byte 9 bit 5 says setup-info
@@ -785,22 +785,22 @@ by seeing whether SCAN actually raises `09h-80h-07h`.
    omission is the spec's and no errata mechanism is needed to recover it --
    enumerating page 00h from the device finds it. One more reason not to trust a
    page list transcribed from paper.
-6. **LS-9000 analog gain** -- 2-11-2 says 4 bytes × 2, §2-11-7's table shows
+6. **LS-9000 analog gain**: 2-11-2 says 4 bytes × 2, §2-11-7's table shows
    2-byte fields. **Settled on hardware: 4-byte IEEE-754.** A READ of `8Ah`
    returns `3F800000` and `3FFFC1BE`, which are exactly 1.0 and 1.998. It also
    returns *16* bytes rather than the 8 the table promises, and the third and
    fourth words are not plausible gains, so there are four slots with two live.
-7. **LS-5000 shading** -- "47352 valid data × 2 bytes" is wrong; 47352 is the
+7. **LS-5000 shading**: "47352 valid data × 2 bytes" is wrong; 47352 is the
    *byte* count (23676 × u16 = 3946 px × 3 line-modes × 2 gains).
-8. **LS-5000 image buffer** -- C1h table says 256 KB, prose says 64 KB.
+8. **LS-5000 image buffer**: C1h table says 256 KB, prose says 64 KB.
 9. **LS-5000 B1h** dark current listed "Yes" in 2-15-3 but E1h byte 26 bit 1 = 0.
 10. **LS-5000 RESERVE/RELEASE** documented in §2-4/2-5, omitted from the §1-1-3
     command table.
 11. **Descriptor length** declared 61/58 but only bytes 0-49 defined, in both.
     **Settled: 50.** Table 2-10-3 runs 0-49 in *both* documents, and an LS-9000
     reports a stride of 50 in its own GET WINDOW header. Every other number --
-    58 in the headers' "recommended value", 59 from `C1h` -- is wrong.
-12. **Truncation ASCQ differs** -- `09h-80h-06h-01h` (LS-5000, incl. the
+    58 in the headers' "recommended value", 59 from `C1h`. Is wrong.
+12. **Truncation ASCQ differs**: `09h-80h-06h-01h` (LS-5000, incl. the
     "not a multiple of 512 bytes" trigger) vs `09h-80h-06h-00h` (LS-9000, 8-bit
     odd-width only), and the LS-9000 defines no type-6 payload despite naming the
     trigger. Dispatch on the record's own type byte, not the ASCQ.
@@ -808,12 +808,12 @@ by seeing whether SCAN actually raises `09h-80h-07h`.
 ## The LS-9000 descriptor tail, resolved
 
 Cross-checking `~/sync/Projects/Ghidra/NikonScan/RE_FINDINGS.md` §6 against the
-official table (RE offsets are payload-relative -- subtract 8) shows the capture
+official table (RE offsets are payload-relative. Subtract 8) shows the capture
 is **fully explained by the documented 50-byte descriptor**:
 
 | RE `[n]` | Spec byte | Official meaning | Captured |
 |---|---|---|---|
-| `[6:8]` | -- | descriptor length in header | **0x0032 = 50** |
+| `[6:8]` | n/a | descriptor length in header | **0x0032 = 50** |
 | `[48]` | 40 | Multiple Reading Number \| Color Ordering | `00` |
 | `[49]` | 41 | b7 Averaging, b0 Posi/Nega | `81` |
 | `[50]` | 42 | **Scanning Kind** | `01` = Image Scanning |
@@ -830,29 +830,29 @@ byte 41.
 
 ## Verification
 
-1. ~~**INQUIRY sweep on the LS-9000**~~ -- **done.** C1h byte 16 = `42h`, byte 85
+1. ~~**INQUIRY sweep on the LS-9000**~~: **done.** C1h byte 16 = `42h`, byte 85
    = 12, byte 86 = 3 all confirmed, and errata #2, #3, #5 and #11 are settled.
    See "What the hardware said". Real page dumps are now fixtures in
    `caps/{address,other,set_window}.rs`.
-2. **Resolution rounding** -- request 1333, 1000, 500, 333, 200 dpi; confirm
+2. **Resolution rounding**. Request 1333, 1000, 500, 333, 200 dpi; confirm
    GET WINDOW resolution and `ROUNDED PARAMETER (01h-37h-00h)` follow
    `DivisorsOf(12)`: 500 and 200 must round, 1333 must not.
-3. **SET WINDOW byte-for-byte** -- emit the 50-byte descriptor for window IDs
+3. **SET WINDOW byte-for-byte**. Emit the 50-byte descriptor for window IDs
    9/1/2/3 and diff against the captured payload in `RE_FINDINGS.md` §6; expect
    an exact match including the header's `0x0032`. The encoder already
    round-trips the device's own GET WINDOW output byte for byte, so this checks
    the *choice* of values rather than the codec.
-4. **Cooperative path** -- run a sub-4000 dpi scan, confirm SCAN returns
+4. **Cooperative path**. Run a sub-4000 dpi scan, confirm SCAN returns
    `09h-80h-04h-01h`, read 87h, check bytes 13-14 equal `12 / pitch`.
-5. **Capability gating** -- assert `Stage Move` and SET PARAMETER `D2h` are
+5. **Capability gating**. Assert `Stage Move` and SET PARAMETER `D2h` are
    rejected pre-CDB on the LS-9000, and that X-crop is accepted (proving the
    rule reads C1h rather than assuming the LS-5000 restriction).
-6. **Regression corpus** -- replay the six sessions in
+6. **Regression corpus**. Replay the six sessions in
    `/mnt/storage/NikonScanDecomp/scan_captures/` (varying multi-sample, CCD
    format, DPI, crop, manual gain) through the new decode path; compare against
    the existing TIFFs.
 7. LS-5000-family behavior (X-crop refusal, 512-byte padding, perforation
-   boundaries) can't be exercised without that hardware -- implement to spec,
+   boundaries) can't be exercised without that hardware. Implement to spec,
    cover with unit tests over synthesised VPD pages.
 
 ## Decisions a scan has to make
@@ -860,7 +860,7 @@ byte 41.
 Everything above is capability data. This is what has to be *decided* from it, and
 it is worth keeping separate from the per-call checks already in the code.
 
-A **gate** answers "is this argument legal" -- `validate` against the boundary,
+A **gate** answers "is this argument legal": `validate` against the boundary,
 `offers` against `ExecuteOps`, `read_data` against `DataTypes`. Those belong at
 the call site and are cheap. A **strategy** answers "which mechanism does this
 unit use", decides the shape of the whole sequence, and should be resolved once
@@ -877,7 +877,7 @@ not arrive as a `09h-80h` partway through a scan.
 | `FRAME_RECTS` clear | perforation counting, READ `8Eh` then SEND `8Fh` |
 | thumbnail unsupported on this adapter | neither; the caller supplies the rect |
 
-Thumbnail support is **per adapter**, not per unit -- the LS-5000 says only the
+Thumbnail support is **per adapter**, not per unit. The LS-5000 says only the
 6SA, 36SA and 240 adapters have it, and its `C1h` thumbnail-resolution columns are
 blank for the others. So this is re-decided whenever the holder changes, which is
 what `3Fh-03h` INQUIRY DATA HAS CHANGED announces.
@@ -915,7 +915,7 @@ LS-9000: 200 x 200 pixels, 240000 bytes, exactly what 2-10's pixel formula and
 
 **A window set's composition has to match its channel count.** Three windows
 whose descriptors carry `MultilevelBW` are refused by SCAN with `05h-26h-02h`.
-That is common error 2, "some illegal data exists in the parameter" -- SCAN's
+That is common error 2, "some illegal data exists in the parameter": SCAN's
 own sense table in 2-7 never lists it, and the `02h` qualifier is undocumented.
 Setting `MultilevelRGB` on all three makes the same scan succeed. So byte 25
 describes the output of the whole scan, not the channel one window carries,
@@ -952,14 +952,14 @@ length 24, format 0, **base level 29177**, exposure at that base 326754, white
 balance exposure the same, one retained image at index 1 whose prescan fields
 were still zero. So the unit stores the film base and, per image, the exposure
 and the min/max levels a prescan found. `E1h` sets `SETUP_WRITE`, so a driver
-can put its own numbers back -- which is how Nikon Scan carries per-frame
+can put its own numbers back, which is how Nikon Scan carries per-frame
 exposures across a batch.
 
 Two things the tables get wrong here. 2-11-2 fixes no element width, but Nikon
 Scan reads it with the 1-byte code. And 2-11-3 does not list `8Dh` among the
 types taking a color qualifier, yet the captures read it three times with
 qualifiers 01, 02 and 03 and get three different payloads. The exposures in
-those -- 326754 / 233518 / 192611 -- sit right beside the `8Ch` white balance read
+those, 326754 / 233518 / 192611, sit right beside the `8Ch` white balance read
 off our own unit, 329869 / 236947 / 193941.
 
 ## What GET PARAMETER reports
@@ -987,7 +987,7 @@ ignored in the SET WINDOW command." 2-10's pixel-count formula agrees, deriving
 one pitch from `Xdpi` and applying it to both axes.
 
 The hardware disagrees. A 10000 x 1200 window at **666x333** returned 999600
-bytes -- 1666 x 100 at three channels and two bytes -- against 1999200 for the
+bytes, 1666 x 100 at three channels and two bytes, against 1999200 for the
 same window at 666x666. Exactly half the lines. So Y sets the stepping down the
 frame and gets its own pitch.
 
@@ -1006,7 +1006,7 @@ A thumbnail has to be checked against that range, not the image range. And the
 pitch rule does **not** apply to it. 83 dpi against a 4000 dpi sensor is pitch
 48, which divides no line gap count, and the unit scans it anyway. A thumbnail
 of 8964 x 34644 returned 268212 bytes, which is 186 x 721 at one channel and two
-bytes -- exactly the unsnapped `optical / asked` pitch through 2-10's formula.
+bytes. Exactly the unsnapped `optical / asked` pitch through 2-10's formula.
 Snapping 48 down to 12 predicts 4313178 bytes instead.
 
 **Reading it short is normal.** 2-11-3: for strip film the length is measured
@@ -1041,9 +1041,9 @@ directly: with the table holding one rectangle of 0..13176, y 15682 was refused
 in 13.8 ms; with a table containing that address, the same autofocus took 11.2 s
 and succeeded.
 
-That retro-explains the earlier readings on an FH-869S. y 12576 focused while
+That retro-explains the earlier readings on an FH-869S: y 12576 focused while
 14812 and 17322 were refused, and the placeholder table the unit ships with runs
-0..13859 -- 12576 is inside it and the other two are not. `8x_multisampling`
+0..13859: 12576 is inside it and the other two are not. `8x_multisampling`
 focuses at 29508 because Nikon Scan had written a table reaching that far.
 
 `session::autofocus` refuses these itself now: a refusal and a search that ran
@@ -1058,7 +1058,7 @@ space is right.
 taking seconds, and only then decides whether to sweep the lens. With no film
 under the sensor it declines without sweeping, so the elapsed time is stage
 travel alone. Watching the mechanism is the only way to tell that apart from a
-search that ran and failed -- both report `01h-61h-02h`.
+search that ran and failed. Both report `01h-61h-02h`.
 
 **A refused autofocus looks identical to a failed one.** Both terminate with
 `02h-04h-02h` and diagnose to `01h-61h-02h`. Only the elapsed time and the
@@ -1087,7 +1087,7 @@ Scan makes exactly that move and no other.
 Both Nikon Scan and the pre-rewrite driver write the table before anything
 moves: four 6696-dot frames butted together from the opening's front edge, which
 is `Frames`'s `top`, with `Frames`'s left edge and width. Only the frame length
-is the caller's -- nothing advertises the film format. Nikon Scan rewrites it
+is the caller's. Nothing advertises the film format. Nikon Scan rewrites it
 with the measured edges once a thumbnail has found them. See
 `scan::framing::table`.
 
@@ -1119,7 +1119,7 @@ of a full-width window and could not converge.
 
 Getting to it is the two-stage retrieval §2-8 describes. The autofocus itself
 terminated with `02h-04h-02h-00h`, LOGICAL UNIT NOT READY / mechanical error,
-which says nothing. SEND DIAGNOSTIC then reported the real code -- and cleared it,
+which says nothing. SEND DIAGNOSTIC then reported the real code, and cleared it,
 so there is exactly one chance to ask. `session::execute` now asks
 automatically the moment a mechanical error comes back, since otherwise the
 detail is gone by the time anyone thinks to look.
@@ -1141,13 +1141,13 @@ to scan over something the unit considers advisory.
   advertised, so the strategy is pickable at runtime like the rest.
 
 - Rewrite the `ls9000ed-window-vendor-bytes` memory: bytes 42/44 were
-  misidentified and the "vendor tail" framing is wrong -- it's all documented.
-  It also conflates two mechanisms -- byte 41's Averaging is about the
+  misidentified and the "vendor tail" framing is wrong. It's all documented.
+  It also conflates two mechanisms. Byte 41's Averaging is about the
   *multiple-reading* count in byte 40 (`E1h` `AVERAGING`, ASCQ `02h`), while CCD
   line registration is byte 44's interleaving (`MULTI_LINE`, ASCQ `04h`). The
   4000-dpi captures move both at once, which is what made them look like one
   thing.
-- ~~Record that IR (window ID 9) is absent from both official specs~~ -- done, and
+- ~~Record that IR (window ID 9) is absent from both official specs~~. Done, and
   the device reports it directly. See "What the hardware said".
 - Find where `scsiscan.sys` puts TSC. Same experiment: pull the holder, expect
   `02h-3Ah-00h-01h`, and look for the `01h` in the 32-byte buffer. Byte 15 would
@@ -1155,5 +1155,5 @@ to scan over something the unit considers advisory.
   `SENSE_LENGTH = 32`.
 - Settle whether `D1h`'s dropout-color bit means anything here. On a film
   scanner it would be "read one channel, return one greyscale plane", which is
-  useful -- but Nikon Scan sent R-G-B in all 128 captured descriptors, so it was
+  useful, but Nikon Scan sent R-G-B in all 128 captured descriptors, so it was
   never exercised.

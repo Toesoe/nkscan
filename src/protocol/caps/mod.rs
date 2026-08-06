@@ -105,7 +105,7 @@ impl Page {
 mod tests {
     use super::*;
 
-    /// Reading past what arrived is an error, not a panic -- the one place
+    /// Reading past what arrived is an error, not a panic. The one place
     /// this is checked, since every page goes through these accessors
     #[test]
     fn a_short_page_errors_rather_than_panicking() {

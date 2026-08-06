@@ -27,8 +27,8 @@ Record type is recognized from the CDB: INQUIRY, TEST UNIT READY, SET/GET
 WINDOW, SCAN, SET/GET PARAMETER, READ [..], SEND [BOUNDARY], and so on. The two
 that matter for the movement story:
 
-- **SET WINDOW** is printed in full -- id, resolution, origin, size, and the
-  descriptor flags -- because SET WINDOW *is* the move command on this family
+- **SET WINDOW** is printed in full. Id, resolution, origin, size, and the
+  descriptor flags. Because SET WINDOW *is* the move command on this family
   (`docs/PROTOCOL.md`). A capture's window origins are its stage movements.
 - **FRAME BOUNDARY** (88h) decodes the rectangles the unit holds, one line per
   frame (`rect top=.. left=.. bottom=.. right=..`), so a capture shows whether
@@ -56,7 +56,7 @@ LS-5000, 6x9 strip, one frame scanned. 3491 records, ~1.15 GB. The stage story:
 | 3438-3441 | SET WINDOW `(0,0)/(8964,13176)` 4000dpi | Teardown back to a whole-sensor window |
 
 The scan window sits at the **front edge** of the chosen frame: origin
-`(518, 12720)`, size `(8964, 8964)`. Every pass -- thumbnail, prescan, scan --
+`(518, 12720)`, size `(8964, 8964)`. Every pass. Thumbnail, prescan, scan --
 uses that same frame origin, so the stage moves once, to the frame, and stays
 there. A run that "moves the whole holder forwards and backwards" is one whose
 window origin lands at the far end of the strip instead of at a frame edge.
