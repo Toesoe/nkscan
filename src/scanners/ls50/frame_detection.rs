@@ -21,6 +21,7 @@ const DISCARD_PIXELS_FROM_FRAME_SIDE: u32 = 4;
 const SMOOTHING_RADIUS: usize = 20;
 
 const EDGE_DETECTION_EPSILON: f32 = 1.0;
+const FRAME_SCORING_EMPTY_THRESHOLD: f32 = 0.2;
 
 // at 97dpi
 const PIXELS_PER_MM: f32 = 3.8189;
@@ -44,6 +45,15 @@ struct Edge {
     y: u32,
     strength: f32,
     direction: EdgeDirection,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Frame {
+    pub index: usize,
+    pub start_line_y: u32, // pixel index in preview strip, not hardware address
+    pub content_score: f32, // trust in this frame
+    pub is_empty: bool,
+    pub is_leader: bool // override empty calculation
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -94,7 +104,7 @@ impl Default for FrameDetector {
 
 impl FrameDetector {
     /// Return Y coordinates that appear to be frame boundaries.
-    pub fn detect_frame_boundaries(&self, image: &Image) -> Vec<u32> {
+    pub fn detect_frame_boundaries(&self, image: &Image) -> Vec<Frame> {
         let profile = self.line_profile(image);
         let derivative = self.derivative(&profile);
 
@@ -109,7 +119,6 @@ impl FrameDetector {
 
         // use the top 2% peaks for thresholding a transition
         let edge_threshold = magnitudes[(magnitudes.len() as f32 * 0.98) as usize];
-        let max = *magnitudes.last().unwrap();
 
         for y in 1..derivative.len() - 1 {
             let value = derivative[y];
@@ -142,7 +151,7 @@ impl FrameDetector {
         //dbg!(&candidates);
 
         if candidates.len() < 2 {
-            return candidates.into_iter().map(|e| e.y).collect();
+            return self.edges_to_frames(candidates);
         }
 
         // merge adjacent detections into one edge, keep highest peak
@@ -163,36 +172,24 @@ impl FrameDetector {
         peaks.push(current);
 
         if peaks.len() < 2 {
-            return peaks.into_iter().map(|e| e.y).collect();
+            return self.edges_to_frames(peaks);
         }
 
-        let mut boundaries = self.fit_boundaries(&peaks, &profile, pitch);
+        let mut frames = self.fit_boundaries(&peaks, &profile, pitch);
 
-        // filter out the last match if it's just the transition from film base -> empty scan buffer
-        boundaries = boundaries
-            .windows(2)
-            .filter_map(|w| {
-                if self.has_frame_content(&profile, w[0], pitch) {
-                    Some(w[0])
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        dbg!(&peaks);
-        dbg!(&boundaries);
+        // dbg!(&peaks);
+        // dbg!(&boundaries);
 
         let mut bounds = File::create("/tmp/boundaries.txt").unwrap();
-        for y in &boundaries {
-            writeln!(bounds, "{}", y).unwrap();
+        for y in &frames {
+            writeln!(bounds, "{:?}", y).unwrap();
         }
 
-        boundaries
-    }
+        self.classify_empty_frames(&mut frames);
 
-    fn find_first_frame_address(&self, profile: &[f32], pitch: f32) -> u32 {
-        return 0;
+        dbg!(&frames);
+
+        frames
     }
 
     /// detect frame pitch in pixels from the preview strip
@@ -230,7 +227,7 @@ impl FrameDetector {
         best_lag
     }
 
-    fn fit_boundaries(&self, peaks: &[Edge], profile: &[f32], pitch: f32) -> Vec<u32> {
+    fn fit_boundaries(&self, peaks: &[Edge], profile: &[f32], pitch: f32) -> Vec<Frame> {
         let tolerance = 20;
 
         let mut best = Vec::new();
@@ -296,8 +293,22 @@ impl FrameDetector {
             dbg!("found additional first frame");
             best.insert(0, possible_first as u32);
         }
+        
+        // convert boundary positions into frames
+        best.windows(2)
+            .enumerate()
+            .map(|(index, window)| {
+                let y = window[0];
 
-        best
+                Frame {
+                    index,
+                    start_line_y: y,
+                    content_score: self.score_frame_content(profile, y, pitch),
+                    is_empty: false,
+                    is_leader: if index == 0 && possible_first >= 0 { true } else { false },
+                }
+            })
+            .collect()
     }
 
     /// collapse each scanline into a single brightness value
@@ -337,6 +348,80 @@ impl FrameDetector {
 
         // frames contain density variation, leader/tail is nearly flat
         max - min > 100.0
+    }
+
+    fn score_frame_content(&self, profile: &[f32], start: u32, pitch: f32) -> f32 {
+        let start = start as usize;
+        let end = (start + pitch as usize).min(profile.len());
+
+        if end <= start {
+            return 0.0;
+        }
+
+        let region = &profile[start..end];
+
+        // trim gradients
+        let mean = region.iter().sum::<f32>() / region.len() as f32;
+
+        let variance = region
+            .iter()
+            .map(|v| {
+                let d = *v - mean;
+                d * d
+            })
+            .sum::<f32>()
+            / region.len() as f32;
+
+        let detail_energy: f32 = region
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .sum::<f32>()
+            / region.len() as f32;
+
+        // returned score
+        variance.sqrt() * 0.5 + detail_energy * 0.5
+    }
+
+    fn classify_empty_frames(&self, frames: &mut [Frame]) {
+        let mut scores: Vec<f32> = frames
+            .iter()
+            .map(|f| f.content_score)
+            .collect();
+
+        scores.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let median = scores[scores.len() / 2];
+
+        let mut deviations: Vec<f32> = scores
+            .iter()
+            .map(|s| (s - median).abs())
+            .collect();
+
+        deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let mad = deviations[deviations.len() / 2];
+
+        let threshold = median - mad * 3.0;
+
+        dbg!(median, mad, threshold);
+
+        for frame in frames.iter_mut() {
+            frame.is_empty = if !frame.is_leader { frame.content_score < threshold } else { false };
+        }
+    }
+
+    fn edges_to_frames(&self, edges: Vec<Edge>) -> Vec<Frame> {
+        edges
+            .into_iter()
+            .enumerate()
+            .map(|(index, edge)| Frame {
+                index,
+                start_line_y: edge.y,
+                content_score: 0.0,
+                is_empty: true,
+                is_leader: false,
+            })
+            .collect()
     }
 
     /// Simple moving-average smoothing.
