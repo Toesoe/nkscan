@@ -73,11 +73,11 @@ impl Metering {
         let target = (f32::from(ceiling) * self.target.clamp(0.0, 1.0)) as u16;
 
         // What each channel asks to be scaled by, before the lock has a say
-        let mut steps = Vec::with_capacity(windows.len());
-        for channel in 0..windows.len() {
-            let level = tail(layout, raw, channel, self.percentile)?;
-            steps.push(level.and_then(|l| step(l, target, ceiling)));
-        }
+        let steps: Vec<Option<f64>> = self
+            .measure(layout, raw)?
+            .into_iter()
+            .map(|level| level.and_then(|l| step(l, target, ceiling)))
+            .collect();
 
         // Locked, we move them all by the smallest factor any of them wants.
         // That puts the most constrained channel on target and keeps the rest
@@ -109,6 +109,18 @@ impl Metering {
                 }
             })
             .collect())
+    }
+}
+
+impl Metering {
+    /// The high tail of each channel, in the order `layout` lists them
+    ///
+    /// What the exposures get decided from, so it is worth being able to look
+    /// at on its own
+    pub fn measure(&self, layout: &Layout, raw: &[u8]) -> Result<Vec<Option<u16>>, Error> {
+        (0..layout.channels.len())
+            .map(|channel| tail(layout, raw, channel, self.percentile))
+            .collect()
     }
 }
 

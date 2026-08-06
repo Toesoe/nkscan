@@ -67,6 +67,25 @@ pub fn expose(
             raw.truncate(got);
             debug!(bytes = got, "metering pass");
 
+            // The unit measured this pass too: 8Dh reports the film base and
+            // the levels its own prescan found. Ours is a percentile and its is
+            // a min and a max, so they will not agree exactly. Worth logging
+            // side by side until we know which to trust for what
+            let measured = metering.measure(&layout, &raw)?;
+            for (n, (window, level)) in pass.iter().zip(&measured).enumerate() {
+                let unit = session.setup(window.id).ok();
+                let image = unit.as_ref().and_then(|s| s.images.first());
+                debug!(
+                    channel = n,
+                    id = window.id,
+                    ours = level,
+                    base_level = unit.as_ref().map(|s| s.base_level),
+                    unit_min = image.map(|i| i.min),
+                    unit_max = image.map(|i| i.max),
+                    "metering levels"
+                );
+            }
+
             let exposures = metering.apply(session.capabilities(), &layout, &raw, &pass)?;
             Ok(seeded
                 .iter()
