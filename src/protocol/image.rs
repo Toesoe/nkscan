@@ -24,6 +24,9 @@ pub struct Layout {
     pub lines: u32,
     /// Scanning pitch `P`
     pub pitch: u32,
+    /// What the unit will actually scan at, which is the optical resolution
+    /// over the pitch and can be coarser than the window asked for
+    pub dpi: u32,
     /// Bytes one sample occupies on the wire
     pub bytes_per_sample: u8,
     /// Valid bits in a sample, which can be fewer than the bytes carry
@@ -83,8 +86,9 @@ impl Layout {
                 "cannot pitch {asked} dpi against an optical resolution of {optical}"
             )));
         }
-        // 2-10, fractions discarded. Y is not a setting and shares X's pitch
-        let pitch = (optical / asked).max(1);
+        // 2-10, fractions discarded, then snapped to what this unit will scan
+        // at. Y is not a setting and shares X's pitch
+        let pitch = caps.address.pitch_rule.snap(optical / asked);
 
         let (pixels, lines) = if divisor == COARSE_DIVISOR {
             let scale = |v: u32| {
@@ -121,6 +125,7 @@ impl Layout {
             pixels,
             lines,
             pitch,
+            dpi: optical / pitch,
             bytes_per_sample,
             bits_per_sample: first.bpp,
             channels,
@@ -173,6 +178,8 @@ mod tests {
         p[1] = Address::PAGE_CODE;
         p[3] = 87;
         p[4] = transfer;
+        // Frame rectangles, and a pitch rule of 2: divisors of the line gap
+        p[16] = 0x42;
         p[18..20].copy_from_slice(&4000u16.to_be_bytes());
         p[20..22].copy_from_slice(&4000u16.to_be_bytes());
         p[22..24].copy_from_slice(&666u16.to_be_bytes());
@@ -229,21 +236,41 @@ mod tests {
         assert_eq!(l.total_bytes(), 80000);
     }
 
-    /// 2-10-5's ladder, where the pitch is the truncated ratio
+    /// Table 2-10-5 in full, both columns. A gap of 12 has no pitch 5, so
+    /// 1000 to 667 all scan at pitch 4 rather than at the bare ratio
     #[test]
     fn the_pitch_ladder_matches_table_2_10_5() {
-        for (asked, pitch) in [
-            (4000, 1),
-            (2001, 1),
-            (2000, 2),
-            (1334, 2),
-            (1333, 3),
-            (1001, 3),
+        for (asked, dpi, pitch) in [
+            (4000, 4000, 1),
+            (2001, 4000, 1),
+            (2000, 2000, 2),
+            (1334, 2000, 2),
+            (1333, 1333, 3),
+            (1001, 1333, 3),
+            (1000, 1000, 4),
+            (800, 1000, 4),
+            (667, 1000, 4),
+            (666, 666, 6),
+            (334, 666, 6),
+            (333, 333, 12),
         ] {
             let l = Layout::new(&caps(0x01, 12, 3), &rgb(asked, (12000, 12000)), 4000).unwrap();
-            assert_eq!(l.pitch, pitch, "{asked} dpi");
+            assert_eq!((l.pitch, l.dpi), (pitch, dpi), "{asked} dpi");
             assert_eq!(l.pixels, 12000 / pitch, "{asked} dpi");
         }
+    }
+
+    /// A gap of 1 makes every even pitch legal and nothing odd past 1
+    #[test]
+    fn the_one_plus_even_rule_drops_odd_pitches() {
+        use crate::protocol::caps::address::PitchRule;
+
+        assert_eq!(PitchRule::OnePlusEven.snap(1), 1);
+        assert_eq!(PitchRule::OnePlusEven.snap(2), 2);
+        assert_eq!(PitchRule::OnePlusEven.snap(3), 2);
+        assert_eq!(PitchRule::OnePlusEven.snap(7), 6);
+        // Nothing to snap to when the unit reports no rule
+        assert_eq!(PitchRule::Continuous.snap(7), 7);
     }
 
     /// 2-10 case 2: a 1200 divisor makes coordinates inches over 1200

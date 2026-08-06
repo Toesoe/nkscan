@@ -6,3 +6,6 @@ result
 
 # LibreOffice lock files, from opening the specs
 .~lock.*#
+
+# Raw scan dumps from examples/scan.rs
+scan.raw
