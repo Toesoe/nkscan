@@ -4,10 +4,30 @@
 
 use crate::{
     error::Error,
-    protocol::{caps::address::Axis, window::Window},
+    protocol::{
+        caps::address::Axis,
+        sense::{Failure, Fault},
+        window::Window,
+    },
     session::Session,
 };
 use tracing::*;
+
+/// How focusing went
+///
+/// Not reaching focus is a recovered error, sense key 01h, so the command
+/// finished and the lens is wherever it ended up. Worth knowing about, not
+/// worth refusing to scan over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focused {
+    /// The unit reached focus, or was driven to a position
+    Yes,
+    /// Autofocus ran and did not converge. Usually means it was pointed at
+    /// something with no detail to focus on
+    NotReached,
+    /// Nothing was asked of it
+    Skipped,
+}
 
 /// What to do about focus before a scan
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,14 +59,14 @@ impl Focus {
     ///
     /// The address is worked out from the first window. A set has to agree on
     /// geometry, so any of them would do.
-    pub fn apply(self, session: &mut Session, windows: &[Window]) -> Result<(), Error> {
+    pub fn apply(self, session: &mut Session, windows: &[Window]) -> Result<Focused, Error> {
         let Some(window) = windows.first() else {
-            return Ok(());
+            return Ok(Focused::Skipped);
         };
 
         match self {
-            Self::Hold => Ok(()),
-            Self::At(position) => session.focus_to(position),
+            Self::Hold => Ok(Focused::Skipped),
+            Self::At(position) => session.focus_to(position).map(|()| Focused::Yes),
             Self::Auto { at, color } => {
                 let caps = session.capabilities();
                 let point = |axis: &Axis, origin: u32, size: u32, fraction: f32| {
@@ -59,7 +79,16 @@ impl Focus {
                 let y = point(&caps.address.y_axis, window.origin.1, window.size.1, at.1);
 
                 debug!(x, y, "focusing");
-                session.autofocus(x, y, color)
+                match session.autofocus(x, y, color) {
+                    Ok(()) => Ok(Focused::Yes),
+                    Err(Error::Device(fault))
+                        if matches!(*fault, Fault::Reported(Failure::OutOfFocus, _)) =>
+                    {
+                        warn!(x, y, "autofocus did not reach focus");
+                        Ok(Focused::NotReached)
+                    }
+                    Err(e) => Err(e),
+                }
             }
         }
     }

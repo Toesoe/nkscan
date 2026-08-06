@@ -92,8 +92,8 @@ fn main() -> anyhow::Result<()> {
 
     if !has("nofocus") {
         let started = Instant::now();
-        Focus::default().apply(&mut session, &windows)?;
-        println!("focused in {:?}", started.elapsed());
+        let focused = Focus::default().apply(&mut session, &windows)?;
+        println!("focus: {focused:?} in {:?}", started.elapsed());
     }
 
     if !has("noae") {
