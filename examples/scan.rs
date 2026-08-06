@@ -150,13 +150,16 @@ const PATCH: u32 = 1200;
 /// Put a window at the far end of what this holder offers, using only what the
 /// unit advertises so any scanner and any holder land somewhere legal
 ///
+/// Full sensor width, since the CCD reaches past the holder aperture and the
+/// film border it catches is worth seeing. `patch` only bounds the length.
+///
 /// Answers `(origin, size)`
 fn place(caps: &Capabilities, patch: u32) -> ((u32, u32), (u32, u32)) {
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
 
     // 2-2-2-3: an axis with no address range has to be read whole
     let width = if x.croppable() {
-        patch.min(x.boundary)
+        u32::from(caps.address.ccd_pixels)
     } else {
         x.boundary
     };
@@ -171,8 +174,9 @@ fn place(caps: &Capabilities, patch: u32) -> ((u32, u32), (u32, u32)) {
     // window this holder allows, which is as far as the scannable region goes
     let last = caps.frames.as_ref().and_then(|f| f.images.last());
     let (left, top) = match last {
+        // Full width means starting at the sensor, not at the frame
         Some(frame) => (
-            frame.left,
+            0,
             frame.top + frame.length.unwrap_or(y.boundary).saturating_sub(height),
         ),
         None => (
