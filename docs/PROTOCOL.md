@@ -907,6 +907,38 @@ which is why it is the configuration to reach for first.
 - **X cropping**: allowed unless `C1h`'s X address range is a single point, in
   which case the width has to be the boundary exactly.
 
+## What an RGB scan actually returns
+
+A three-channel 666 dpi scan of a 1200 x 1200 window, run against a real
+LS-9000: 200 x 200 pixels, 240000 bytes, exactly what 2-10's pixel formula and
+2-11-3-1's format 1 predict together.
+
+**A window set's composition has to match its channel count.** Three windows
+whose descriptors carry `MultilevelBW` are refused by SCAN with `05h-26h-02h`.
+That is common error 2, "some illegal data exists in the parameter" -- SCAN's
+own sense table in 2-7 never lists it, and the `02h` qualifier is undocumented.
+Setting `MultilevelRGB` on all three makes the same scan succeed. So byte 25
+describes the output of the whole scan, not the channel one window carries,
+which is why Nikon Scan sends the RGB code on single-colour descriptors too.
+
+**`LINE_WITHOUT_DISTANCE` is 2-11-3-1's format 1, confirmed from the data.**
+One line is `plane0[n] plane1[n] plane2[n]`, repeated per line. Reading the same
+file as plane-major gives vertical roughness of 410-473 against 229-234 for the
+line-interleaved reading; reading it as pixel-interleaved is isotropic-looking
+vertically but doubles horizontally, 496-499 against 267-273. Inter-plane
+correlation is 0.9987 read as lines and 0.956-0.980 read as pixels. Only the
+line reading is both smooth and isotropic, which is what an image of one subject
+through three channels has to be.
+
+**Which plane is which channel is still unsettled.** The id list was `01 02 03`
+and the planes correlate at 0.9987 with each other, so nothing in the data
+distinguishes them. Sending the list reversed, or scanning one channel alone and
+matching it against a plane, would settle it.
+
+**The pitch ladder is real and skips 5.** `C1h` reports `DivisorsOf(12)`, and
+table 2-10-5 confirms 1000 to 667 dpi all scan at pitch 4, never 5. A layout
+that takes the bare `optical / asked` ratio sizes an 800 dpi read 20% short.
+
 ## Follow-ups
 
 - Rewrite the `ls9000ed-window-vendor-bytes` memory: bytes 42/44 were
