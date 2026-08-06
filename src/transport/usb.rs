@@ -216,6 +216,10 @@ impl Transport for UsbTransport {
                 asc: sb[2],
                 ascq: sb[3],
                 tsc: Some(sb[4]),
+                // This wrapper carries the four sense bytes and nothing else,
+                // so there is no ILI or information field to read
+                ili: false,
+                information: None,
                 raw: sb.to_vec(),
             })
         } else {

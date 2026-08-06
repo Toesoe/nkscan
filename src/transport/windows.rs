@@ -209,6 +209,9 @@ impl Transport for ScsiScanDevice {
                 key: sb[2] & 0x0F,
                 asc: sb[12],
                 ascq: sb[13],
+                ili: sb[2] & 0x20 != 0,
+                information: (sb[0] & 0x80 != 0)
+                    .then(|| u32::from_be_bytes([sb[3], sb[4], sb[5], sb[6]])),
                 // Same byte the sg path uses. Confirmed on an LS-9000: this
                 // driver reports 02h-04h-01h and 06h-28h-00h each carrying
                 // their documented 01h here, so both repack SBP-2 quadlet 5 to

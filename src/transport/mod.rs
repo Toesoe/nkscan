@@ -69,6 +69,12 @@ pub struct Sense {
     pub ascq: u8,
     /// Tertiary sense code? Nikon never defines this but only uses in USB transport
     pub tsc: Option<u8>,
+    /// Incorrect length indicator, byte 2 bit 5. The transfer was shorter than
+    /// asked for, and 2-11 uses it to say a read ran past what the unit holds
+    pub ili: bool,
+    /// Bytes 3-6, when the valid bit says they mean anything. Under [`ili`] this
+    /// is how far short the transfer fell
+    pub information: Option<u32>,
     /// The full raw sense buffer
     pub raw: Vec<u8>,
 }
@@ -76,6 +82,12 @@ pub struct Sense {
 impl fmt::Debug for Sense {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:02X}h-{:02X}h-{:02X}h", self.key, self.asc, self.ascq)?;
+        if self.ili {
+            write!(f, " ILI")?;
+            if let Some(n) = self.information {
+                write!(f, "({n})")?;
+            }
+        }
         match self.tsc {
             Some(t) => write!(f, "-{t:02X}h")?,
             None => write!(f, "-??")?,

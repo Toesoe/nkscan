@@ -48,6 +48,17 @@ impl Session {
                 {
                     break;
                 }
+                // 2-11: a transfer shorter than asked for comes back as CHECK
+                // CONDITION with ILI set and the shortfall in the information
+                // field. The data still arrived, so count it and stop
+                Err(Error::Device(fault)) => match short(&fault) {
+                    Some(missing) => {
+                        done += want.saturating_sub(missing as usize);
+                        debug!(missing, "the unit had less than we asked for");
+                        break;
+                    }
+                    None => return Err(Error::Device(fault)),
+                },
                 Err(e) => return Err(e),
             }
         }
@@ -91,6 +102,14 @@ impl Session {
         }
         Ok(chunk / granule * granule)
     }
+}
+
+/// How far a transfer fell short, when that is what the unit reported
+fn short(fault: &Fault) -> Option<u32> {
+    let (Fault::Reported(_, Some(sense)) | Fault::Rejected(_, Some(sense))) = fault else {
+        return None;
+    };
+    sense.ili.then_some(sense.information).flatten()
 }
 
 /// Borrowed chunks of image data, in the order the unit sends them
