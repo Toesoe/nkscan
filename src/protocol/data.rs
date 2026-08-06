@@ -28,7 +28,7 @@ pub struct Row {
 }
 
 /// Table 2-11-2 in full, so a type either unit implements can be named even
-/// where ours does not. Support is never baked in here -- `Features` decides that at
+/// where ours does not. Support is never baked in here: `Features` decides it at
 /// runtime through [`Row::read`] and [`Row::write`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataType {
@@ -203,7 +203,7 @@ impl DataType {
     }
 
     /// What one element holds. Width alone does not say: the two 4-byte types
-    /// differ, and analog gain is IEEE-754 -- `3F800000` reads back as 1.0
+    /// differ, and analog gain is IEEE-754, so `3F800000` reads back as 1.0
     pub const fn scalar(self) -> Scalar {
         match self {
             Self::AnalogGain => Scalar::F32,
@@ -269,7 +269,7 @@ pub const fn width_code(width: u8) -> Option<u8> {
 /// One frame's rectangle as `DataType::Boundary` carries it, 2-11-6
 ///
 /// Sub-scanning is Y and main-scanning is X, and this record puts them in that
-/// order -- the reverse of `Frames`, which leads with the left edge. Inclusive of
+/// order, the reverse of `Frames`, which leads with the left edge. Inclusive of
 /// the lower right, so a 13860 line frame ends at 13859
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Rect {

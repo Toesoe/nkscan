@@ -326,7 +326,7 @@ impl Transport for SgTransport {
         let sense = if sn >= 14 {
             // Everything past byte 13 is unexplored. `firewire-sbp2` repacks
             // SBP-2's status quadlets into a synthetic 70h buffer, and how much
-            // of the original survives is unknown -- in particular whether
+            // of the original survives is unknown. In particular whether
             // Nikon's 4th tuple element (TSC) lands anywhere, and whether bytes
             // 15-17 carry the sense-key-specific field, which is a progress
             // indicator under NOT READY and a field pointer under ILLEGAL
@@ -354,7 +354,7 @@ impl Transport for SgTransport {
                 // identical in key/ASC/ASCQ differed only here, and both
                 // 02h-3Ah-00h-01h and 02h-04h-01h-01h matched 2-1-2 exactly.
                 // Note SKSV (bit 7) is unset, so this is not SPC sense-key
-                // specific -- Nikon is using the vendor half of the field.
+                // specific: Nikon is using the vendor half of the field.
                 tsc: Some(sb[15]),
                 raw: sb[..sn].to_vec(),
             })

@@ -239,7 +239,7 @@ mod tests {
 
     /// 0 in a nibble means "any color here". The LS-5000 pins three positions,
     /// and its fourth is the only place either spec admits to a channel past
-    /// blue -- note that is an ordering code, not the window id captures use
+    /// blue. That is an ordering code, not the window id captures use
     #[test]
     fn color_ordering_is_free_on_one_and_constrained_on_the_other() {
         assert_eq!(parse(LS9000).order, [None; 4]);

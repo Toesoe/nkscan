@@ -2,7 +2,7 @@
 //!
 //! Takes the descriptors the unit already holds, sets a window at the chosen
 //! frame's front edge, and starts a scan. Single line, no multisampling,
-//! 16 bit -- none of the four triggers 2-11-5 lists, so in theory it should
+//! 16 bit, none of the four triggers 2-11-5 lists, so in theory it should
 //! raise no cooperative request at all.
 //!
 //! ```text
@@ -316,14 +316,14 @@ const NIKON_SIZE: (u32, u32) = (8964, 8964);
 ///
 /// The unit's rectangles are in window-origin coordinates, so the
 /// frame's front edge is its own top-left corner and its size is the whole
-/// rectangle -- the stage goes to the frame and stays there. No frame is
+/// rectangle, so the stage goes to the frame and stays there. No frame is
 /// measured until the host has done the boundary write-back 2-11-6 asks for,
 /// so without `--frame` the Nikon Scan geometry stands in.
 fn place(caps: &Capabilities, boundary: &Boundary, pick: Option<u32>) -> ((u32, u32), (u32, u32)) {
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
 
     // A frame the unit has measured: its front edge is the origin, its extent
-    // is the window -- the capture's window is the whole frame
+    // is the window, since the capture's window is the whole frame
     if let Some(frame) = pick.and_then(|n| boundary.frames.get(n as usize)) {
         let origin = (frame.left, frame.top);
         let size = (frame.right - frame.left, frame.bottom - frame.top);

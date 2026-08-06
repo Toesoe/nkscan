@@ -159,7 +159,7 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Flags: u8 {
         /// Average along the scan line. This is binning across the sensor bar,
-        /// not repeated reads of a line -- that is `multiple_reading`
+        /// not repeated reads of a line, which is `multiple_reading`
         const AVERAGING = 1 << 7;
         const MATRIX    = 1 << 6;
         const FILTER    = 1 << 5;
@@ -856,7 +856,7 @@ mod tests {
             ScanMode::HIGH_SPEED | ScanMode::MULTI_READING
         );
         // High speed is what unsets averaging, and it is the preview that asks
-        // for high speed -- resolution never selects it on its own
+        // for high speed. Resolution never selects it on its own
         assert_eq!(w.flags, Flags::POSITIVE);
         // Y resolution is sent as something else entirely, and ignored
         assert_eq!(w.resolution, (666, 333));

@@ -43,8 +43,8 @@ impl Error {
     /// the outcome, and they are what makes a fault reportable.
     ///
     /// `Working`, `NeedsHost` and `StateChanged` are the retry loop's business
-    /// and should never reach here. They are not unreachable, though -- a
-    /// caller that skips the loop will produce one -- so they fall through to a
+    /// and should never reach here. They are not unreachable, though, since a
+    /// caller that skips the loop will produce one, so they fall through to a
     /// fault rather than a panic.
     pub fn from_outcome(outcome: Outcome, completion: &Completion) -> Self {
         let sense = || completion.sense.clone();

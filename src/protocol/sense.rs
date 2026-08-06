@@ -31,7 +31,7 @@ pub enum Failure {
     OutOfFocus, // 01h-61h-02h
 }
 
-/// The device refused a CDB we built -- a missing capability check on our side
+/// The device refused a CDB we built, meaning a capability check we missed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
     #[error("invalid field in CDB")]
