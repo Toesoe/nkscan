@@ -77,7 +77,10 @@ fn main() -> anyhow::Result<()> {
     let caps = session.capabilities();
     let dpi = caps.address.x_axis.dpi_range.start;
     let aperture = (
-        caps.frames.as_ref().and_then(|f| f.images.first()).map_or(0, |f| f.left),
+        caps.frames
+            .as_ref()
+            .and_then(|f| f.images.first())
+            .map_or(0, |f| f.left),
         caps.address.x_axis.boundary,
     );
     let (mut origin, size) = place(caps, PATCH);
@@ -139,6 +142,8 @@ fn main() -> anyhow::Result<()> {
         thumb.resolution = (dpi, dpi);
         thumb.scanning_kind = ScanKind::THUMBNAIL;
         thumb.scanning_mode = ScanMode::NORMAL_QUALITY;
+        // The captures thumbnail in line ordering, never the three-line mode
+        thumb.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
         thumb.composition = Composition::MultilevelBW;
         thumb.origin.1 = 0;
         thumb.size.1 = caps.address.y_axis.address_range.last;

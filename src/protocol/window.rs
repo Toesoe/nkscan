@@ -331,14 +331,24 @@ impl Window {
             ));
         }
 
-        // SET WINDOW ignores Y, so only X is worth bounding
+        // SET WINDOW ignores Y, so only X is worth bounding. A thumbnail runs
+        // off its own ladder, C1h bytes 70-73, well below the image one
         let dpi = self.resolution.0;
-        if dpi < x.dpi_range.start || dpi > x.dpi_range.last {
+        let range = match self.scanning_kind.contains(ScanKind::THUMBNAIL) {
+            true => caps.address.thumbnail_resolution,
+            false => x.dpi_range,
+        };
+        if dpi < range.start || dpi > range.last {
             return Err(bad(
                 "resolution",
                 format!(
-                    "{dpi} dpi is outside the {} to {} this unit offers",
-                    x.dpi_range.start, x.dpi_range.last
+                    "{dpi} dpi is outside the {} to {} this unit offers for {}",
+                    range.start,
+                    range.last,
+                    match self.scanning_kind.contains(ScanKind::THUMBNAIL) {
+                        true => "thumbnails",
+                        false => "images",
+                    }
                 ),
             ));
         }
@@ -765,6 +775,43 @@ mod tests {
         assert!(Window::try_from(&LS9000[..LENGTH - 1]).is_err());
     }
 
+    use crate::protocol::caps::{
+        Page, address::Address, identity::Identity, other::Features, set_window::SetWindowFunction,
+    };
+
+    /// Capabilities from a C1h page, with the other pages left minimal
+    fn caps_from(page: Vec<u8>) -> Capabilities {
+        let address = Address::try_from(&Page::new(Address::PAGE_CODE, page).unwrap()).unwrap();
+
+        let mut d = vec![0u8; 28];
+        d[1] = SetWindowFunction::PAGE_CODE;
+        d[3] = 24;
+        d[4] = 0x1B; // image, thumbnail, setup 2, histogram
+        d[5] = 0x16; // normal quality, high speed, multi reading
+        d[6] = 0x42; // line ordering and multi-line
+        d[10] = 0x20; // 16 bit
+        let set_window =
+            SetWindowFunction::try_from(&Page::new(SetWindowFunction::PAGE_CODE, d).unwrap())
+                .unwrap();
+
+        let mut e = vec![0u8; 39];
+        e[1] = Features::PAGE_CODE;
+        e[3] = 35;
+        let features = Features::try_from(&Page::new(Features::PAGE_CODE, e).unwrap()).unwrap();
+
+        let mut i = vec![0u8; 36];
+        i[4] = 31;
+
+        Capabilities {
+            identity: Identity::parse(&i).unwrap(),
+            address,
+            features,
+            set_window,
+            ccd: None,
+            frames: None,
+        }
+    }
+
     fn set(ids: &[u8], composition: Composition) -> Vec<Window> {
         ids.iter()
             .map(|&id| {
@@ -793,6 +840,49 @@ mod tests {
         assert!(validate_set(&set(&[IR, 1, 2, 3], Composition::MultilevelRGB)).is_ok());
         assert!(validate_set(&set(&[IR, 1], Composition::MultilevelBW)).is_ok());
         assert!(validate_set(&set(&[IR, 1, 2], Composition::MultilevelRGB)).is_err());
+    }
+
+    /// C1h publishes a separate resolution range for thumbnails, far below the
+    /// image ladder, and a thumbnail has to be checked against that one
+    #[test]
+    fn a_thumbnail_is_checked_against_the_thumbnail_ladder() {
+        let mut p = vec![0u8; 91];
+        p[1] = Address::PAGE_CODE;
+        p[3] = 87;
+        p[16] = 0x42;
+        p[18..20].copy_from_slice(&4000u16.to_be_bytes());
+        p[20..22].copy_from_slice(&4000u16.to_be_bytes());
+        p[22..24].copy_from_slice(&666u16.to_be_bytes());
+        p[24..28].copy_from_slice(&8963u32.to_be_bytes()); // X address max
+        p[36..40].copy_from_slice(&8964u32.to_be_bytes()); // X boundary
+        p[46..50].copy_from_slice(&34644u32.to_be_bytes()); // Y address max
+        p[58..62].copy_from_slice(&13176u32.to_be_bytes()); // Y boundary
+        p[70..72].copy_from_slice(&83u16.to_be_bytes());
+        p[72..74].copy_from_slice(&83u16.to_be_bytes());
+        p[83..85].copy_from_slice(&10000u16.to_be_bytes()); // CCD pixels
+        p[85] = 12;
+        p[86] = 3;
+        let caps = caps_from(p);
+
+        let mut w = Window::try_from(&[0u8; LENGTH][..]).unwrap();
+        w.id = 1;
+        w.composition = Composition::MultilevelBW;
+        w.bpp = 16;
+        w.size = (1000, 1000);
+        w.scanning_mode = ScanMode::NORMAL_QUALITY;
+        w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
+
+        // 83 dpi is off the image ladder but is the only thumbnail resolution
+        w.scanning_kind = ScanKind::IMAGE;
+        w.resolution = (83, 83);
+        assert!(w.validate(&caps).is_err());
+
+        w.scanning_kind = ScanKind::THUMBNAIL;
+        assert!(w.validate(&caps).is_ok());
+
+        // And an image resolution is not a thumbnail one
+        w.resolution = (4000, 4000);
+        assert!(w.validate(&caps).is_err());
     }
 
     /// 2-7: "The default color is valid when only the default color is read"
