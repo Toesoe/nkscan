@@ -50,6 +50,12 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// Long enough for a full-length stage move
 pub(crate) const MOVE_TIMEOUT: Duration = Duration::from_secs(180);
 
+/// Long enough for a cold unit to warm its lamp and initialize
+///
+/// Nothing advertised bounds this: `C1h` bytes 80,81 are the lamp warm-up
+/// maximum, and both specs give them as 0
+const READY_TIMEOUT: Duration = Duration::from_secs(180);
+
 /// A device raising unit attentions forever would spin on refresh, so cap those.
 /// Polling needs no cap: it sleeps, and the deadline already bounds it
 const MAX_CHANGES: usize = 16;
@@ -75,6 +81,10 @@ impl Session {
             divisor,
             reserved: false,
         };
+        // INQUIRY answers while the unit is still initializing, so probing says
+        // nothing about readiness. Everything below is a real command, and a
+        // cold unit would spend the whole of the first one's budget not ready
+        session.test_unit_ready(READY_TIMEOUT)?;
         // Hold the unit before touching anything that changes its state
         session.reserved = session.reserve()?;
         // A scan left over from whoever had it last would refuse everything below

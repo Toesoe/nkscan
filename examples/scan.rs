@@ -22,7 +22,6 @@ fn main() -> anyhow::Result<()> {
     let devices = device::list();
     let device = Selector::Only.resolve(&devices)?;
     let mut session = Session::open(device.open()?)?;
-    session.test_unit_ready(Duration::from_secs(60))?;
 
     let mut window = session
         .windows()?
