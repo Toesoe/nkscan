@@ -1,6 +1,7 @@
 //! The "other information" page, 0xE1
 
 use super::{Error, Page};
+use crate::protocol::data::Op;
 use bitflags::bitflags;
 
 #[derive(Debug, Clone)]
@@ -126,29 +127,35 @@ pub struct Depths {
 pub struct ExecuteOps([u16; 8]);
 
 impl std::fmt::Debug for ExecuteOps {
-    /// The opcodes rather than the bitmasks, which is what anyone reading this
-    /// actually wants
+    /// The operations rather than the bitmasks, which is what anyone reading
+    /// this actually wants
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ops: Vec<String> = self.iter().map(|op| format!("{op:02X}h")).collect();
+        let ops: Vec<String> = self
+            .iter()
+            .map(|op| format!("{op:?} ({:02X}h)", op.code()))
+            .collect();
         write!(f, "[{}]", ops.join(", "))
     }
 }
 
 impl ExecuteOps {
-    /// Whether EXECUTE operation code `op` is supported
+    /// Whether EXECUTE operation `op` is supported
     ///
     /// High nibble picks the word, low nibble the bit. Anything below `80h`
     /// has no word and is unsupported by construction
-    pub fn supports(&self, op: u8) -> bool {
-        let group = (op >> 4).wrapping_sub(8) as usize;
+    pub fn supports(&self, op: Op) -> bool {
+        let code = op.code();
+        let group = (code >> 4).wrapping_sub(8) as usize;
         self.0
             .get(group)
-            .is_some_and(|m| m & (1 << (op & 0x0F)) != 0)
+            .is_some_and(|m| m & (1 << (code & 0x0F)) != 0)
     }
 
-    /// Every operation code this unit advertises
-    pub fn iter(&self) -> impl Iterator<Item = u8> + '_ {
-        (0x80..=0xFFu8).filter(|&op| self.supports(op))
+    /// Every operation this unit advertises
+    pub fn iter(&self) -> impl Iterator<Item = Op> + '_ {
+        (0x80..=0xFFu8)
+            .map(Op::from)
+            .filter(|&op| self.supports(op))
     }
 }
 
@@ -279,10 +286,11 @@ mod tests {
     fn the_execute_registry_decodes_to_opcodes() {
         let e = parse(LS9000).execute;
         assert_eq!(
-            e.iter().collect::<Vec<_>>(),
+            e.iter().map(Op::code).collect::<Vec<_>>(),
             [0x80, 0x81, 0x91, 0x92, 0xA0, 0xB0, 0xB3, 0xC1, 0xD0]
         );
-        assert!(!e.supports(0x93));
-        assert!(!e.supports(0x7F)); // nothing below 80h has a word
+        assert!(!e.supports(Op::Other(0x93)));
+        // Nothing below 80h has a word
+        assert!(!e.supports(Op::Other(0x7F)));
     }
 }

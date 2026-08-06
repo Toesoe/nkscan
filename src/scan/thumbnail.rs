@@ -17,7 +17,7 @@ use crate::{
         },
         data::CooperativeAction,
         image::Layout,
-        window::{Composition, DEFAULT, LENGTH, Window, deepest_depth},
+        window::{Channel, Composition, LENGTH, Window, deepest_depth},
     },
     session::Session,
 };
@@ -105,7 +105,7 @@ fn window(session: &Session) -> Result<Window, Error> {
     let mut w = Window::try_from(&[0u8; LENGTH][..]).expect("a zeroed descriptor is long enough");
     // 2-7 reads the default color on its own, which is the one plane 2-10-6's
     // black and white composition carries
-    w.id = DEFAULT;
+    w.id = Channel::Default.id();
     w.composition = Composition::MultilevelBW;
     w.resolution = (
         caps.address.thumbnail_resolution.start,

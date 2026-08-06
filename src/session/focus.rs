@@ -3,18 +3,12 @@
 use super::Session;
 use crate::{
     error::Error,
-    protocol::{caps::other::HostCooperation, data::Operation},
+    protocol::{
+        caps::other::HostCooperation,
+        data::{Op, Operation},
+    },
 };
 use std::time::Duration;
-
-/// Auto Focus, 2-15-4 A0h
-const AUTO_FOCUS: u8 = 0xA0;
-/// Color oriented Auto Focus, A1h. Takes the same addresses plus a channel
-const COLOR_AUTO_FOCUS: u8 = 0xA1;
-/// Automatic AF execution, 91h. First setting value is 0 off, 1 on
-const AUTO_AF: u8 = 0x91;
-/// Focus Move, C1h. Moves the scan block in the AF direction
-const FOCUS_MOVE: u8 = 0xC1;
 
 /// A focus move drives the lens alone and settles in seconds
 const FOCUS_TIMEOUT: Duration = Duration::from_secs(60);
@@ -24,13 +18,13 @@ const FOCUS_TIMEOUT: Duration = Duration::from_secs(60);
 const AUTOFOCUS_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// [`Session::execute`] checks this too, but checking before the arguments means a unit that cannot do the thing says so, rather than faulting a coordinate
-fn offers(session: &Session, operation: u8) -> Result<(), Error> {
+fn offers(session: &Session, operation: Op) -> Result<(), Error> {
     if session.capabilities().features.execute.supports(operation) {
         return Ok(());
     }
     Err(Error::Unsupported {
         op: "execute operation",
-        reason: format!("this unit does not offer {operation:02X}h"),
+        reason: format!("this unit does not offer {operation:?}"),
     })
 }
 
@@ -48,10 +42,9 @@ impl Session {
     /// `color` picks the channel, which needs the unit to offer A1h; `None`
     /// uses A0h and lets it choose.
     pub fn autofocus(&mut self, x: u32, y: u32, color: Option<u8>) -> Result<(), Error> {
-        let operation = if color.is_some() {
-            COLOR_AUTO_FOCUS
-        } else {
-            AUTO_FOCUS
+        let operation = match color.is_some() {
+            true => Op::ColorAutoFocus,
+            false => Op::AutoFocus,
         };
         offers(self, operation)?;
 
@@ -94,7 +87,7 @@ impl Session {
 
     /// Move the scan block to an absolute focus position
     pub fn focus_to(&mut self, position: u16) -> Result<(), Error> {
-        offers(self, FOCUS_MOVE)?;
+        offers(self, Op::FocusMove)?;
         let range = self.capabilities().address.focus_range;
         if position < range.start || position > range.last {
             return Err(Error::Unsupported {
@@ -104,7 +97,7 @@ impl Session {
         }
 
         self.execute(
-            FOCUS_MOVE,
+            Op::FocusMove,
             Operation {
                 first: u32::from(position),
                 ..Operation::default()
@@ -115,9 +108,9 @@ impl Session {
 
     /// Let the unit focus itself when it decides it needs to
     pub fn set_auto_focus(&mut self, on: bool) -> Result<(), Error> {
-        offers(self, AUTO_AF)?;
+        offers(self, Op::AutoAf)?;
         self.execute(
-            AUTO_AF,
+            Op::AutoAf,
             Operation {
                 first: u32::from(on),
                 ..Operation::default()

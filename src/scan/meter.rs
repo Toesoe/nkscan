@@ -14,7 +14,7 @@ use crate::{
     protocol::{
         caps::{Capabilities, set_window::ColorInterleaving},
         image::Layout,
-        window::{IR, Window},
+        window::Window,
     },
 };
 
@@ -95,7 +95,7 @@ impl Metering {
             steps
                 .iter()
                 .zip(windows)
-                .filter(|(_, w)| w.id != IR)
+                .filter(|(_, w)| w.channel().is_color())
                 .filter_map(|(s, _)| *s)
                 .fold(f64::INFINITY, |a, b| a.min(b))
         });
@@ -105,7 +105,7 @@ impl Metering {
             .zip(&steps)
             .map(|(w, own)| {
                 let scale = match locked {
-                    Some(f) if w.id != IR && f.is_finite() => Some(f),
+                    Some(f) if w.channel().is_color() && f.is_finite() => Some(f),
                     _ => *own,
                 };
                 match scale {
@@ -232,7 +232,7 @@ mod tests {
             other::Features,
             set_window::{ColorInterleaving, SetWindowFunction},
         },
-        window::{Composition, LENGTH},
+        window::{Channel, Composition, LENGTH},
     };
 
     /// Enough of a unit to carry an exposure range wide enough not to clamp
@@ -280,7 +280,10 @@ mod tests {
     }
 
     fn windows(ids: &[u8], exposure: u32) -> Vec<Window> {
-        let visible = ids.iter().filter(|&&id| id != IR).count();
+        let visible = ids
+            .iter()
+            .filter(|&&id| Channel::from(id).is_color())
+            .count();
         ids.iter()
             .map(|&id| {
                 let mut w = Window::try_from(&[0u8; LENGTH][..]).unwrap();
@@ -365,7 +368,7 @@ mod tests {
             lock_white_balance: true,
             ..Default::default()
         };
-        let w = windows(&[1, 2, 3, IR], 1000);
+        let w = windows(&[1, 2, 3, Channel::Infrared.id()], 1000);
         let got = m
             .apply(
                 &caps(),

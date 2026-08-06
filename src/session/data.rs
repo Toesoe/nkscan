@@ -197,26 +197,22 @@ impl Session {
     /// termination is confirmed by TEST UNIT READY. So all three are one call
     pub fn execute(
         &mut self,
-        operation: u8,
+        operation: data::Op,
         params: data::Operation,
         timeout: Duration,
     ) -> Result<(), Error> {
         if !self.caps.features.execute.supports(operation) {
             return Err(Error::Unsupported {
                 op: "execute operation",
-                reason: format!("this unit does not offer {operation:02X}h"),
+                reason: format!("this unit does not offer {operation:?}"),
             });
         }
 
         let block = params.to_bytes();
-        let cmd = SetParameter::new(operation, block.len() as u32);
+        let cmd = SetParameter::new(operation.code(), block.len() as u32);
         self.run(&cmd.cdb(), Data::Out(&block), PROBE_TIMEOUT)?;
 
-        debug!(
-            operation = format!("{operation:02X}h"),
-            ?params,
-            "executing"
-        );
+        debug!(?operation, ?params, "executing");
         self.run(&Execute.cdb(), Data::None, PROBE_TIMEOUT)?;
 
         // 2-8: a failed operation reports 02h-04h-02h and nothing else. The
@@ -249,30 +245,22 @@ impl Session {
     /// 2-16, the other half of SET PARAMETER. Worth it after an autofocus: the
     /// unit reports the focus position it settled on, which is what makes a
     /// focus repeatable without focusing again
-    pub fn get_parameter(&mut self, operation: u8) -> Result<data::Operation, Error> {
+    pub fn get_parameter(&mut self, operation: data::Op) -> Result<data::Operation, Error> {
         if !self.caps.features.execute.supports(operation) {
             return Err(Error::Unsupported {
                 op: "get parameter",
-                reason: format!("this unit does not offer {operation:02X}h"),
+                reason: format!("this unit does not offer {operation:?}"),
             });
         }
 
-        let cmd = GetParameter::new(operation, data::Operation::LENGTH as u32);
+        let cmd = GetParameter::new(operation.code(), data::Operation::LENGTH as u32);
         let mut buf = vec![0u8; cmd.allocation_length()];
         let completion = self.run(&cmd.cdb(), Data::In(&mut buf), PROBE_TIMEOUT)?;
         buf.truncate(completion.transferred);
 
-        let params = data::Operation::from_bytes(&buf).ok_or_else(|| {
-            malformed(format!(
-                "{operation:02X}h parameters were {} bytes",
-                buf.len()
-            ))
-        })?;
-        debug!(
-            operation = format!("{operation:02X}h"),
-            ?params,
-            "read parameters"
-        );
+        let params = data::Operation::from_bytes(&buf)
+            .ok_or_else(|| malformed(format!("{operation:?} was {} bytes", buf.len())))?;
+        debug!(?operation, ?params, "read parameters");
         Ok(params)
     }
 
