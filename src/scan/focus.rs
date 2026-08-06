@@ -103,7 +103,7 @@ impl Focus {
                 );
 
                 debug!(x, y, "focusing");
-                match session.autofocus(x, y, color) {
+                let outcome = match session.autofocus(x, y, color) {
                     Ok(()) => Ok(Focused::Yes),
                     Err(Error::Device(fault))
                         if matches!(*fault, Fault::Reported(Failure::OutOfFocus, _)) =>
@@ -112,11 +112,22 @@ impl Focus {
                         Ok(Focused::NotReached)
                     }
                     Err(e) => Err(e),
+                };
+
+                // 2-16 reports where the lens ended up. Nikon Scan reads C1h
+                // straight after every autofocus, and it is what makes a focus
+                // repeatable without focusing again
+                if let Ok(params) = session.get_parameter(FOCUS_MOVE) {
+                    info!(position = params.first, "focused at");
                 }
+                outcome
             }
         }
     }
 }
+
+/// Focus Move, 2-15-4 C1h. The operation whose parameter is the lens position
+const FOCUS_MOVE: u8 = 0xC1;
 
 #[cfg(test)]
 mod tests {

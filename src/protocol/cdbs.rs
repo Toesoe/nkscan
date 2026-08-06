@@ -342,6 +342,34 @@ impl SetParameter {
 }
 
 #[derive(Debug)]
+/// GET PARAMETER 2-16-1
+///
+/// Reads back the current settings of an operation, in the same shape SET
+/// PARAMETER writes them. Byte 2 is the operation, not the opcode
+pub struct GetParameter {
+    operation: u8,
+    parameter_length: u32,
+}
+
+impl GetParameter {
+    pub fn new(operation: u8, parameter_length: u32) -> Self {
+        Self {
+            operation,
+            parameter_length,
+        }
+    }
+
+    pub fn allocation_length(&self) -> usize {
+        self.parameter_length as usize
+    }
+
+    pub fn cdb(&self) -> [u8; 10] {
+        let [_, hi, mid, lo] = self.parameter_length.to_be_bytes();
+        [0xE1, 0, self.operation, 0, 0, 0, hi, mid, lo, 0]
+    }
+}
+
+#[derive(Debug)]
 /// EXECUTE 2-14-1
 ///
 /// Perform the operation specified by SET PARAMETER

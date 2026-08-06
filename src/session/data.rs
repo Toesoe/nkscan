@@ -4,7 +4,7 @@ use super::{PROBE_TIMEOUT, Session, malformed};
 use crate::{
     error::Error,
     protocol::{
-        cdbs::{Execute, Read, SendDiagnostic, SetParameter},
+        cdbs::{Execute, GetParameter, Read, SendDiagnostic, SetParameter},
         data,
         sense::{Failure, Fault},
     },
@@ -168,6 +168,38 @@ impl Session {
             }
             other => other,
         }
+    }
+
+    /// Read back what an operation is currently set to
+    ///
+    /// 2-16, the other half of SET PARAMETER. Worth it after an autofocus: the
+    /// unit reports the focus position it settled on, which is what makes a
+    /// focus repeatable without focusing again
+    pub fn get_parameter(&mut self, operation: u8) -> Result<data::Operation, Error> {
+        if !self.caps.features.execute.supports(operation) {
+            return Err(Error::Unsupported {
+                op: "get parameter",
+                reason: format!("this unit does not offer {operation:02X}h"),
+            });
+        }
+
+        let cmd = GetParameter::new(operation, data::Operation::LENGTH as u32);
+        let mut buf = vec![0u8; cmd.allocation_length()];
+        let completion = self.run(&cmd.cdb(), Data::In(&mut buf), PROBE_TIMEOUT)?;
+        buf.truncate(completion.transferred);
+
+        let params = data::Operation::from_bytes(&buf).ok_or_else(|| {
+            malformed(format!(
+                "{operation:02X}h parameters were {} bytes",
+                buf.len()
+            ))
+        })?;
+        debug!(
+            operation = format!("{operation:02X}h"),
+            ?params,
+            "read parameters"
+        );
+        Ok(params)
     }
 
     /// Ask what actually went wrong, after a generic mechanical error
