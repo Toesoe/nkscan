@@ -95,17 +95,8 @@ fn main() -> anyhow::Result<()> {
     };
     show("exposures as held", &windows);
 
-    if !has("noae") {
-        let exposure = Exposure::choose(session.capabilities(), has("lockwb"))?;
-        println!("metering: {exposure:?}");
-        let started = Instant::now();
-        windows = expose(&mut session, &windows, exposure)?;
-        println!("metered in {:?}", started.elapsed());
-        show("exposures metered", &windows);
-    }
-
-    // After the prescan, which is where Nikon Scan puts it. The windows are set
-    // and the stage is in the frame by now, and AF wants a window selected
+    // Before metering, which is the order in the captures: autofocus, then the
+    // preview passes that decide the exposures. So AE measures a focused frame
     if !has("nofocus") {
         let started = Instant::now();
         // afy=N drives the sub-scanning address straight, to find out which
@@ -122,6 +113,15 @@ fn main() -> anyhow::Result<()> {
             None => format!("{:?}", Focus::default().apply(&mut session, &windows)?),
         };
         println!("focus: {focused} in {:?}", started.elapsed());
+    }
+
+    if !has("noae") {
+        let exposure = Exposure::choose(session.capabilities(), has("lockwb"))?;
+        println!("metering: {exposure:?}");
+        let started = Instant::now();
+        windows = expose(&mut session, &windows, exposure)?;
+        println!("metered in {:?}", started.elapsed());
+        show("exposures metered", &windows);
     }
 
     let started = Instant::now();

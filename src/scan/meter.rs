@@ -31,6 +31,9 @@ pub struct Metering {
     /// and the film keeps its cast. Off means each one fills the range by
     /// itself, which takes the orange mask off a negative
     pub lock_white_balance: bool,
+    /// How many passes to take. One lands a few percent under, and a second
+    /// measures from where the first got to. Nikon Scan takes two
+    pub passes: usize,
 }
 
 impl Default for Metering {
@@ -39,6 +42,7 @@ impl Default for Metering {
             target: 0.97,
             percentile: 0.999,
             lock_white_balance: false,
+            passes: 2,
         }
     }
 }

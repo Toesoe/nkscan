@@ -59,13 +59,30 @@ pub fn expose(
             // time. Locking needs it to mean anything at all, and unlocked it
             // still saves the extra pass a stale exposure would cost by clipping
             let seeded = seed_white_balance(session, windows)?;
-            let pass = prescan_windows(session, &seeded);
-            let layout = run(session, &pass)?;
 
-            let mut raw = vec![0u8; layout.total_bytes() as usize];
-            let got = session.read_image(&layout, &mut raw)?;
-            raw.truncate(got);
-            debug!(bytes = got, "metering pass");
+            // One proportional step lands a few percent under, so a second pass
+            // measures from where the first got to. The captures take two
+            let mut pass = prescan_windows(session, &seeded);
+            let mut layout;
+            let mut raw;
+            let mut got;
+            let mut n = 0;
+            loop {
+                layout = run(session, &pass)?;
+                raw = vec![0u8; layout.total_bytes() as usize];
+                got = session.read_image(&layout, &mut raw)?;
+                raw.truncate(got);
+                n += 1;
+                debug!(pass = n, bytes = got, "metering pass");
+
+                if n >= metering.passes.max(1) {
+                    break;
+                }
+                let next = metering.apply(session.capabilities(), &layout, &raw, &pass)?;
+                for (w, exposure) in pass.iter_mut().zip(next) {
+                    w.exposure = exposure;
+                }
+            }
 
             // The unit measured this pass too: 8Dh reports the film base and
             // the levels its own prescan found. Ours is a percentile and its is
