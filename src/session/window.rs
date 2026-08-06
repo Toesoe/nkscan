@@ -5,12 +5,16 @@ use crate::{
     error::Error,
     protocol::{
         cdbs::{GetWindow, Scan, SetWindow},
+        data::CooperativeAction,
         image::Layout,
         window::{self, GetWindowHeader, SetWindowHeader, Window},
     },
     transport::Data,
 };
 use tracing::*;
+
+/// A unit that asks forever is not going to start, so cap the re-issues
+const MAX_COOPERATION: usize = 4;
 
 impl Session {
     /// One GET WINDOW, exactly as asked: header plus descriptors, unparsed
@@ -66,32 +70,55 @@ impl Session {
         Ok(())
     }
 
-    /// Scan the windows named, and hand back the layout of what it will produce
+    /// Scan the windows named, and hand back what it will produce
     ///
     /// 2-7: the unit answers, then scans, so this returns once it has started
     /// and [`test_unit_ready`](Session::test_unit_ready) says when the data is
-    /// there. A cooperative request means it will not start until the initiator
-    /// has done a job for it, named by the `87h` record
-    pub fn scan(&mut self, windows: &[Window]) -> Result<Layout, Error> {
+    /// there.
+    ///
+    /// A `09h-80h` is not a blocker. The captures read the `87h` record and
+    /// send SCAN again with nothing in between: it says what the host will owe
+    /// the *data*, not what has to happen before the scan runs. Whatever it
+    /// asks for comes back on [`Started::cooperation`] for the caller to honor
+    /// once the image is read.
+    pub fn scan(&mut self, windows: &[Window]) -> Result<Started, Error> {
         // Checks every rule spanning the set on the way
         let layout = Layout::new(&self.caps, windows, self.divisor)?;
 
         let ids: Vec<u8> = windows.iter().map(|w| w.id).collect();
         let cmd = Scan::new(ids.len() as u8);
-        let (_, coop) = self.run_cooperative(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
+        let mut cooperation = None;
 
-        let Some(coop) = coop else {
-            debug!(?ids, "scanning");
-            return Ok(layout);
-        };
+        for attempt in 0..=MAX_COOPERATION {
+            let (_, coop) = self.run_cooperative(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
+            let Some(coop) = coop else {
+                debug!(?ids, ?cooperation, "scanning");
+                return Ok(Started {
+                    layout,
+                    cooperation,
+                });
+            };
 
-        // Read the parameter anyway: it names the job precisely, where the 4th
-        // sense byte the two specs disagree about does not. When the first job
-        // is implemented this becomes a loop: do the work, issue SCAN again
-        let record = self.cooperation()?;
+            // Dispatch on the record rather than the sense: the two specs give
+            // the same job different 4th sense bytes
+            let record = self.cooperation()?;
+            debug!(?coop, ?record, attempt, "the unit wants something doing");
+            cooperation = Some(record);
+        }
+
         Err(Error::Unsupported {
             op: "host cooperation",
-            reason: format!("{coop:?} is not implemented yet, and it wants {record:?}"),
+            reason: format!("the unit kept asking after {MAX_COOPERATION} re-issues"),
         })
     }
+}
+
+/// A scan that has started
+#[derive(Debug, Clone)]
+pub struct Started {
+    /// What the stream will look like
+    pub layout: Layout,
+    /// What the unit asked the host to do with the data, if anything. Reading
+    /// the record is what lets the scan proceed; honoring it is the caller's
+    pub cooperation: Option<CooperativeAction>,
 }

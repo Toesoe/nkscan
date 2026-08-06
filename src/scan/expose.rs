@@ -177,9 +177,9 @@ fn run(session: &mut Session, windows: &[Window]) -> Result<crate::protocol::ima
     let ids: Vec<u8> = windows.iter().map(|w| w.id).collect();
     debug!(?ids, "exposure pass");
 
-    let layout = session.scan(windows)?;
+    let started = session.scan(windows)?;
     session.test_unit_ready(PASS_TIMEOUT)?;
-    Ok(layout)
+    Ok(started.layout)
 }
 
 /// Whether a set has anything worth metering
