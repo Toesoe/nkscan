@@ -106,8 +106,8 @@ fn main() -> anyhow::Result<()> {
         println!(
             "thumbnail available={} framing {:?} ready={} host builds={}",
             thumbnail::available(session.capabilities()),
-            Framing::of(&session),
-            Framing::of(&session).ready(),
+            Framing::choose(session.capabilities()),
+            Framing::choose(session.capabilities()).ready(),
             thumbnail::host_builds(session.capabilities())
         );
         match thumbnail::scan(&mut session) {

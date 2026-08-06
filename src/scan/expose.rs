@@ -112,7 +112,7 @@ pub fn expose(
 
             // One proportional step lands a few percent under, so keep going
             // until a pass comes back on target rather than counting passes
-            let mut windows = prescan_windows(session, &seeded);
+            let mut windows = prescan_windows(session.capabilities(), &seeded);
             let mut taken;
             let mut n = 0;
             loop {
@@ -191,8 +191,7 @@ fn seed_white_balance(session: &mut Session, windows: &[Window]) -> Result<Vec<W
 /// Lowest resolution the unit offers, high speed if it has it, and no
 /// multisampling. Anything past that only costs time, and multisampling or
 /// multi-line reading would make the pass ask us for post-processing first.
-fn prescan_windows(session: &Session, windows: &[Window]) -> Vec<Window> {
-    let caps = session.capabilities();
+fn prescan_windows(caps: &Capabilities, windows: &[Window]) -> Vec<Window> {
     let dpi = caps.address.x_axis.dpi_range.start;
     let fast = caps.set_window.mode.contains(ScanMode::HIGH_SPEED);
 

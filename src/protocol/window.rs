@@ -104,10 +104,10 @@ pub struct Window {
     pub resolution: (u16, u16),
     /// Window origin (upper left) of X and Y. Bytes 6-13
     ///
-    /// The wire unit is inches times the measurement unit divisor, but
-    /// [`Session::open`] pins that to the maximum resolution, so these are pixels
+    /// The wire unit is inches times the measurement unit divisor, so at the
+    /// unit's maximum resolution these are pixels
     pub origin: (u32, u32),
-    /// Size of the window, in the same pixels as [`origin`].
+    /// Size of the window, in the same units as the origin.
     /// Bounded by `Address`'s boundary, which the power-on descriptor exceeds. Bytes 14-21
     pub size: (u32, u32),
     /// Brightness. Byte 22

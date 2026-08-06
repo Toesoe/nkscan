@@ -9,7 +9,6 @@ use crate::{
         caps::{Capabilities, address::CoordinateBase, other::DataTypes},
         data::{Boundary, Rect},
     },
-    session::Session,
 };
 
 /// How a scan comes to know where each frame sits
@@ -54,11 +53,6 @@ impl Framing {
             return Self::Perforation;
         }
         Self::Caller
-    }
-
-    /// The same choice for an open session
-    pub fn of(session: &Session) -> Self {
-        Self::choose(session.capabilities())
     }
 
     /// Whether this is a mechanism we have implemented
