@@ -12,7 +12,6 @@ use crate::{
     error::Error,
     protocol::{
         caps::{
-            address::CoordinateBase,
             other::HostCooperation,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
@@ -47,22 +46,6 @@ pub fn available(session: &Session) -> bool {
     let caps = session.capabilities();
     caps.set_window.kind.contains(ScanKind::THUMBNAIL)
         && caps.address.thumbnail_resolution.start > 0
-}
-
-/// Whether the unit already knows where every frame ends
-///
-/// When it does there is nothing to measure and no reason to take a pass
-pub fn frames_known(session: &Session) -> bool {
-    let caps = session.capabilities();
-    match caps.frames.as_ref() {
-        Some(frames) => frames.measured(),
-        // Without rectangles there is nothing to complete, and framing comes
-        // from perforation counting instead
-        None => !caps
-            .address
-            .coordinate_base
-            .contains(CoordinateBase::FRAME_RECTS),
-    }
 }
 
 /// Scan the whole holder

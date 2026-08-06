@@ -7,11 +7,13 @@
 
 pub mod expose;
 pub mod focus;
+pub mod framing;
 pub mod meter;
 pub mod thumbnail;
 
 pub use expose::expose;
 pub use focus::Focus;
+pub use framing::Framing;
 pub use meter::Metering;
 pub use thumbnail::Thumbnail;
 

@@ -39,7 +39,7 @@ use nkscan::{
         },
         window::{Composition, Window},
     },
-    scan::{Exposure, Focus, expose, thumbnail},
+    scan::{Exposure, Focus, Framing, expose, thumbnail},
     session::Session,
 };
 
@@ -141,9 +141,10 @@ fn main() -> anyhow::Result<()> {
     if has("thumb") {
         let began = Instant::now();
         println!(
-            "thumbnail available={} frames known={} host builds={}",
+            "thumbnail available={} framing {:?} ready={} host builds={}",
             thumbnail::available(&session),
-            thumbnail::frames_known(&session),
+            Framing::of(&session),
+            Framing::of(&session).ready(),
             thumbnail::host_builds(&session)
         );
         match thumbnail::scan(&mut session) {
