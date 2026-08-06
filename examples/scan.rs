@@ -39,7 +39,7 @@ use nkscan::{
         },
         window::{Composition, Window},
     },
-    scan::{Exposure, Focus, Framing, expose, thumbnail},
+    scan::{Exposure, Focus, Framing, expose, preamble, thumbnail},
     session::Session,
 };
 
@@ -70,6 +70,14 @@ fn main() -> anyhow::Result<()> {
             None => println!("the unit reports no pending fault"),
         }
         return Ok(());
+    }
+
+    // The setup the captures run once before the first pass, and the last
+    // difference left between our session and Nikon Scan's
+    if !has("nopreamble") {
+        let started = Instant::now();
+        preamble::run(&mut session)?;
+        println!("preamble in {:?}", started.elapsed());
     }
 
     // The lowest resolution this unit offers, over a small patch of the frame
