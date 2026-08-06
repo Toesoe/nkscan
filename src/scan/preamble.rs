@@ -35,9 +35,15 @@ pub fn run(session: &mut Session) -> Result<(), Error> {
     // Every window the unit holds, written back as it stands. A SET WINDOW is
     // what moves the mechanism on this family, so this is the stage being put
     // somewhere known rather than the descriptors being changed
+    //
+    // A descriptor the unit hands back is not necessarily one it will take:
+    // the power-on defaults reach past the holder aperture, and writing one
+    // back is answered with common error 1. Skip those rather than stop
     let held = session.windows()?;
     for w in &held {
-        session.set_window(w)?;
+        if let Err(e) = session.set_window(w) {
+            debug!(id = w.id, %e, "this window would not go back");
+        }
     }
 
     // Where the lens is, and whether the unit focuses on its own schedule
