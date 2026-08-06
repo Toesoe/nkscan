@@ -53,7 +53,14 @@ fn main() -> anyhow::Result<()> {
     let caps = session.capabilities();
     let limit = caps.address.y_axis.boundary;
     let tiled = framing::table(caps, FORMAT)?;
-    let frame = tiled.frames[FRAME];
+    // An empty table means the holder publishes no opening to tile, which is
+    // what an empty transport bay looks like
+    let Some(&frame) = tiled.frames.get(FRAME) else {
+        anyhow::bail!(
+            "a {FORMAT} format tiles into {} frame(s) here, so there is no frame {FRAME}: is a holder loaded?",
+            tiled.frames.len()
+        );
+    };
     let (left, right) = (frame.left, frame.right);
     let one = |top, length| Boundary {
         frames: vec![Rect {
