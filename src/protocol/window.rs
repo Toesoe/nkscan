@@ -377,6 +377,11 @@ pub fn validate_set(windows: &[Window]) -> Result<(), Error> {
     Ok(())
 }
 
+/// A descriptor field this unit will not take
+fn bad(op: &'static str, reason: String) -> Error {
+    Error::Unsupported { op, reason }
+}
+
 impl Window {
     /// Which channel this window reads, byte 0
     pub fn channel(&self) -> Channel {
@@ -392,10 +397,21 @@ impl Window {
     /// the unit rounds it and reports `01h-37h-00h`, so it is an adjustment
     /// rather than a rejection
     pub fn validate(&self, caps: &Capabilities) -> Result<(), Error> {
-        let bad = |op: &'static str, reason: String| Error::Unsupported { op, reason };
-        let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
-        let f = &caps.set_window;
+        self.check_channel()?;
+        self.check_resolution(caps)?;
+        self.check_geometry(caps)?;
+        self.check_sensor(caps)?;
+        self.check_modes(caps)?;
+        self.check_pixel(caps)?;
+        self.check_setup_mode(caps)?;
+        self.check_multiple_reading(caps)?;
+        self.check_color_ordering()?;
+        self.check_exposure(caps)?;
+        self.check_fixed_fields()
+    }
 
+    /// Byte 0 names a channel this unit scans, 2-10-4
+    fn check_channel(&self) -> Result<(), Error> {
         if matches!(self.channel(), Channel::NeutralGray | Channel::Other(_)) {
             return Err(bad(
                 "window identifier",
@@ -405,15 +421,21 @@ impl Window {
                 ),
             ));
         }
+        Ok(())
+    }
 
-        // SET WINDOW ignores Y, so only X is worth bounding. A thumbnail runs
-        // off its own ladder, Address bytes 70-73, well below the image one
+    /// Bytes 2-5 are on a ladder this unit offers
+    ///
+    /// SET WINDOW ignores Y, so only X is worth bounding. A thumbnail runs off
+    /// its own ladder, `Address` bytes 70-73, well below the image one
+    fn check_resolution(&self, caps: &Capabilities) -> Result<(), Error> {
+        let x = &caps.address.x_axis;
         let dpi = self.resolution.0;
         let range = match self.scanning_kind.contains(ScanKind::THUMBNAIL) {
             true => caps.address.thumbnail_resolution,
             false => x.dpi_range,
         };
-        if dpi < range.start || dpi > range.last {
+        if !range.contains(&dpi) {
             return Err(bad(
                 "resolution",
                 format!(
@@ -427,12 +449,18 @@ impl Window {
                 ),
             ));
         }
+        Ok(())
+    }
+
+    /// Bytes 6-21 land on the medium, 2-2-2-3
+    fn check_geometry(&self, caps: &Capabilities) -> Result<(), Error> {
+        let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
 
         for (axis, name, origin, size) in [
             (x, 'X', self.origin.0, self.size.0),
             (y, 'Y', self.origin.1, self.size.1),
         ] {
-            if origin < axis.address_range.start || origin > axis.address_range.last {
+            if !axis.address_range.contains(&origin) {
                 return Err(bad(
                     "window origin",
                     format!(
@@ -450,8 +478,8 @@ impl Window {
             // this is worth saying and not worth refusing
             if size > axis.boundary {
                 warn!(
-                    %name, size, aperture = axis.boundary,
-                    "window reaches past the holder opening"
+                    %name, size, opening = axis.boundary,
+                    "window reaches past the adapter's opening"
                 );
             }
             // 2-2-2-3: an axis with no address range has to be read whole
@@ -465,11 +493,29 @@ impl Window {
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// The main-scanning axis against the sensor itself
+    ///
+    /// The one width that really is a limit: everything else 2-2-2-3 reports is
+    /// the loaded adapter's opening, which a window may exceed
+    fn check_sensor(&self, caps: &Capabilities) -> Result<(), Error> {
+        let ccd = u32::from(caps.address.ccd_pixels);
+        if self.origin.0 + self.size.0 > ccd {
+            return Err(bad(
+                "window size",
+                format!(
+                    "X {} from {} runs past the {ccd} pixel sensor",
+                    self.size.0, self.origin.0
+                ),
+            ));
+        }
 
         // Reading every CCD line at once walks the bar in blocks of Line Gap
-        // Count, and Address quotes its own geometry in whole ones. A width that is
-        // not divides the bar mid-block and the columns come back interleaved
-        // wrong, so it is worth saying -- but only in the mode that reads that way
+        // Count, and `Address` quotes its own geometry in whole ones. A width
+        // that is not divides the bar mid-block, so the columns come back
+        // mis-ordered -- worth saying, but only in the mode that reads that way
         let block = u32::from(caps.address.line_gap);
         if self
             .color_interleaving
@@ -482,20 +528,14 @@ impl Window {
                 block, "width is not a whole number of line-gap blocks"
             );
         }
+        Ok(())
+    }
 
-        // The sensor is the one width that really is a limit
-        let ccd = u32::from(caps.address.ccd_pixels);
-        if self.origin.0 + self.size.0 > ccd {
-            return Err(bad(
-                "window size",
-                format!(
-                    "X {} from {} runs past the {ccd} pixel sensor",
-                    self.size.0, self.origin.0
-                ),
-            ));
-        }
-
-        // Comparing raw bits keeps one loop over three unrelated flag types
+    /// Bytes 42-44 are each a subset of what `SetWindowFunction` advertises
+    ///
+    /// Comparing raw bits keeps one loop over three unrelated flag types
+    fn check_modes(&self, caps: &Capabilities) -> Result<(), Error> {
+        let f = &caps.set_window;
         for (chosen, offered, op) in [
             (self.scanning_kind.bits(), f.kind.bits(), "scanning kind"),
             (self.scanning_mode.bits(), f.mode.bits(), "scanning mode"),
@@ -512,7 +552,13 @@ impl Window {
                 ));
             }
         }
+        Ok(())
+    }
 
+    /// Byte 26 is a depth this unit offers and byte 25 a composition 2-10-6
+    /// marks supported
+    fn check_pixel(&self, caps: &Capabilities) -> Result<(), Error> {
+        let f = &caps.set_window;
         let Some((_, depth)) = DEPTHS.iter().find(|(n, _)| *n == self.bpp) else {
             return Err(bad(
                 "pixel composition",
@@ -539,7 +585,12 @@ impl Window {
                 ),
             ));
         }
+        Ok(())
+    }
 
+    /// Byte 41 bits 3-1 only mean something where setup scanning 2 is offered
+    fn check_setup_mode(&self, caps: &Capabilities) -> Result<(), Error> {
+        let f = &caps.set_window;
         if self.setup_mode != 0 {
             if !f.kind.contains(ScanKind::SETUP_2) {
                 return Err(bad(
@@ -557,7 +608,12 @@ impl Window {
                 ));
             }
         }
+        Ok(())
+    }
 
+    /// Byte 40's high nibble is a repeat count this unit will honor
+    fn check_multiple_reading(&self, caps: &Capabilities) -> Result<(), Error> {
+        let f = &caps.set_window;
         if self.multiple_reading != 0 {
             if self.multiple_reading > 0x0F {
                 return Err(bad(
@@ -575,22 +631,30 @@ impl Window {
                 ));
             }
         }
+        Ok(())
+    }
 
-        // The value is a read position, 0 meaning the unit's own order. `SetWindowFunction`
-        // bytes 8-9 also pin which component may sit at each position, but
-        // nothing states how a window identifier maps to a component, so that
-        // half is left to SCAN
+    /// A read position, 0 meaning the unit's own order
+    ///
+    /// `SetWindowFunction` bytes 8-9 also pin which component may sit at each
+    /// position, but nothing states how a window identifier maps to a
+    /// component, so that half is left to SCAN
+    fn check_color_ordering(&self) -> Result<(), Error> {
         if self.color_ordering > 3 {
             return Err(bad(
                 "color ordering",
                 format!("{} is not a read position", self.color_ordering),
             ));
         }
+        Ok(())
+    }
 
-        // 0 hands the choice to the unit, which then reports what it picked
-        if self.exposure != 0
-            && (self.exposure < f.exposure.start || self.exposure > f.exposure.last)
-        {
+    /// Bytes 46-49 are in the range `SetWindowFunction` reports
+    ///
+    /// 0 hands the choice to the unit, which then reports what it picked
+    fn check_exposure(&self, caps: &Capabilities) -> Result<(), Error> {
+        let f = &caps.set_window;
+        if self.exposure != 0 && !f.exposure.contains(&self.exposure) {
             return Err(bad(
                 "exposure",
                 format!(
@@ -599,24 +663,21 @@ impl Window {
                 ),
             ));
         }
+        Ok(())
+    }
 
-        // 2-10 pins these to 0 for both units
+    /// The fields 2-10 pins to 0 on both units
+    fn check_fixed_fields(&self) -> Result<(), Error> {
         for (value, op) in [
-            (self.padding_type, "padding type"),
-            (self.compression_type, "compression type"),
-            (self.compression_argument, "compression argument"),
+            (u16::from(self.padding_type), "padding type"),
+            (u16::from(self.compression_type), "compression type"),
+            (u16::from(self.compression_argument), "compression argument"),
+            (self.bit_ordering, "bit ordering"),
         ] {
             if value != 0 {
                 return Err(bad(op, format!("2-10 defines this as 0, not {value}")));
             }
         }
-        if self.bit_ordering != 0 {
-            return Err(bad(
-                "bit ordering",
-                format!("2-10 defines this as 0, not {}", self.bit_ordering),
-            ));
-        }
-
         Ok(())
     }
 

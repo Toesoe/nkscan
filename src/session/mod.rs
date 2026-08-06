@@ -76,8 +76,7 @@ impl Session {
     ///
     /// Pins the measurement unit divisor to the unit's maximum resolution, so
     /// every window coordinate is one pixel and agrees with the addresses and
-    /// boundaries `Address` reports. A hard reset or a power cycle puts it back to
-    /// 1200, so a session that outlives one has to open again
+    /// boundaries `Address` reports.
     pub fn open(mut transport: Box<dyn Transport>) -> Result<Self, Error> {
         let caps = probe(transport.as_mut())?;
         let divisor = caps.address.x_axis.dpi_range.last;
