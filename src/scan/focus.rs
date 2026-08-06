@@ -70,23 +70,37 @@ impl Focus {
             Self::At(position) => session.focus_to(position).map(|()| Focused::Yes),
             Self::Auto { at, color } => {
                 let caps = session.capabilities();
-                let point = |axis: &Axis, origin: u32, size: u32, fraction: f32| {
-                    let offset = (size as f32 * fraction.clamp(0.0, 1.0)) as u32;
-                    // The window may reach past what an address can name, and
-                    // the sensor is wider than the holder opening
-                    (origin + offset).clamp(axis.address_range.start, axis.address_range.last)
-                };
-                let x = point(&caps.address.x_axis, window.origin.0, window.size.0, at.0);
-                let y = point(&caps.address.y_axis, window.origin.1, window.size.1, at.1);
-                let range = caps.address.focus_range;
+                // 2-15 wants an address on the medium, where a window carries
+                // one of the transport: C1h byte 17 says ADDR_MECHANISM. The
+                // frame rectangle is where the medium starts, so subtracting it
+                // converts, and the boundary is how far the medium runs
+                let frame = caps
+                    .frames
+                    .as_ref()
+                    .and_then(|f| f.images.iter().rev().find(|f| f.top <= window.origin.1));
+                let (left, top) = frame.map_or((0, 0), |f| (f.left, f.top));
 
-                // Nikon Scan drives the lens to mid-travel once a session before
-                // it ever autofocuses, and an autofocus with no prior move is
-                // answered instantly with out of focus, having never swept
-                let middle = range.start + (range.last - range.start) / 2;
-                if let Err(e) = session.focus_to(middle) {
-                    debug!(%e, "could not stage the focus before autofocusing");
-                }
+                let point = |axis: &Axis, origin: u32, size: u32, base: u32, fraction: f32| {
+                    let offset = (size as f32 * fraction.clamp(0.0, 1.0)) as u32;
+                    origin
+                        .saturating_add(offset)
+                        .saturating_sub(base)
+                        .min(axis.boundary)
+                };
+                let x = point(
+                    &caps.address.x_axis,
+                    window.origin.0,
+                    window.size.0,
+                    left,
+                    at.0,
+                );
+                let y = point(
+                    &caps.address.y_axis,
+                    window.origin.1,
+                    window.size.1,
+                    top,
+                    at.1,
+                );
 
                 debug!(x, y, "focusing");
                 match session.autofocus(x, y, color) {
