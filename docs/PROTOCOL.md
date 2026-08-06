@@ -12,7 +12,7 @@ opcode table, identical CDBs including the vendor ones (C0h/C1h/E0h/E1h),
 identical mode pages, identical READ/SEND data header, and — the decisive part —
 **window descriptor bytes 0–49 are byte-for-byte identical**.
 
-More importantly, every behavioural difference between the two is *advertised by
+More importantly, every behavioral difference between the two is *advertised by
 the device itself* in the INQUIRY VPD pages. So the design is not "one command
 layer plus two model profiles" — it is one command layer over a `Capabilities`
 struct parsed at runtime, with no model variants at all. Model identity is
@@ -23,7 +23,7 @@ needed only to key a (normally empty) errata table.
 ## Every difference reduces to an advertised capability
 
 This is the load-bearing claim, so here it is field by field. Left column is a
-behaviour that would traditionally justify a model variant; middle column is the
+behavior that would traditionally justify a model variant; middle column is the
 VPD field that reports it.
 
 | Behaviour | Advertised by | LS-5000 | LS-9000 |
@@ -107,7 +107,7 @@ src/protocol/
   caps/
     mod.rs        Capabilities: parsed once at open, single source of truth
     address.rs    C1h -> geometry, CCD, resolution rule, buffer limits
-    setwindow.rs  D1h -> scan kinds, modes, colour, bit depth, exposure range
+    setwindow.rs  D1h -> scan kinds, modes, color, bit depth, exposure range
     other.rs      E1h -> host-coop bits, data-type registry, EXECUTE support
     pages.rs      00h page list; C8h/C9h frame rects; E2h op ranges; FRU identity
     errata.rs     overrides keyed on product id + revision (near-empty)
@@ -278,8 +278,8 @@ exceed. Timing out a motor command is worse than waiting for it.
 | `02h-04h-02h-00h` | done, **failed** (internal mechanical error) |
 | `02h-04h-03h-xx` | needs physical intervention — LS-5000: `00` adapter ejected, `01` IA-20 LL door, `02` undefined adapter, `03` SA-30 film gate, `04` adapter unlocked. LS-9000: `06` FH-869GR mask unset, `07` undefined holder |
 | `02h-3Ah-00h-xx` | medium not present — LS-5000 `00`, `01`, `03`, `04`; LS-9000 `01` only |
-| `02h-05h-00h-00h` | operable, but still initialising after power-on |
-| `02h-04h-00h-00h` | needs an initialising command (LS-5000 only) |
+| `02h-05h-00h-00h` | operable, but still initializing after power-on |
+| `02h-04h-00h-00h` | needs an initializing command (LS-5000 only) |
 
 **Two-stage error retrieval.** `02h-04h-02h-00h` is deliberately generic. To get
 the actual fault you then issue SEND DIAGNOSTIC, which reports the concrete error
@@ -851,7 +851,7 @@ byte 41.
    `/mnt/storage/NikonScanDecomp/scan_captures/` (varying multi-sample, CCD
    format, DPI, crop, manual gain) through the new decode path; compare against
    the existing TIFFs.
-7. LS-5000-family behaviour (X-crop refusal, 512-byte padding, perforation
+7. LS-5000-family behavior (X-crop refusal, 512-byte padding, perforation
    boundaries) can't be exercised without that hardware — implement to spec,
    cover with unit tests over synthesised VPD pages.
 
@@ -919,7 +919,7 @@ That is common error 2, "some illegal data exists in the parameter" -- SCAN's
 own sense table in 2-7 never lists it, and the `02h` qualifier is undocumented.
 Setting `MultilevelRGB` on all three makes the same scan succeed. So byte 25
 describes the output of the whole scan, not the channel one window carries,
-which is why Nikon Scan sends the RGB code on single-colour descriptors too.
+which is why Nikon Scan sends the RGB code on single-color descriptors too.
 
 **`LINE_WITHOUT_DISTANCE` is 2-11-3-1's format 1, confirmed from the data.**
 One line is `plane0[n] plane1[n] plane2[n]`, repeated per line. Reading the same
@@ -957,7 +957,7 @@ exposures across a batch.
 
 Two things the tables get wrong here. 2-11-2 fixes no element width, but Nikon
 Scan reads it with the 1-byte code. And 2-11-3 does not list `8Dh` among the
-types taking a colour qualifier, yet the captures read it three times with
+types taking a color qualifier, yet the captures read it three times with
 qualifiers 01, 02 and 03 and get three different payloads. The exposures in
 those — 326754 / 233518 / 192611 — sit right beside the `8Ch` white balance read
 off our own unit, 329869 / 236947 / 193941.
@@ -979,55 +979,50 @@ read is what makes a focus repeatable without paying for another search.
 **Autofocus is slow by design.** The capture polls TEST UNIT READY 51 times
 waiting for one, so tens of seconds is what this unit does, not a fault.
 
-## Autofocus addresses the medium, not the transport
+## Autofocus takes the window center, in window coordinates
 
-Confirmed on hardware by bisecting the sub-scanning address with everything else
-held fixed. The window was mechanism Y 14212, length 1200, so its centre is
-14212 + 600 = 14812, and `C8h` puts the frame at top 2236.
+Nikon Scan sends the center of the window it is about to scan, in the same
+coordinates the window origin uses. Not an offset from the frame, whatever
+§2-15 means by "the address on the medium".
 
-| AF Y | What happened |
-|---|---|
-| 0 | holder moved there, lens never swept, out of focus |
-| 600 | holder moved there, lens never swept, out of focus |
-| 12576 | holder moved there, lens swept ~27 s, **reached focus** |
-| 14812 | refused in 13 ms, nothing moved |
-| 17322 | refused in 13 ms, nothing moved |
+| Session | window top | length | center | AF Y sent |
+|---|---|---|---|---|
+| full_session_cold_start | 10512 | 6696 | 13860 | **13860** |
+| 8x_multisampling | 26160 | 6696 | 29508 | **29508** |
+| kodachrome, manual focus | 2256 | 6696 | 5604 | 6053 |
 
-Autofocus runs in two stages. It drives the holder to the medium address first,
-which takes seconds, and only then decides whether to sweep the lens. Where
-there is no film under the sensor it declines without sweeping, and the elapsed
-time is the stage move alone — watching the mechanism is the only way to tell
-that apart from a search that ran and failed.
+X is 5000 in every capture, which is the frame center and the sensor center at
+once, so it does not discriminate.
 
-12576 is 14812 − 2236: the window centre expressed from the frame origin. So
-§2-15's "the address on the medium where AF is performed" means exactly that,
-and it is a different coordinate space from a window origin, which `C1h` byte 17
-reports as `ADDR_MECHANISM` on this unit.
+**Some addresses are refused outright.** On an FH-869S strip holder, y 12576 was
+accepted and focused while 14812 and 17322 were answered in 13 ms with out of
+focus, nothing having moved. 8x_multisampling addresses 29508 successfully, so
+this is not a fixed limit -- it follows the holder, and what publishes it is not
+yet known. `C1h`'s Y boundary of 13176 falls in the right place for this holder
+but nothing corroborates it.
 
-The refusal threshold falls between 12576 and 14812, which is `C1h`'s Y boundary
-of 13176 — how far the medium runs. An address past it is not a medium address,
-and the unit rejects it in the time it takes to answer, having never moved. That
-makes the boundary the right bound to validate against, not the address range.
+Beware of concluding too much from an address that works. 12576 focused fine and
+is 1636 units *before* a window at 14212, so it focused film that was never
+going to be scanned. An accepted address is not evidence that the coordinate
+space is right.
 
-**SET WINDOW homes the stage.** Whenever anything else has moved it, the next
-SET WINDOW drives the holder almost fully out and then back to the window
-origin, costing about 5.5 s. When the stage is already where the window wants
-it, the same command takes 6-19 ms. Pointing autofocus at the window origin
-rather than its centre does not avoid it: tested, and SET WINDOW still homed and
-still took 5.3 s. So an autofocus costs a homing cycle no matter where it is
-aimed, and the only way to avoid paying it per frame is not to autofocus per
-frame -- read the position back with GET PARAMETER `C1h` and set it with a focus
-move, which drives the lens alone in about 100 ms.
+**Autofocus runs in two stages.** It drives the holder to the address first,
+taking seconds, and only then decides whether to sweep the lens. With no film
+under the sensor it declines without sweeping, so the elapsed time is stage
+travel alone. Watching the mechanism is the only way to tell that apart from a
+search that ran and failed -- both report `01h-61h-02h`.
 
 **A refused autofocus looks identical to a failed one.** Both terminate with
-`02h-04h-02h` and then diagnose to `01h-61h-02h`, out of focus. Only the elapsed
-time and the absence of an `ActivatingOperation` poll tell them apart, so a bad
-address is worth catching before it is sent.
+`02h-04h-02h` and diagnose to `01h-61h-02h`. Only the elapsed time and the
+absence of an `ActivatingOperation` poll separate them.
 
-Two things this rules out. It is not about a focus move first: Nikon Scan issues
-one early in every session and it looked like a prerequisite, but the successful
-autofocus above ran with no focus move at all. And it is not about having a
-window selected, which made no difference either.
+**SET WINDOW homes the stage** whenever anything else has moved it: the holder
+goes nearly fully out and then back to the window origin, about 5.5 s. Already
+positioned, the same command takes 6-19 ms. Aiming autofocus at the window
+origin instead of its center does not avoid it -- tested, still homed, still
+5.3 s. Nikon Scan autofocuses every frame of a batch without the stage cycling
+like this, so something about the way we ask for it is causing the homing and it
+is not the AF address.
 
 ## Sense codes the specs do not list
 
@@ -1051,9 +1046,9 @@ to scan over something the unit considers advisory.
 - **CCD calibration, when the unit advertises it.** Not done yet, and it sits
   next to metering. On the LS-9000 `E1h` sets `CCD_DATA` in the host
   cooperation bits, so a scan can come back asking us to build CCD data
-  (ASCQ `07h`, record type 7, which is per-colour measurement types and not the
+  (ASCQ `07h`, record type 7, which is per-color measurement types and not the
   geometry block). `91h` is readable and holds the CCD's own response curves,
-  and `E3h` describes the measurement setup: colours, scan count, type count and
+  and `E3h` describes the measurement setup: colors, scan count, type count and
   19 points. Note the same unit does *not* ask for shading or dark voltage, and
   does not offer `84h`/`85h`, so it corrects those itself. All of that is
   advertised, so the strategy is pickable at runtime like the rest.
@@ -1071,7 +1066,7 @@ to scan over something the unit considers advisory.
   `02h-3Ah-00h-01h`, and look for the `01h` in the 32-byte buffer. Byte 15 would
   mean both stacks repack identically; byte 18+ would explain that driver's
   `SENSE_LENGTH = 32`.
-- Settle whether `D1h`'s dropout-colour bit means anything here. On a film
+- Settle whether `D1h`'s dropout-color bit means anything here. On a film
   scanner it would be "read one channel, return one greyscale plane", which is
   useful — but Nikon Scan sent R-G-B in all 128 captured descriptors, so it was
   never exercised.

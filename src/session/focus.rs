@@ -37,11 +37,13 @@ fn offers(session: &Session, operation: u8) -> Result<(), Error> {
 impl Session {
     /// Focus on a point of the medium
     ///
-    /// 2-15 means the medium, not the transport, so this is not the coordinate
-    /// a window origin uses where `C1h` says ADDR_MECHANISM. It runs from zero
-    /// at the frame to the axis boundary, and an address past that is answered
-    /// instantly with out of focus, without the lens moving at all.
-    /// [`Focus`](crate::scan::Focus) does the conversion.
+    /// The address is the one a window origin uses, whatever 2-15 means by
+    /// calling it an address on the medium: the captures focus a window at top
+    /// 10512 length 6696 at 13860, its center.
+    ///
+    /// Some addresses inside the range are still answered instantly with out of
+    /// focus, having moved nothing. What bounds that is not yet known, so this
+    /// only checks the range the axis reports.
     ///
     /// `color` picks the channel, which needs the unit to offer A1h; `None`
     /// uses A0h and lets it choose.
@@ -68,12 +70,12 @@ impl Session {
             (&caps.address.x_axis, 'X', x),
             (&caps.address.y_axis, 'Y', y),
         ] {
-            if value > axis.boundary {
+            if value < axis.address_range.start || value > axis.address_range.last {
                 return Err(Error::Unsupported {
                     op: "autofocus address",
                     reason: format!(
-                        "{name} {value} is past the {} the medium runs to",
-                        axis.boundary
+                        "{name} {value} is outside {} to {}",
+                        axis.address_range.start, axis.address_range.last
                     ),
                 });
             }
