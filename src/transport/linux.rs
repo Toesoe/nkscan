@@ -330,7 +330,7 @@ impl Transport for SgTransport {
                 // bytes 15-17. Confirmed on an LS-9000: two unit attentions
                 // identical in key/ASC/ASCQ differed only here, and both
                 // 02h-3Ah-00h-01h and 02h-04h-01h-01h matched 2-1-2 exactly.
-                // Note SKSV (bit 7) is clear, so this is not SPC sense-key
+                // Note SKSV (bit 7) is unset, so this is not SPC sense-key
                 // specific -- Nikon is using the vendor half of the field.
                 tsc: Some(sb[15]),
                 raw: sb[..sn].to_vec(),

@@ -32,7 +32,7 @@ pub fn set_divisor(divisor: u16) -> [u8; 12] {
         0,
         0,
         0,
-        0, // Page code with PS clear, then the fixed parameter length
+        0, // Page code with PS unset, then the fixed parameter length
         MEASUREMENT_UNITS,
         6, // Basic measurement unit: 0 is inches, the only one either unit has
         0,

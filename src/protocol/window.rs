@@ -105,7 +105,7 @@ bitflags! {
         const MATRIX    = 1 << 6;
         const FILTER    = 1 << 5;
         // bits 3-1 are the setup mode, kept as a field
-        /// Set for positive film, clear for negative
+        /// Set for positive film, unset for negative
         const POSITIVE  = 1 << 0;
     }
 }
@@ -279,9 +279,11 @@ pub fn validate_set(windows: &[Window]) -> Result<(), Error> {
         }
     }
 
-    // 2-10-6's composition says how many planes the stream carries, and the id
-    // list says how many channels are being scanned. A unit answers a
-    // disagreement with common error 2, 05h-26h, which no section documents
+    // 2-10-6's composition says how many color planes the stream carries. It
+    // has to match the visible channels in the set. Infrared is not one of
+    // them: Nikon Scan scans 09 01 02 03 with the RGB code, four windows to
+    // three planes. Getting this wrong gets common error 2, 05h-26h, which no
+    // section documents
     let planes = planes(first.composition).ok_or_else(|| {
         bad(
             "image composition",
@@ -291,13 +293,13 @@ pub fn validate_set(windows: &[Window]) -> Result<(), Error> {
             ),
         )
     })?;
-    if planes != windows.len() {
+    let visible = windows.iter().filter(|w| w.id != IR).count();
+    if planes != visible {
         return Err(bad(
             "image composition",
             format!(
-                "{:?} carries {planes} plane(s) and this set scans {} channel(s)",
-                first.composition,
-                windows.len()
+                "{:?} carries {planes} plane(s) and this set scans {visible} color channel(s)",
+                first.composition
             ),
         ));
     }
@@ -711,7 +713,7 @@ mod tests {
             w.scanning_mode,
             ScanMode::HIGH_SPEED | ScanMode::MULTI_READING
         );
-        // High speed is what clears averaging, and it is the preview that asks
+        // High speed is what unsets averaging, and it is the preview that asks
         // for high speed -- resolution never selects it on its own
         assert_eq!(w.flags, Flags::POSITIVE);
         // Y resolution is sent as something else entirely, and ignored
@@ -782,6 +784,15 @@ mod tests {
         assert!(validate_set(&set(&[1, 2, 3], Composition::MultilevelRGB)).is_ok());
         assert!(validate_set(&set(&[1, 2, 3], Composition::MultilevelBW)).is_err());
         assert!(validate_set(&set(&[1], Composition::MultilevelRGB)).is_err());
+    }
+
+    /// Infrared is not a color plane. Nikon Scan sends four windows against the
+    /// three-plane code whenever Digital ICE is on
+    #[test]
+    fn infrared_does_not_count_towards_the_planes() {
+        assert!(validate_set(&set(&[IR, 1, 2, 3], Composition::MultilevelRGB)).is_ok());
+        assert!(validate_set(&set(&[IR, 1], Composition::MultilevelBW)).is_ok());
+        assert!(validate_set(&set(&[IR, 1, 2], Composition::MultilevelRGB)).is_err());
     }
 
     /// 2-7: "The default color is valid when only the default color is read"

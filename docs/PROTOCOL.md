@@ -941,6 +941,16 @@ that takes the bare `optical / asked` ratio sizes an 800 dpi read 20% short.
 
 ## Follow-ups
 
+- **CCD calibration, when the unit advertises it.** Not done yet, and it sits
+  next to metering. On the LS-9000 `E1h` sets `CCD_DATA` in the host
+  cooperation bits, so a scan can come back asking us to build CCD data
+  (ASCQ `07h`, record type 7, which is per-colour measurement types and not the
+  geometry block). `91h` is readable and holds the CCD's own response curves,
+  and `E3h` describes the measurement setup: colours, scan count, type count and
+  19 points. Note the same unit does *not* ask for shading or dark voltage, and
+  does not offer `84h`/`85h`, so it corrects those itself. All of that is
+  advertised, so the strategy is pickable at runtime like the rest.
+
 - Rewrite the `ls9000ed-window-vendor-bytes` memory: bytes 42/44 were
   misidentified and the "vendor tail" framing is wrong — it's all documented.
   It also conflates two mechanisms — byte 41's Averaging is about the
