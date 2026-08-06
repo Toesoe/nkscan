@@ -404,6 +404,68 @@ impl Setup {
     }
 }
 
+/// What EXECUTE can be told to do, table 2-15-3
+///
+/// `E1h` bytes 20-35 say which of these a unit has, so nothing here is assumed
+/// to exist. Only the ones either spec names are spelled out
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Op {
+    /// 80h, the same as a power-on
+    Initialize,
+    /// 81h
+    ReturnToOrigin,
+    /// 91h. The first setting value is 0 off, 1 on
+    AutoAf,
+    /// 92h, likewise
+    AutoCalibration,
+    /// A0h. Takes an address in both setting values
+    AutoFocus,
+    /// A1h, the same plus a channel
+    ColorAutoFocus,
+    /// B0h
+    SetupShading,
+    /// C1h. Moves the scan block in the AF direction, first value the position
+    FocusMove,
+    /// D0h, which ejects
+    Unload,
+    /// A code neither spec names
+    Other(u8),
+}
+
+impl Op {
+    pub const fn code(self) -> u8 {
+        match self {
+            Self::Initialize => 0x80,
+            Self::ReturnToOrigin => 0x81,
+            Self::AutoAf => 0x91,
+            Self::AutoCalibration => 0x92,
+            Self::AutoFocus => 0xA0,
+            Self::ColorAutoFocus => 0xA1,
+            Self::SetupShading => 0xB0,
+            Self::FocusMove => 0xC1,
+            Self::Unload => 0xD0,
+            Self::Other(code) => code,
+        }
+    }
+}
+
+impl From<u8> for Op {
+    fn from(code: u8) -> Self {
+        match code {
+            0x80 => Self::Initialize,
+            0x81 => Self::ReturnToOrigin,
+            0x91 => Self::AutoAf,
+            0x92 => Self::AutoCalibration,
+            0xA0 => Self::AutoFocus,
+            0xA1 => Self::ColorAutoFocus,
+            0xB0 => Self::SetupShading,
+            0xC1 => Self::FocusMove,
+            0xD0 => Self::Unload,
+            x => Self::Other(x),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// The operation parameter SET PARAMETER carries, table 2-15-2
 ///

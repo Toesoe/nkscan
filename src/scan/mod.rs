@@ -9,6 +9,7 @@ pub mod expose;
 pub mod focus;
 pub mod framing;
 pub mod meter;
+pub mod preamble;
 pub mod thumbnail;
 
 pub use expose::expose;

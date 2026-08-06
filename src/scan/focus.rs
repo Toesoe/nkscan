@@ -6,6 +6,7 @@ use crate::{
     error::Error,
     protocol::{
         caps::address::Axis,
+        data::Op,
         sense::{Failure, Fault},
         window::Window,
     },
@@ -98,7 +99,7 @@ impl Focus {
                 // 2-16 reports where the lens ended up. Nikon Scan reads C1h
                 // straight after every autofocus, and it is what makes a focus
                 // repeatable without focusing again
-                if let Ok(params) = session.get_parameter(FOCUS_MOVE) {
+                if let Ok(params) = session.get_parameter(Op::FocusMove) {
                     info!(position = params.first, "focused at");
                 }
                 outcome
@@ -106,9 +107,6 @@ impl Focus {
         }
     }
 }
-
-/// Focus Move, 2-15-4 C1h. The operation whose parameter is the lens position
-const FOCUS_MOVE: u8 = 0xC1;
 
 #[cfg(test)]
 mod tests {

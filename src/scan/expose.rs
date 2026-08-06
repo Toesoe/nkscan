@@ -8,7 +8,7 @@ use crate::{
     error::Error,
     protocol::{
         caps::set_window::ScanMode,
-        window::{Flags, IR, Window},
+        window::{Flags, Window},
     },
     session::Session,
 };
@@ -131,7 +131,8 @@ fn seed_white_balance(session: &mut Session, windows: &[Window]) -> Result<Vec<W
         .iter()
         .map(|w| {
             let mut w = w.clone();
-            if let Some(&exposure) = usize::from(w.id).checked_sub(1).and_then(|n| wb.get(n)) {
+            // 2-11-3 answers 8Ch in R, G, B, and the default qualifier is green
+            if let Some(&exposure) = w.channel().visible_index().and_then(|n| wb.get(n)) {
                 w.exposure = exposure;
             }
             w
@@ -185,5 +186,5 @@ fn run(session: &mut Session, windows: &[Window]) -> Result<crate::protocol::ima
 /// Infrared measures obstructions, so a set of nothing else has no exposure to
 /// decide from a film's tones.
 pub fn meterable(windows: &[Window]) -> bool {
-    windows.iter().any(|w| w.id != IR)
+    windows.iter().any(|w| w.channel().is_color())
 }

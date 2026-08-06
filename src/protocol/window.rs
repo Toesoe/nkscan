@@ -8,14 +8,71 @@ use tracing::*;
 /// How many bytes one descriptor occupies, per table 2-10-3
 pub const LENGTH: usize = 50;
 
-/// The infrared channel's window identifier
+/// A scanning channel
 ///
-/// This one is not mentioned in either spec and was REed
-pub const IR: u8 = 9;
+/// One namespace for two fields: a window identifier in 2-10-4 and a data type
+/// qualifier in 2-11-3, which agree on the codes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Channel {
+    /// 0. 2-11-3 calls this the G component, and 2-7 will only scan it alone
+    Default,
+    Red,
+    Green,
+    Blue,
+    /// 4. 2-10-4 names it and neither unit supports it
+    NeutralGray,
+    /// 9, in neither spec. Measures obstructions rather than color
+    Infrared,
+    /// A code neither spec names
+    Other(u8),
+}
 
-/// The default color, which is green: 2-11-3 gives qualifier 00h as the
-/// G-component. 2-7 will only scan it on its own
-pub const DEFAULT: u8 = 0;
+impl Channel {
+    pub const fn id(self) -> u8 {
+        match self {
+            Self::Default => 0,
+            Self::Red => 1,
+            Self::Green => 2,
+            Self::Blue => 3,
+            Self::NeutralGray => 4,
+            Self::Infrared => 9,
+            Self::Other(id) => id,
+        }
+    }
+
+    /// Whether this carries color rather than measuring what is in the way
+    ///
+    /// 2-10-6's composition counts these and not infrared
+    pub const fn is_color(self) -> bool {
+        !matches!(self, Self::Infrared)
+    }
+
+    /// Where this sits in an R, G, B ordered reading, for the data types whose
+    /// qualifier names a component
+    pub const fn visible_index(self) -> Option<usize> {
+        match self {
+            Self::Red => Some(0),
+            // 2-11-3: the default qualifier is the green component
+            Self::Green | Self::Default => Some(1),
+            Self::Blue => Some(2),
+            _ => None,
+        }
+    }
+}
+
+impl From<u8> for Channel {
+    fn from(id: u8) -> Self {
+        match id {
+            0 => Self::Default,
+            1 => Self::Red,
+            2 => Self::Green,
+            3 => Self::Blue,
+            4 => Self::NeutralGray,
+            9 => Self::Infrared,
+            x => Self::Other(x),
+        }
+    }
+}
 
 /// Byte 26 of a descriptor vs byte 10 of `D1h`, deepest first so a search for what a unit offers finds the best of them
 const DEPTHS: [(u8, BitDepth); 6] = [
@@ -236,7 +293,7 @@ pub fn validate_set(windows: &[Window]) -> Result<(), Error> {
     };
 
     // 2-7: "The default color is valid when only the default color is read"
-    if windows.len() > 1 && windows.iter().any(|w| w.id == DEFAULT) {
+    if windows.len() > 1 && windows.iter().any(|w| w.channel() == Channel::Default) {
         return Err(bad(
             "window set",
             "the default color cannot be scanned alongside another".into(),
@@ -306,7 +363,7 @@ pub fn validate_set(windows: &[Window]) -> Result<(), Error> {
             ),
         )
     })?;
-    let visible = windows.iter().filter(|w| w.id != IR).count();
+    let visible = windows.iter().filter(|w| w.channel().is_color()).count();
     if planes != visible {
         return Err(bad(
             "image composition",
@@ -321,6 +378,11 @@ pub fn validate_set(windows: &[Window]) -> Result<(), Error> {
 }
 
 impl Window {
+    /// Which channel this window reads, byte 0
+    pub fn channel(&self) -> Channel {
+        Channel::from(self.id)
+    }
+
     /// Check this descriptor against what the unit says it will accept
     ///
     /// Per-window rules only. The rules spanning a whole set are
@@ -334,7 +396,7 @@ impl Window {
         let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
         let f = &caps.set_window;
 
-        if !matches!(self.id, 0..=3 | IR) {
+        if matches!(self.channel(), Channel::NeutralGray | Channel::Other(_)) {
             return Err(bad(
                 "window identifier",
                 format!(
@@ -850,9 +912,27 @@ mod tests {
     /// three-plane code whenever Digital ICE is on
     #[test]
     fn infrared_does_not_count_towards_the_planes() {
-        assert!(validate_set(&set(&[IR, 1, 2, 3], Composition::MultilevelRGB)).is_ok());
-        assert!(validate_set(&set(&[IR, 1], Composition::MultilevelBW)).is_ok());
-        assert!(validate_set(&set(&[IR, 1, 2], Composition::MultilevelRGB)).is_err());
+        assert!(
+            validate_set(&set(
+                &[Channel::Infrared.id(), 1, 2, 3],
+                Composition::MultilevelRGB
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_set(&set(
+                &[Channel::Infrared.id(), 1],
+                Composition::MultilevelBW
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_set(&set(
+                &[Channel::Infrared.id(), 1, 2],
+                Composition::MultilevelRGB
+            ))
+            .is_err()
+        );
     }
 
     /// C1h publishes a separate resolution range for thumbnails, far below the
@@ -901,8 +981,14 @@ mod tests {
     /// 2-7: "The default color is valid when only the default color is read"
     #[test]
     fn the_default_color_scans_alone_or_not_at_all() {
-        assert!(validate_set(&set(&[DEFAULT], Composition::MultilevelBW)).is_ok());
-        assert!(validate_set(&set(&[DEFAULT, 1, 3], Composition::MultilevelRGB)).is_err());
+        assert!(validate_set(&set(&[Channel::Default.id()], Composition::MultilevelBW)).is_ok());
+        assert!(
+            validate_set(&set(
+                &[Channel::Default.id(), 1, 3],
+                Composition::MultilevelRGB
+            ))
+            .is_err()
+        );
     }
 
     /// 2-10 byte 40, which SCAN answers with 05h-2Ch-02h
