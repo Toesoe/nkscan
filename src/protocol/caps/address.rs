@@ -114,6 +114,27 @@ pub enum PitchRule {
     OnePlusEven, // 3
 }
 
+impl PitchRule {
+    /// Snap `optical / asked` to a pitch the unit will really scan at
+    ///
+    /// 2-10 rounds a resolution off the ladder down to the next one it has and
+    /// reports `01h-37h-00h`, so this is the pitch that sizes an image, not the
+    /// ratio itself
+    pub fn snap(self, pitch: u32) -> u32 {
+        let pitch = pitch.max(1);
+        match self {
+            Self::Continuous | Self::EachPitch => pitch,
+            // Largest divisor of the gap that is no finer than asked
+            Self::DivisorsOf(gap) => (1..=pitch)
+                .rev()
+                .find(|p| u32::from(gap) % p == 0)
+                .unwrap_or(1),
+            Self::OnePlusEven if pitch == 1 => 1,
+            Self::OnePlusEven => pitch & !1,
+        }
+    }
+}
+
 bitflags! {
     /// Byte 4. The LS-5000 and LS-9000 give bits 0 and 3 different meanings,
     /// but each zeroes what it does not use, so the union parses on both
