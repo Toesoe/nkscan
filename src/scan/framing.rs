@@ -1,6 +1,6 @@
 //! Where the frames are, and how this unit expects us to find out
 //!
-//! Four mechanisms, picked from what the unit and the loaded holder advertise.
+//! Four mechanisms, picked from what the unit and the loaded adapter advertise.
 
 use crate::{
     error::Error,
@@ -19,7 +19,7 @@ use crate::{
 /// How a scan comes to know where each frame sits
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Framing {
-    /// `Frames` already carries every frame. A masked holder knows its own geometry
+    /// `Frames` already carries every frame. A masked adapter knows its own geometry
     Published,
     /// `Frames` carries rectangles with no length.
     /// 2-11-6: after a thumbnail of strip film the host works the boundaries out and sends them as `DataType::Boundary`
@@ -31,7 +31,7 @@ pub enum Framing {
 }
 
 impl Framing {
-    /// Pick the mechanism this unit and holder use for Framing
+    /// Pick the mechanism this unit and adapter use
     pub fn choose(caps: &Capabilities) -> Self {
         let rects = caps
             .address
@@ -74,24 +74,26 @@ impl Framing {
     }
 }
 
-/// The frame table to send before the first pass
+/// The frame table to send before the first pass, 2-11-6
 ///
-/// 2-11-6: until the host says where the frames are, the unit answers
-/// `DataType::Boundary` with one rectangle over the whole sensor. A frame-kind
-/// SET WINDOW against that table drives the stage to its home stop and back
-/// rather than stepping to the frame.
-///
-/// A holder that publishes its own lengths needs nothing from the caller. A
-/// strip publishes an opening and no length, so `length` is the film format,
-/// tiled from the front edge until the opening runs out.
+/// Both the stage and autofocus resolve against it, so until one is sent
+/// nothing steps. `length` is the film format, which nothing advertises, and is
+/// ignored where the adapter publishes its own.
 pub fn table(caps: &Capabilities, length: u32) -> Result<Boundary, Error> {
     let Some(published) = caps.frames.as_ref() else {
         return Ok(Boundary::default());
     };
     let limit = caps.address.y_axis.boundary;
+    let axis_end = caps.address.y_axis.address_range.last;
     let mut frames = Vec::new();
-    for (n, opening) in published.images.iter().enumerate() {
-        let extent = opening.length.unwrap_or(length);
+
+    for (n, image) in published.images.iter().enumerate() {
+        // A published length is the adapter's own geometry. Without one, the
+        // caller's format is what gets tiled
+        let extent = image.length.unwrap_or(length);
+
+        // Past the boundary the stage target comes out behind the home stop,
+        // and the mechanism grinds there until a power cycle
         if extent > limit {
             return Err(Error::Unsupported {
                 op: "frame table",
@@ -100,35 +102,31 @@ pub fn table(caps: &Capabilities, length: u32) -> Result<Boundary, Error> {
                 ),
             });
         }
-        let right = opening.left + opening.width;
-        // Where this opening stops: the next one begins, or the axis ends
+
+        // Where this image's area ends: the next one begins, or the axis does
         let stop = published
             .images
             .get(n + 1)
-            .map_or(caps.address.y_axis.address_range.last, |next| next.top);
-        let rect = |top| Rect {
-            top,
-            left: opening.left,
-            bottom: top + length,
-            right,
+            .map_or(axis_end, |next| next.top);
+        let tops: Vec<u32> = match image.length {
+            Some(_) => vec![image.top],
+            None => (0..)
+                .map(|f| image.top + f * extent)
+                .take_while(|top| top + extent <= stop)
+                .collect(),
         };
-        match opening.length {
-            Some(measured) => frames.push(Rect {
-                bottom: opening.top + measured,
-                ..rect(opening.top)
-            }),
-            None => frames.extend(
-                (0..)
-                    .map(|f| opening.top + f * length)
-                    .take_while(|top| top + length <= stop)
-                    .map(rect),
-            ),
-        }
+
+        frames.extend(tops.into_iter().map(|top| Rect {
+            top,
+            left: image.left,
+            bottom: top + extent,
+            right: image.left + image.width,
+        }));
     }
     Ok(Boundary { frames })
 }
 
-/// Whether this unit and holder can capture a thumbnail
+/// Whether this unit and adapter can capture a thumbnail
 fn thumbnails(caps: &Capabilities) -> bool {
     caps.set_window.kind.contains(ScanKind::THUMBNAIL)
         && caps.address.thumbnail_resolution.start > 0

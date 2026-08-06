@@ -300,28 +300,20 @@ impl Boundary {
     /// Bytes each rectangle occupies
     const RECT: usize = 16;
 
-    /// The frame an address falls in, if any
-    ///
-    /// Autofocus takes an address the unit resolves against this table, and one
-    /// that lands in no frame is refused in 13 ms with out of focus, nothing
-    /// having moved
+    /// The frame an address falls in, which is what autofocus resolves against
     pub fn at(&self, x: u32, y: u32) -> Option<Rect> {
         self.frames
             .iter()
             .copied()
-            .find(|f| (f.top..f.bottom).contains(&y) && (f.left..f.right).contains(&x))
+            .find(|f| (f.left..f.right).contains(&x) && (f.top..f.bottom).contains(&y))
     }
 
-    /// The frame a window sits wholly inside, if any
-    ///
-    /// What a frame-kind SET WINDOW positions the stage against. Containment is
-    /// the requirement, measured: a single rectangle half again as long as the
-    /// window steps the stage exactly as a table of matching frames does
-    pub fn holding(&self, top: u32, left: u32, bottom: u32, right: u32) -> Option<Rect> {
-        self.frames
-            .iter()
-            .copied()
-            .find(|f| f.top <= top && bottom <= f.bottom && f.left <= left && right <= f.right)
+    /// The frame a rectangle sits wholly inside, which is what the stage
+    /// resolves a window against
+    pub fn holding(&self, r: Rect) -> Option<Rect> {
+        self.frames.iter().copied().find(|f| {
+            f.left <= r.left && r.right <= f.right && f.top <= r.top && r.bottom <= f.bottom
+        })
     }
 
     pub fn from_bytes(b: &[u8]) -> Option<Self> {
