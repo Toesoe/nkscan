@@ -78,6 +78,15 @@ impl Focus {
                 };
                 let x = point(&caps.address.x_axis, window.origin.0, window.size.0, at.0);
                 let y = point(&caps.address.y_axis, window.origin.1, window.size.1, at.1);
+                let range = caps.address.focus_range;
+
+                // Nikon Scan drives the lens to mid-travel once a session before
+                // it ever autofocuses, and an autofocus with no prior move is
+                // answered instantly with out of focus, having never swept
+                let middle = range.start + (range.last - range.start) / 2;
+                if let Err(e) = session.focus_to(middle) {
+                    debug!(%e, "could not stage the focus before autofocusing");
+                }
 
                 debug!(x, y, "focusing");
                 match session.autofocus(x, y, color) {
