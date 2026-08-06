@@ -5,8 +5,10 @@
 //! argument is legal stay down in `session`; picking between two mechanisms
 //! happens here, once, before anything moves.
 
+pub mod expose;
 pub mod meter;
 
+pub use expose::expose;
 pub use meter::Metering;
 
 use crate::{
