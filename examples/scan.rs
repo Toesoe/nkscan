@@ -14,6 +14,7 @@
 //! cargo run --example scan -- diagnose      # read a pending fault and stop
 //! cargo run --example scan -- rgb afy=600   # autofocus at a raw sub-scan address
 //! cargo run --example scan -- rgb aftop     # focus the window origin, not its middle
+//! cargo run --example scan -- rgb aty=11976 # put the window at a given Y
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -67,8 +68,16 @@ fn main() -> anyhow::Result<()> {
     // The lowest resolution this unit offers, over a small patch of the frame
     let caps = session.capabilities();
     let dpi = caps.address.x_axis.dpi_range.start;
-    let (origin, size) = place(caps, PATCH);
-    println!("placing {size:?} at {origin:?}");
+    let (mut origin, size) = place(caps, PATCH);
+    // aty=N puts the window where we want it, so the scan can be moved onto
+    // film autofocus will actually accept
+    if let Some(y) = arg("aty") {
+        origin.1 = y;
+    }
+    println!(
+        "placing {size:?} at {origin:?}, center y={}",
+        origin.1 + size.1 / 2
+    );
 
     let held = session.windows()?;
     let mut windows = Vec::new();
