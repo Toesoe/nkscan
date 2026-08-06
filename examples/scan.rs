@@ -11,6 +11,7 @@
 //! cargo run --example scan -- rgb lockwb    # keep the channels in proportion
 //! cargo run --example scan -- rgb noae      # skip metering
 //! cargo run --example scan -- rgb nofocus   # skip autofocus
+//! cargo run --example scan -- diagnose      # read a pending fault and stop
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -47,6 +48,15 @@ fn main() -> anyhow::Result<()> {
     let devices = device::list();
     let device = Selector::Only.resolve(&devices)?;
     let mut session = Session::open(device.open()?)?;
+
+    // 2-8: whatever a failed operation left behind, read once and gone
+    if has("diagnose") {
+        match session.diagnose()? {
+            Some(sense) => println!("pending fault: {sense:?}"),
+            None => println!("the unit reports no pending fault"),
+        }
+        return Ok(());
+    }
 
     // The lowest resolution this unit offers, over a small patch of the frame
     let caps = session.capabilities();
