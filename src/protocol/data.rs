@@ -266,6 +266,75 @@ pub const fn width_code(width: u8) -> Option<u8> {
     })
 }
 
+/// One frame's rectangle as `88h` carries it, 2-11-6
+///
+/// Sub-scanning is Y and main-scanning is X, and this record puts them in that
+/// order -- the reverse of `C8h`, which leads with the left edge. Inclusive of
+/// the lower right, so a 13860 line frame ends at 13859
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Rect {
+    /// Bytes 4-7, upper left in the sub-scanning direction
+    pub top: u32,
+    /// Bytes 8-11, upper left in the main-scanning direction
+    pub left: u32,
+    /// Bytes 12-15, lower right in the sub-scanning direction
+    pub bottom: u32,
+    /// Bytes 16-19, lower right in the main-scanning direction
+    pub right: u32,
+}
+
+/// Boundary information, 2-11-6, data type `88h`
+///
+/// Where each frame sits. After a thumbnail of strip film the host works these
+/// out and sends them, which is what gives the unit frame lengths it could not
+/// measure for itself. Addresses are inches times the maximum resolution, the
+/// same unit a window origin uses at pitch 1
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Boundary {
+    pub frames: Vec<Rect>,
+}
+
+impl Boundary {
+    /// Bytes before the first rectangle
+    const HEAD: usize = 4;
+    /// Bytes each rectangle occupies
+    const RECT: usize = 16;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
+        let count = usize::from(head[2]);
+        let be32 = |s: &[u8], i: usize| u32::from_be_bytes([s[i], s[i + 1], s[i + 2], s[i + 3]]);
+
+        let mut frames = Vec::with_capacity(count);
+        for n in 0..count {
+            let at = Self::HEAD + n * Self::RECT;
+            let r = b.get(at..at + Self::RECT)?;
+            frames.push(Rect {
+                top: be32(r, 0),
+                left: be32(r, 4),
+                bottom: be32(r, 8),
+                right: be32(r, 12),
+            });
+        }
+        Some(Self { frames })
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(Self::HEAD + self.frames.len() * Self::RECT);
+        // Byte 0,1 count everything after them
+        let length = (Self::HEAD - 2 + self.frames.len() * Self::RECT) as u16;
+        out.extend_from_slice(&length.to_be_bytes());
+        out.push(self.frames.len() as u8);
+        out.push(0);
+        for r in &self.frames {
+            for v in [r.top, r.left, r.bottom, r.right] {
+                out.extend_from_slice(&v.to_be_bytes());
+            }
+        }
+        out
+    }
+}
+
 /// What the unit remembers about one image, from 2-11-7
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Image {
@@ -671,6 +740,24 @@ mod tests {
         let mut b = vec![0u8; 27];
         b[13] = 2;
         assert!(Setup::from_bytes(&b).is_none());
+    }
+
+    /// The 20 bytes an LS-9000 returned with one frame loaded
+    #[test]
+    fn boundary_information_round_trips() {
+        let b = Boundary {
+            frames: vec![Rect {
+                top: 0,
+                left: 0,
+                bottom: 13859,
+                right: 9999,
+            }],
+        };
+        let bytes = b.to_bytes();
+        assert_eq!(bytes.len(), 20);
+        // Byte 0,1 is the length of what follows, byte 2 the frame count
+        assert_eq!(&bytes[..4], &[0x00, 0x12, 0x01, 0x00]);
+        assert_eq!(Boundary::from_bytes(&bytes), Some(b));
     }
 
     /// A job neither spec describes is reported rather than mis-parsed

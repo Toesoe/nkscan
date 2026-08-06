@@ -4,7 +4,7 @@ use super::{PROBE_TIMEOUT, Session, malformed};
 use crate::{
     error::Error,
     protocol::{
-        cdbs::{Execute, GetParameter, Read, SendDiagnostic, SetParameter},
+        cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         data,
         sense::{Failure, Fault},
     },
@@ -24,6 +24,19 @@ impl Session {
         kind: data::DataType,
         color: u8,
     ) -> Result<(data::Header, data::Values), Error> {
+        let (header, valid) = self.read_record(kind, color)?;
+        Ok((header, data::Values::decode(kind.scalar(), &valid)))
+    }
+
+    /// As [`read_data`](Self::read_data), but the valid bytes unsplit
+    ///
+    /// The records with a structure of their own are easier to read this way
+    /// than out of [`Values`](data::Values)
+    pub fn read_record(
+        &mut self,
+        kind: data::DataType,
+        color: u8,
+    ) -> Result<(data::Header, Vec<u8>), Error> {
         let row = kind.row();
         let code = row.code;
         let refuse = |reason| {
@@ -68,14 +81,62 @@ impl Session {
 
         // Analog gain reports 16 bytes against a documented 8, and the tail is
         // stale, so the table wins wherever it fixes a count
-        let valid = match row.count {
+        let valid: &[u8] = match row.count {
             Some(n) => payload
                 .get(..n as usize * width as usize)
                 .unwrap_or(payload),
             None => payload,
         };
         debug!(?header, bytes = valid.len(), "read data");
-        Ok((header, data::Values::decode(kind.scalar(), valid)))
+        Ok((header, valid.to_vec()))
+    }
+
+    /// SEND one data type, 2-12
+    pub fn send_data(&mut self, kind: data::DataType, color: u8, body: &[u8]) -> Result<(), Error> {
+        let row = kind.row();
+        let code = row.code;
+        match row.write {
+            Some(bit) if self.caps.features.data_types.contains(bit) => {}
+            _ => {
+                return Err(Error::Unsupported {
+                    op: "send data type",
+                    reason: format!("this unit does not take {code:02X}h"),
+                });
+            }
+        }
+        let Some(width) = row.width else {
+            return Err(Error::Unsupported {
+                op: "send data type",
+                reason: format!("{code:02X}h takes a width 2-11-2 does not fix"),
+            });
+        };
+        let qualifier = data::width_code(width).expect("2-11-2 widths are all encodable");
+        let color = if kind.per_color() { color } else { 0 };
+
+        let cmd = Send::new(code, color, qualifier, body.len() as u32);
+        debug!(
+            code = format!("{code:02X}h"),
+            bytes = body.len(),
+            "send data"
+        );
+        self.run(&cmd.cdb(), Data::Out(body), PROBE_TIMEOUT)?;
+        Ok(())
+    }
+
+    /// Where the unit currently thinks each frame is, 2-11-6
+    pub fn boundaries(&mut self) -> Result<data::Boundary, Error> {
+        let (_, record) = self.read_record(data::DataType::Boundary, 0)?;
+        data::Boundary::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("88h was {} bytes", record.len())))
+    }
+
+    /// Tell the unit where each frame is
+    ///
+    /// 2-11-6: after a thumbnail of strip film the host works these out and
+    /// sends them, which is the only way a holder that cannot measure its own
+    /// frames comes to know their length
+    pub fn set_boundaries(&mut self, boundary: &data::Boundary) -> Result<(), Error> {
+        self.send_data(data::DataType::Boundary, 0, &boundary.to_bytes())
     }
 
     /// The exposures the unit measured for neutral white when it started up
