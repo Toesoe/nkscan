@@ -277,6 +277,19 @@ pub struct Operation {
 }
 
 impl Operation {
+    /// What Nikon Scan sends and reads back, against the 13 the table runs to
+    pub const LENGTH: usize = 9;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let b: &[u8; Self::LENGTH] = b.get(..Self::LENGTH)?.try_into().ok()?;
+        let be32 = |i: usize| u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+        Some(Self {
+            color: b[0],
+            first: be32(1),
+            second: be32(5),
+        })
+    }
+
     pub fn to_bytes(&self) -> [u8; 9] {
         let mut b = [0u8; 9];
         b[0] = self.color;
