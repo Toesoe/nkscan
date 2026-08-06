@@ -3,7 +3,7 @@
 //! [`Exposure`] says which mechanism to use. This does it and hands back the
 //! same windows with their exposures filled in.
 
-use super::Metering;
+use super::meter::Metering;
 use crate::{
     error::Error,
     protocol::{

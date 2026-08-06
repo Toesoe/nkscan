@@ -41,7 +41,7 @@ pub fn vpd(t: &mut dyn Transport, code: u8) -> Result<Page, Error> {
 ///
 /// Safe to call with a unit attention outstanding: 2-2 note 5 says INQUIRY is
 /// performed regardless, and does not clear it
-pub fn probe(t: &mut dyn Transport) -> Result<Capabilities, Error> {
+pub fn capabilities(t: &mut dyn Transport) -> Result<Capabilities, Error> {
     let identity = Identity::parse(&inquiry(t, Inquiry::standard())?)?;
     // Opening the wrong node is easy, and everything below assumes a scanner
     if !identity.is_scanner() {

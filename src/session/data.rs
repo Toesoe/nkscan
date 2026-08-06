@@ -4,6 +4,7 @@ use super::{PROBE_TIMEOUT, Session, malformed};
 use crate::{
     error::Error,
     protocol::{
+        caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         data,
         sense::{Failure, Fault},
@@ -38,26 +39,14 @@ impl Session {
         color: u8,
     ) -> Result<(data::Header, Vec<u8>), Error> {
         let row = kind.row();
-        let code = row.code;
-        let refuse = |reason| {
-            Err(Error::Unsupported {
-                op: "read data type",
-                reason,
-            })
-        };
-
         if !row.header {
-            return refuse(format!("{kind:?} carries no data header to size a read by"));
+            return Err(Error::Unsupported {
+                op: "read data type",
+                reason: format!("{kind:?} carries no data header to size a read by"),
+            });
         }
-        match row.read {
-            Some(bit) if self.caps.features.data_types.contains(bit) => {}
-            _ => return refuse(format!("this unit does not offer {kind:?}")),
-        }
-        let Some(width) = row.width else {
-            return refuse(format!("{kind:?} takes a width 2-11-2 does not fix"));
-        };
-        let qualifier = data::width_code(width).expect("2-11-2 widths are all encodable");
-        let color = if kind.per_color() { color } else { 0 };
+        let (width, qualifier, color) = self.addressing(kind, row.read, color, "read data type")?;
+        let code = row.code;
 
         let mut fetch = |len: u32| -> Result<Vec<u8>, Error> {
             let cmd = Read::new(code, color, qualifier, len);
@@ -89,29 +78,38 @@ impl Session {
         Ok((header, valid.to_vec()))
     }
 
-    /// SEND one data type, 2-12
-    pub fn send_data(&mut self, kind: data::DataType, color: u8, body: &[u8]) -> Result<(), Error> {
-        let row = kind.row();
-        let code = row.code;
-        match row.write {
+    /// What a READ or SEND of `kind` has to carry: element width, the qualifier
+    /// encoding it, and the channel 2-11-3 lets it name
+    ///
+    /// `offered` is the `Features` bit for the direction asked for
+    fn addressing(
+        &self,
+        kind: data::DataType,
+        offered: Option<DataTypes>,
+        color: u8,
+        op: &'static str,
+    ) -> Result<(u8, u8, u8), Error> {
+        let refuse = |reason| Error::Unsupported { op, reason };
+
+        match offered {
             Some(bit) if self.caps.features.data_types.contains(bit) => {}
-            _ => {
-                return Err(Error::Unsupported {
-                    op: "send data type",
-                    reason: format!("this unit does not take {kind:?}"),
-                });
-            }
+            _ => return Err(refuse(format!("this unit does not offer {kind:?}"))),
         }
-        let Some(width) = row.width else {
-            return Err(Error::Unsupported {
-                op: "send data type",
-                reason: format!("{kind:?} takes a width 2-11-2 does not fix"),
-            });
+        let Some(width) = kind.row().width else {
+            return Err(refuse(format!(
+                "{kind:?} takes a width 2-11-2 does not fix"
+            )));
         };
         let qualifier = data::width_code(width).expect("2-11-2 widths are all encodable");
-        let color = if kind.per_color() { color } else { 0 };
+        Ok((width, qualifier, if kind.per_color() { color } else { 0 }))
+    }
 
-        let cmd = Send::new(code, color, qualifier, body.len() as u32);
+    /// SEND one data type, 2-12
+    pub fn send_data(&mut self, kind: data::DataType, color: u8, body: &[u8]) -> Result<(), Error> {
+        let (_, qualifier, color) =
+            self.addressing(kind, kind.row().write, color, "send data type")?;
+
+        let cmd = Send::new(kind.row().code, color, qualifier, body.len() as u32);
         debug!(?kind, bytes = body.len(), "send data");
         self.run(&cmd.cdb(), Data::Out(body), PROBE_TIMEOUT)?;
         Ok(())

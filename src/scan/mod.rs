@@ -11,9 +11,3 @@ pub mod framing;
 pub mod meter;
 pub mod preamble;
 pub mod thumbnail;
-
-pub use expose::{Exposure, expose};
-pub use focus::Focus;
-pub use framing::Framing;
-pub use meter::Metering;
-pub use thumbnail::Thumbnail;

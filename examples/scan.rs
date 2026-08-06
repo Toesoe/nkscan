@@ -45,7 +45,12 @@ use nkscan::{
         data::{Boundary, Rect},
         window::{Composition, Window},
     },
-    scan::{Exposure, Focus, Framing, expose, framing, preamble, thumbnail},
+    scan::{
+        expose::{self, Exposure},
+        focus::Focus,
+        framing::{self, Framing},
+        preamble, thumbnail,
+    },
     session::Session,
 };
 
@@ -217,7 +222,7 @@ fn main() -> anyhow::Result<()> {
         let exposure = Exposure::choose(session.capabilities(), has("lockwb"))?;
         println!("metering: {exposure:?}");
         let started = Instant::now();
-        windows = expose(&mut session, &windows, exposure)?;
+        windows = expose::expose(&mut session, &windows, exposure)?;
         println!("metered in {:?}", started.elapsed());
         show("exposures metered", &windows);
     }

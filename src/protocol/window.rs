@@ -472,10 +472,8 @@ impl Window {
             if size == 0 {
                 return Err(bad("window size", format!("{name} is empty")));
             }
-            // The boundary is the loaded adapter's opening, not the unit's
-            // limit. A wider one scans past it -- 9996 read off a 9000 against 8964
-            // here -- and the unit's own power-on descriptors exceed it too, so
-            // this is worth saying and not worth refusing
+            // The boundary is the adapter's opening, not a limit. The unit's
+            // own power-on descriptors exceed it
             if size > axis.boundary {
                 warn!(
                     %name, size, opening = axis.boundary,
@@ -512,10 +510,8 @@ impl Window {
             ));
         }
 
-        // Reading every CCD line at once walks the bar in blocks of Line Gap
-        // Count, and `Address` quotes its own geometry in whole ones. A width
-        // that is not divides the bar mid-block, so the columns come back
-        // mis-ordered -- worth saying, but only in the mode that reads that way
+        // Multi-line reads walk the bar in Line Gap Count blocks. A width that
+        // is not a whole number of them splits a block and mis-orders columns
         let block = u32::from(caps.address.line_gap);
         if self
             .color_interleaving
