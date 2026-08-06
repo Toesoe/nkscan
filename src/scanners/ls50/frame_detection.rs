@@ -176,18 +176,7 @@ impl FrameDetector {
         }
 
         let mut frames = self.fit_boundaries(&peaks, &profile, pitch);
-
-        // dbg!(&peaks);
-        // dbg!(&boundaries);
-
-        let mut bounds = File::create("/tmp/boundaries.txt").unwrap();
-        for y in &frames {
-            writeln!(bounds, "{:?}", y).unwrap();
-        }
-
         self.classify_empty_frames(&mut frames);
-
-        dbg!(&frames);
 
         frames
     }
@@ -402,8 +391,6 @@ impl FrameDetector {
         let mad = deviations[deviations.len() / 2];
 
         let threshold = median - mad * 3.0;
-
-        dbg!(median, mad, threshold);
 
         for frame in frames.iter_mut() {
             frame.is_empty = if !frame.is_leader { frame.content_score < threshold } else { false };

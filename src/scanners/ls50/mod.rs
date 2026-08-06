@@ -313,6 +313,11 @@ where
         let detector = FrameDetector::default();
         let boundaries = detector.detect_frame_boundaries(&frame);
 
+        debug!(
+            frame_count = boundaries.last().unwrap().index,
+            has_leader_frame = boundaries.first().unwrap().is_leader,
+        );
+
         Ok(frame)
     }
 
