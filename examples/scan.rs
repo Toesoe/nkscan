@@ -114,9 +114,12 @@ fn main() -> anyhow::Result<()> {
             w.origin.0 = aperture.0;
             w.size.0 = aperture.1;
         }
-        if has("multiline") {
-            w.color_interleaving = ColorInterleaving::MULTILINE_SIMULTANEOUS;
-        }
+        // The unit keeps whatever the last run left in these, so set it either
+        // way rather than inheriting a previous experiment
+        w.color_interleaving = match has("multiline") {
+            true => ColorInterleaving::MULTILINE_SIMULTANEOUS,
+            false => ColorInterleaving::LINE_WITHOUT_DISTANCE,
+        };
         // 2-10-6 has one code for a one-plane output and one for three
         w.composition = if ids.len() > 1 {
             Composition::MultilevelRGB
@@ -149,14 +152,15 @@ fn main() -> anyhow::Result<()> {
         thumb.size.1 = caps.address.y_axis.address_range.last;
         println!("thumbnail at {dpi} dpi over {:?}", thumb.size);
 
-        let started = Instant::now();
+        let began = Instant::now();
         session.set_window(&thumb)?;
         match session.scan(std::slice::from_ref(&thumb)) {
-            Ok(layout) => {
+            Ok(started) => {
+                println!("thumbnail owes: {:?}", started.cooperation);
                 session.test_unit_ready(Duration::from_secs(300))?;
-                let mut buf = vec![0u8; layout.total_bytes() as usize];
-                let got = session.read_image(&layout, &mut buf)?;
-                println!("thumbnail read {got} bytes in {:?}", started.elapsed());
+                let mut buf = vec![0u8; started.layout.total_bytes() as usize];
+                let got = session.read_image(&started.layout, &mut buf)?;
+                println!("thumbnail read {got} bytes in {:?}", began.elapsed());
             }
             Err(e) => println!("thumbnail refused: {e}"),
         }
@@ -208,9 +212,13 @@ fn main() -> anyhow::Result<()> {
 
     let started = Instant::now();
     let layout = match session.scan(&windows) {
-        Ok(layout) => {
-            println!("scan started in {:?}", started.elapsed());
-            layout
+        Ok(begun) => {
+            println!(
+                "scan started in {:?}, owes {:?}",
+                started.elapsed(),
+                begun.cooperation
+            );
+            begun.layout
         }
         Err(e) => {
             println!("scan refused after {:?}: {e}", started.elapsed());
