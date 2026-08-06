@@ -218,6 +218,17 @@ mod tests {
         [1, 2, 3].iter().map(|&id| window(id, dpi, size)).collect()
     }
 
+    /// The one scan an LS-9000 has actually run: a 1200 x 1200 window at 666
+    /// dpi, one channel, 16 bit, which read back 80000 bytes off the hardware
+    #[test]
+    fn the_first_real_scan_still_measures_80000_bytes() {
+        let l = Layout::new(&caps(0x01, 12, 3), &[window(1, 666, (1200, 1200))], 4000).unwrap();
+
+        assert_eq!(l.pitch, 6);
+        assert_eq!((l.pixels, l.lines), (200, 200));
+        assert_eq!(l.total_bytes(), 80000);
+    }
+
     /// 2-10-5's ladder, where the pitch is the truncated ratio
     #[test]
     fn the_pitch_ladder_matches_table_2_10_5() {
