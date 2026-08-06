@@ -22,8 +22,8 @@ use tracing::*;
 pub enum Focused {
     /// The unit reached focus, or was driven to a position
     Yes,
-    /// Autofocus ran and did not converge. Usually means it was pointed at
-    /// something with no detail to focus on
+    /// Autofocus ran and did not converge. It focuses on grain rather than on
+    /// the picture, so there is no such thing as a subject too smooth for it
     NotReached,
     /// Nothing was asked of it
     Skipped,
@@ -45,7 +45,8 @@ pub enum Focus {
 }
 
 impl Default for Focus {
-    /// The middle of the window, which is what Nikon Scan focuses on
+    /// The middle of the window. Nikon Scan focuses there and nowhere else,
+    /// and grain is what the unit measures, so the picture does not matter
     fn default() -> Self {
         Self::Auto {
             at: (0.5, 0.5),

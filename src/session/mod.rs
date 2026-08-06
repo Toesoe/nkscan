@@ -89,6 +89,12 @@ impl Session {
         session.reserved = session.reserve()?;
         // A scan left over from whoever had it last would refuse everything below
         session.abort()?;
+        // 2-8: only SEND DIAGNOSTIC clears error information, so a fault
+        // outlives the session that caused it. Left there, the next operation's
+        // TEST UNIT READY reports it and we blame the wrong command
+        if let Ok(Some(stale)) = session.diagnose() {
+            warn!(?stale, "the unit was still holding a fault from earlier");
+        }
         session.set_units(divisor)?;
         Ok(session)
     }
