@@ -23,7 +23,7 @@ pub enum Failure {
     Medium, // 03h
     #[error("unexpected status {0:#04x}")]
     UnexpectedStatus(u8),
-    #[error("unrecognised sense")]
+    #[error("unrecognized sense")]
     Unrecognized,
 }
 
@@ -138,18 +138,18 @@ pub enum Activity {
     /// whole run while the stage travels. Which operations move the feed is a
     /// property of the operation, not of this
     ActivatingOperation, // 01h-00h
-    /// The adapter is initialising, or the medium is being loaded or ejected
+    /// The adapter is initializing, or the medium is being loaded or ejected
     MovingMechanism, // 01h-01h and 01h-03h
     /// Correction data is being measured
     MeasuringCorrection, // 01h-02h
     /// Automatic shading or white balance measurement
     AutoShadingOrWb, // 01h-04h
-    /// Powered on but not finished initialising
+    /// Powered on but not finished initializing
     Initializing, // 02h-04h-00h and 02h-05h-00h
     /// Busy with something internal, which carries on regardless. SCSI status
     /// BUSY, or 0Bh-08h
     TargetBusy,
-    /// Not ready, and the reason was not one we recognise
+    /// Not ready, and the reason was not one we recognize
     Unreported,
 }
 

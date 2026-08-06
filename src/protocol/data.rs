@@ -1,6 +1,7 @@
 //! READ and SEND data types. Section 2-11
 
 use super::{caps::other::DataTypes, sense::Coop};
+use bitflags::bitflags;
 
 /// The header 2-11-6 puts in front of every type from 80h up
 pub const HEADER: usize = 6;
@@ -285,18 +286,11 @@ impl Operation {
     }
 }
 
-/// What the scanner wants doing, and the numbers to do it with
+/// The geometry block tables 2-11-5-1, -2 and -3 share
 ///
-/// 2-11-5, read back with `87h` once a SCAN says a job is pending. All four jobs
-/// share this one 18-byte format, and each fills in only the fields it needs.
-/// `E1h` says which jobs a unit can ever ask for; this arrives when one actually is
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CooperativeAction {
-    /// Byte 0, and the same namespace as the `09h-80h` ASCQ that announced it
-    ///
-    /// Dispatch on this rather than on the sense: the two specs give the same
-    /// job different 4th sense bytes, while the type code agrees
-    pub kind: Coop,
+/// Each job fills in only the fields it needs and leaves the rest zero
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Geometry {
     /// Bytes 5,6
     pub bytes_per_line: u16,
     /// Bytes 7,8. Scanning lines times frames
@@ -312,15 +306,14 @@ pub struct CooperativeAction {
     pub registration_gap: u16,
 }
 
-impl CooperativeAction {
-    /// The 1 x 18 that 2-11-2 gives `87h`
-    pub const LENGTH: usize = 18;
+impl Geometry {
+    /// The shortest record carrying one of these, so the gap has to be there
+    const LENGTH: usize = 15;
 
-    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+    fn from_bytes(b: &[u8]) -> Option<Self> {
         let b: &[u8; Self::LENGTH] = b.get(..Self::LENGTH)?.try_into().ok()?;
         let be16 = |i: usize| u16::from_be_bytes([b[i], b[i + 1]]);
         Some(Self {
-            kind: Coop::from(b[0]),
             bytes_per_line: be16(5),
             entire_lines: be16(7),
             bits_per_color: b[9],
@@ -328,6 +321,125 @@ impl CooperativeAction {
             readings_per_line: b[12],
             registration_gap: be16(13),
         })
+    }
+}
+
+/// Padding the host has to strip, per the LS-5000's table 2-11-5-3
+///
+/// Shares no byte past 4 with [`Geometry`], and runs 27 bytes rather than 18
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Truncation {
+    /// Bytes 5,6. Says which of the counts below is attached at all
+    pub position: Position,
+    /// Bytes 7,8 then 9,10, measured from each color's own origin
+    pub per_color: Edges,
+    /// Bytes 11,12 then 13,14, measured from the origin of all colors
+    pub all_colors: Edges,
+    /// Bytes 19,20 then 21,22, counted in lines rather than bytes
+    pub lines: Edges,
+    /// Bytes 23,24 then 25,26, measured from one frame's origin
+    pub frame: Edges,
+}
+
+/// A count of padding at each end of an axis, in the record's own unit
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Edges {
+    /// The first-pixel or first-line side
+    pub first: u16,
+    /// The last-pixel or last-line side
+    pub last: u16,
+}
+
+bitflags! {
+    /// Bytes 5 and 6 of the truncation record, assembled as `byte5 | byte6 << 8`
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct Position: u16 {
+        const COLOR_FIRST = 1 << 0;
+        const COLOR_LAST  = 1 << 1;
+        const ALL_FIRST   = 1 << 2;
+        const ALL_LAST    = 1 << 3;
+        const LINE_FIRST  = 1 << 6;
+        const LINE_LAST   = 1 << 7;
+        const FRAME_FIRST = 1 << 8;
+        const FRAME_LAST  = 1 << 9;
+    }
+}
+
+impl Truncation {
+    /// Table 2-11-5-3 runs to byte 26
+    const LENGTH: usize = 27;
+
+    fn from_bytes(b: &[u8]) -> Option<Self> {
+        let b: &[u8; Self::LENGTH] = b.get(..Self::LENGTH)?.try_into().ok()?;
+        let be16 = |i: usize| u16::from_be_bytes([b[i], b[i + 1]]);
+        let edges = |i: usize| Edges {
+            first: be16(i),
+            last: be16(i + 2),
+        };
+        Some(Self {
+            position: Position::from_bits_truncate(u16::from(b[5]) | u16::from(b[6]) << 8),
+            per_color: edges(7),
+            all_colors: edges(11),
+            lines: edges(19),
+            frame: edges(23),
+        })
+    }
+}
+
+/// What the scanner wants doing, and the numbers to do it with
+///
+/// 2-11-5, read back with `87h` once a SCAN says a job is pending. Byte 0 picks
+/// the layout of everything after byte 4, and the four layouts share nothing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CooperativeAction {
+    /// Thumbnail (1), averaging (2) and multi-line registration (4)
+    Geometry(Coop, Geometry),
+    /// Truncation (6), which only the 5000 family documents
+    Truncate(Truncation),
+    /// CCD data (7). Bytes 5-12, one measurement type per color in the order
+    /// R, G, B, neutral gray, C, M, Y, K
+    CcdData([u8; 8]),
+    /// A job neither spec describes, kept whole so it can be reported
+    Unknown(u8, Vec<u8>),
+}
+
+impl CooperativeAction {
+    /// The 1 x 18 of 2-11-2, which truncation exceeds. A floor, not the answer:
+    /// the data header's own length is what sizes a read
+    pub const LENGTH: usize = 18;
+
+    /// Byte 0, in the same namespace as the `09h-80h` ASCQ that announced it.
+    /// The two specs give the same job different 4th sense bytes, so dispatch
+    /// on this rather than on the sense
+    pub fn kind(&self) -> Coop {
+        match self {
+            Self::Geometry(kind, _) => *kind,
+            Self::Truncate(_) => Coop::Truncate,
+            Self::CcdData(_) => Coop::CcdData,
+            Self::Unknown(code, _) => Coop::from(*code),
+        }
+    }
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let unknown = || Some(Self::Unknown(b[0], b.to_vec()));
+        let kind = Coop::from(*b.first()?);
+        match kind {
+            Coop::Thumbnail | Coop::Averaging | Coop::MultiLineRegistration => {
+                match Geometry::from_bytes(b) {
+                    Some(g) => Some(Self::Geometry(kind, g)),
+                    None => unknown(),
+                }
+            }
+            Coop::Truncate => match Truncation::from_bytes(b) {
+                Some(t) => Some(Self::Truncate(t)),
+                None => unknown(),
+            },
+            Coop::CcdData => match b.get(5..13).and_then(|s| s.try_into().ok()) {
+                Some(types) => Some(Self::CcdData(types)),
+                None => unknown(),
+            },
+            Coop::Unknown(_) => unknown(),
+        }
     }
 }
 
@@ -356,5 +468,98 @@ impl Header {
             },
             &b[HEADER..],
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 2-11-5-3's multi-line record: 4000 dpi, three colors, and a gap of 12
+    #[test]
+    fn the_multi_line_record_reads_as_geometry() {
+        let mut b = [0u8; CooperativeAction::LENGTH];
+        b[0] = 0x04;
+        b[1..5].copy_from_slice(&[0x09, 0x80, 0x04, 0x01]);
+        b[5..7].copy_from_slice(&60000u16.to_be_bytes());
+        b[7..9].copy_from_slice(&13860u16.to_be_bytes());
+        b[9] = 16;
+        b[13..15].copy_from_slice(&12u16.to_be_bytes());
+
+        let CooperativeAction::Geometry(kind, g) = CooperativeAction::from_bytes(&b).unwrap()
+        else {
+            panic!("not a geometry record");
+        };
+        assert_eq!(kind, Coop::MultiLineRegistration);
+        assert_eq!(g.bytes_per_line, 60000);
+        assert_eq!(g.entire_lines, 13860);
+        assert_eq!(g.bits_per_color, 16);
+        assert_eq!(g.registration_gap, 12);
+        // 2-11-5-3 pins these to zero, and averaging is the record that fills them
+        assert_eq!((g.lines_per_image, g.readings_per_line), (0, 0));
+    }
+
+    /// Byte 12 is all averaging fills in
+    #[test]
+    fn the_averaging_record_carries_only_the_reading_count() {
+        let mut b = [0u8; CooperativeAction::LENGTH];
+        b[0] = 0x02;
+        b[12] = 16;
+
+        let CooperativeAction::Geometry(kind, g) = CooperativeAction::from_bytes(&b).unwrap()
+        else {
+            panic!("not a geometry record");
+        };
+        assert_eq!(kind, Coop::Averaging);
+        assert_eq!(g.readings_per_line, 16);
+    }
+
+    /// Type 7 redefines bytes 5-12 as one CCD measurement type per color, so
+    /// reading them as a byte count would be nonsense
+    #[test]
+    fn the_ccd_record_is_per_color_types_not_geometry() {
+        let mut b = [0u8; CooperativeAction::LENGTH];
+        b[0] = 0x07;
+        b[5..13].copy_from_slice(&[1, 2, 3, 0, 0, 0, 0, 0]);
+
+        assert_eq!(
+            CooperativeAction::from_bytes(&b).unwrap(),
+            CooperativeAction::CcdData([1, 2, 3, 0, 0, 0, 0, 0])
+        );
+    }
+
+    /// Truncation runs to byte 26, past the 18 bytes 2-11-2 gives the type
+    #[test]
+    fn the_truncation_record_is_longer_than_the_others() {
+        let mut b = [0u8; 27];
+        b[0] = 0x06;
+        b[5] = 0b0000_0011; // padding at both ends of each color's line
+        b[7..9].copy_from_slice(&8u16.to_be_bytes());
+        b[9..11].copy_from_slice(&4u16.to_be_bytes());
+        b[19..21].copy_from_slice(&2u16.to_be_bytes());
+        b[25..27].copy_from_slice(&6u16.to_be_bytes());
+
+        let CooperativeAction::Truncate(t) = CooperativeAction::from_bytes(&b).unwrap() else {
+            panic!("not a truncation record");
+        };
+        assert_eq!(t.position, Position::COLOR_FIRST | Position::COLOR_LAST);
+        assert_eq!(t.per_color, Edges { first: 8, last: 4 });
+        assert_eq!(t.lines, Edges { first: 2, last: 0 });
+        assert_eq!(t.frame, Edges { first: 0, last: 6 });
+
+        // 18 bytes is all 2-11-2 promises, and it is not enough for this one
+        assert!(matches!(
+            CooperativeAction::from_bytes(&b[..CooperativeAction::LENGTH]),
+            Some(CooperativeAction::Unknown(0x06, _))
+        ));
+    }
+
+    /// A job neither spec describes is reported rather than mis-parsed
+    #[test]
+    fn an_unknown_job_keeps_its_bytes() {
+        let b = [0x0Au8; CooperativeAction::LENGTH];
+        let action = CooperativeAction::from_bytes(&b).unwrap();
+        assert_eq!(action.kind(), Coop::Unknown(0x0A));
+        assert!(matches!(action, CooperativeAction::Unknown(0x0A, _)));
     }
 }
