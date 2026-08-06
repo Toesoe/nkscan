@@ -77,6 +77,33 @@ impl Session {
         Ok((header, data::Values::decode(kind.scalar(), valid)))
     }
 
+    /// The exposures the unit measured for neutral white when it started up
+    ///
+    /// 2-11-8, data type `8Ch`, one 4-byte value per color, answered in R, G, B
+    /// order. The ratios are the unit's own white balance, so metering that
+    /// wants to preserve neutral starts from these rather than from whatever
+    /// the last session left in the descriptors.
+    ///
+    /// 2-11-3 only gives the qualifier default, R, G and B, so there is no
+    /// infrared reading here.
+    pub fn white_balance(&mut self) -> Result<[u32; 3], Error> {
+        let mut out = [0u32; 3];
+        for (n, slot) in out.iter_mut().enumerate() {
+            let color = n as u8 + 1;
+            let (_, values) = self.read_data(data::DataType::WhiteBalanceExposure, color)?;
+            let data::Values::Longs(v) = values else {
+                return Err(malformed(format!(
+                    "8Ch color {color} did not come back as longs"
+                )));
+            };
+            *slot = *v
+                .first()
+                .ok_or_else(|| malformed(format!("8Ch color {color} was empty")))?;
+        }
+        debug!(?out, "start-up white balance");
+        Ok(out)
+    }
+
     /// Read the initiator cooperative action parameter a SCAN just asked for
     pub fn cooperation(&mut self) -> Result<data::CooperativeAction, Error> {
         let (_, values) = self.read_data(data::DataType::Cooperation, 0)?;
