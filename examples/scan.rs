@@ -15,7 +15,6 @@
 //! cargo run --example scan -- rgb afy=600   # autofocus at a raw sub-scan address
 //! cargo run --example scan -- rgb aftop     # focus the window origin, not its middle
 //! cargo run --example scan -- rgb aty=11976 # put the window at a given Y
-//! cargo run --example scan -- rgb halfy     # preview at 666x333, as Nikon Scan does
 //! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
 //! cargo run --example scan -- rgb thumb     # run a thumbnail pass first
@@ -104,10 +103,8 @@ fn main() -> anyhow::Result<()> {
             .clone();
         // Three things Nikon Scan's preview descriptor does that ours does not,
         // each on its own flag so they can be bisected
-        w.resolution = match has("halfy") {
-            true => (dpi, dpi / 2),
-            false => (dpi, dpi),
-        };
+        // A scan is square; the metering pass halves Y for itself
+        w.resolution = (dpi, dpi);
         w.origin = origin;
         w.size = size;
         if has("aperture") {
