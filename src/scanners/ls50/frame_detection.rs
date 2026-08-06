@@ -44,7 +44,6 @@ enum EdgeDirection {
 struct Edge {
     y: u32,
     strength: f32,
-    direction: EdgeDirection,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -60,6 +59,15 @@ pub struct Frame {
 pub enum FilmType {
     Negative, // start frame transition is HighToLow
     Positive, // start frame transition is LowToHigh
+}
+
+impl FilmType {
+    fn edge_sign(self) -> f32 {
+        match self {
+            FilmType::Negative => -1.0,
+            FilmType::Positive => 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -106,10 +114,11 @@ impl FrameDetector {
     /// Return Y coordinates that appear to be frame boundaries.
     pub fn detect_frame_boundaries(&self, image: &Image) -> Vec<Frame> {
         let profile = self.line_profile(image);
+        let pitch_profile = self.smooth(&profile);
         let derivative = self.derivative(&profile);
 
         let pitch = self
-            .estimate_pitch(&self.derivative(&self.smooth(&profile)))
+            .estimate_pitch(&self.derivative(&pitch_profile))
             .unwrap();
 
         let mut candidates = Vec::new();
@@ -129,8 +138,7 @@ impl FrameDetector {
             }
 
             // skip edges with wrong transition, we only care about the start of a frame
-            if self.film_type == FilmType::Negative && value > 0.0 ||
-               self.film_type == FilmType::Positive && value < 0.0 {
+            if value.signum() != self.film_type.edge_sign() {
                 continue;
             }
 
@@ -138,12 +146,7 @@ impl FrameDetector {
             if strength >= derivative[y - 1].abs() && strength >= derivative[y + 1].abs() {
                 candidates.push(Edge {
                     y: y as u32,
-                    strength,
-                    direction: if derivative[y] > 0.0 {
-                        EdgeDirection::LowToHigh
-                    } else {
-                        EdgeDirection::HighToLow
-                    },
+                    strength
                 });
             }
         }
@@ -182,7 +185,7 @@ impl FrameDetector {
     }
 
     /// detect frame pitch in pixels from the preview strip
-    fn estimate_pitch(&self, derivative: &Vec<f32>) -> Option<f32> {
+    fn estimate_pitch(&self, derivative: &[f32]) -> Option<f32> {
         let expected = self.frame_size.in_mm() as f32 * PIXELS_PER_MM;
 
         let min_lag = (expected * 0.8) as usize;
@@ -276,9 +279,11 @@ impl FrameDetector {
         let first = best[0];
         let possible_first = first as i32 - pitch as i32;
 
-        if possible_first >= 0
-            && self.has_frame_content(&profile, possible_first as u32, pitch)
-        {
+        let added_leader =
+            possible_first >= 0 &&
+            self.has_frame_content(profile, possible_first as u32, pitch);
+
+        if added_leader {
             dbg!("found additional first frame");
             best.insert(0, possible_first as u32);
         }
@@ -294,7 +299,7 @@ impl FrameDetector {
                     start_line_y: y,
                     content_score: self.score_frame_content(profile, y, pitch),
                     is_empty: false,
-                    is_leader: if index == 0 && possible_first >= 0 { true } else { false },
+                    is_leader: added_leader && index == 0
                 }
             })
             .collect()
