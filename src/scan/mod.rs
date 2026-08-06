@@ -8,10 +8,12 @@
 pub mod expose;
 pub mod focus;
 pub mod meter;
+pub mod thumbnail;
 
 pub use expose::expose;
 pub use focus::Focus;
 pub use meter::Metering;
+pub use thumbnail::Thumbnail;
 
 use crate::{
     error::Error,

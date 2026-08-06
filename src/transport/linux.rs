@@ -323,6 +323,11 @@ impl Transport for SgTransport {
             );
             Some(Sense {
                 key: sb[2] & 0xF,
+                ili: sb[2] & 0x20 != 0,
+                // The valid bit, byte 0 bit 7, says the information field means
+                // something
+                information: (sb[0] & 0x80 != 0)
+                    .then(|| u32::from_be_bytes([sb[3], sb[4], sb[5], sb[6]])),
                 asc: sb[12],
                 ascq: sb[13],
                 // Nikon's 4th tuple element, in SBP-2 quadlet 5's

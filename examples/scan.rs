@@ -33,14 +33,10 @@ use std::{
 use nkscan::{
     device::{self, Selector},
     protocol::{
-        caps::{
-            Capabilities,
-            address::Axis,
-            set_window::{ColorInterleaving, ScanKind, ScanMode},
-        },
+        caps::{Capabilities, address::Axis, set_window::ColorInterleaving},
         window::{Composition, Window},
     },
-    scan::{Exposure, Focus, expose},
+    scan::{Exposure, Focus, expose, thumbnail},
     session::Session,
 };
 
@@ -139,34 +135,25 @@ fn main() -> anyhow::Result<()> {
     // the strip: C8h reports a frame length of 0. See whether it settles the
     // mechanism down
     if has("thumb") {
-        let caps = session.capabilities();
-        let dpi = caps.address.thumbnail_resolution.start;
-        let mut thumb = windows[0].clone();
-        thumb.resolution = (dpi, dpi);
-        thumb.scanning_kind = ScanKind::THUMBNAIL;
-        thumb.scanning_mode = ScanMode::NORMAL_QUALITY;
-        // The captures thumbnail in line ordering, never the three-line mode
-        thumb.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
-        thumb.composition = Composition::MultilevelBW;
-        thumb.origin.1 = 0;
-        thumb.size.1 = caps.address.y_axis.address_range.last;
-        println!("thumbnail at {dpi} dpi over {:?}", thumb.size);
-
         let began = Instant::now();
-        session.set_window(&thumb)?;
-        match session.scan(std::slice::from_ref(&thumb)) {
-            Ok(started) => {
-                println!("thumbnail owes: {:?}", started.cooperation);
-                session.test_unit_ready(Duration::from_secs(300))?;
-                let mut buf = vec![0u8; started.layout.total_bytes() as usize];
-                let got = session.read_image(&started.layout, &mut buf)?;
-                println!("thumbnail read {got} bytes in {:?}", began.elapsed());
-            }
+        println!(
+            "thumbnail available={} frames known={} host builds={}",
+            thumbnail::available(&session),
+            thumbnail::frames_known(&session),
+            thumbnail::host_builds(&session)
+        );
+        match thumbnail::scan(&mut session) {
+            Ok(t) => println!(
+                "thumbnail {} bytes of an expected {} in {:?}, owes {:?}",
+                t.data.len(),
+                t.layout.total_bytes(),
+                began.elapsed(),
+                t.cooperation
+            ),
             Err(e) => println!("thumbnail refused: {e}"),
         }
         session.refresh()?;
-        let frames = session.capabilities().frames.clone();
-        println!("frames now: {frames:?}");
+        println!("frames now: {:?}", session.capabilities().frames);
     }
 
     // Before metering, which is the order in the captures: autofocus, then the
