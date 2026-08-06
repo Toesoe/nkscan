@@ -291,6 +291,21 @@ impl Send {
 }
 
 #[derive(Debug)]
+/// SEND DIAGNOSTIC, 2-8
+///
+/// The self-test with no parameter list, which is the only form either unit
+/// supports. After an operation activation command has failed, this is what
+/// reports the concrete fault behind a generic `02h-04h-02h`
+pub struct SendDiagnostic;
+
+impl SendDiagnostic {
+    pub fn cdb(&self) -> [u8; 6] {
+        // Byte 1: PF unset, SelfTest set. DevOfL and UnitOfL must both be unset
+        [0x1D, 0x04, 0, 0, 0, 0]
+    }
+}
+
+#[derive(Debug)]
 /// ABORT 2-13-1
 ///
 /// Aborts a scanning operation started by SCAN

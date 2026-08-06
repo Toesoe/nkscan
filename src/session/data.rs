@@ -4,10 +4,11 @@ use super::{PROBE_TIMEOUT, Session, malformed};
 use crate::{
     error::Error,
     protocol::{
-        cdbs::{Execute, Read, SetParameter},
+        cdbs::{Execute, Read, SendDiagnostic, SetParameter},
         data,
+        sense::{Failure, Fault},
     },
-    transport::Data,
+    transport::{Data, Sense, Status},
 };
 use std::time::Duration;
 use tracing::*;
@@ -143,6 +144,36 @@ impl Session {
             "executing"
         );
         self.run(&Execute.cdb(), Data::None, PROBE_TIMEOUT)?;
-        self.test_unit_ready(timeout)
+
+        // 2-8: a failed operation reports 02h-04h-02h and nothing else. The
+        // real cause is only readable once, so take it while it is there
+        match self.test_unit_ready(timeout) {
+            Err(Error::Device(fault))
+                if matches!(*fault, Fault::Reported(Failure::Mechanism, _)) =>
+            {
+                match self.diagnose() {
+                    Ok(Some(sense)) => Err(Error::Device(Box::new(Fault::Reported(
+                        Failure::Mechanism,
+                        Some(sense),
+                    )))),
+                    _ => Err(Error::Device(fault)),
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// Ask what actually went wrong, after a generic mechanical error
+    ///
+    /// 2-8. The concrete fault only comes back here, and reading it clears it,
+    /// so there is one chance at it. `None` means the unit had nothing to say.
+    pub fn diagnose(&mut self) -> Result<Option<Sense>, Error> {
+        let completion =
+            self.transport
+                .execute(&SendDiagnostic.cdb(), Data::None, PROBE_TIMEOUT)?;
+        debug!(status = ?completion.status, sense = ?completion.sense, "diagnostic");
+        Ok(completion
+            .sense
+            .filter(|_| completion.status == Status::CheckCondition))
     }
 }
