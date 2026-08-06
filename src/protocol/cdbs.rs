@@ -132,7 +132,7 @@ impl ModeSense {
     pub fn cdb(&self) -> [u8; 6] {
         [
             0x1A,
-            // PF is bit 4 and must be set. DBD is bit 3, left clear so the
+            // PF is bit 4 and must be set. DBD is bit 3, left unset so the
             // reply carries the block descriptor -- it is eight fixed bytes and
             // the parser skips whatever length is reported anyway
             0x10,
@@ -158,7 +158,7 @@ impl ModeSelect {
     }
 
     pub fn cdb(&self) -> [u8; 6] {
-        // PF (bit 4) must be set, SP (bit 0) must be clear -- neither unit can
+        // PF (bit 4) must be set, SP (bit 0) must be unset -- neither unit can
         // save pages, and asking gets common error 1
         [0x15, 0x10, 0, 0, self.parameter_list_length, 0]
     }
