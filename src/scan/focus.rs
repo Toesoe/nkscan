@@ -70,37 +70,18 @@ impl Focus {
             Self::At(position) => session.focus_to(position).map(|()| Focused::Yes),
             Self::Auto { at, color } => {
                 let caps = session.capabilities();
-                // 2-15 wants an address on the medium, where a window carries
-                // one of the transport: C1h byte 17 says ADDR_MECHANISM. The
-                // frame rectangle is where the medium starts, so subtracting it
-                // converts, and the boundary is how far the medium runs
-                let frame = caps
-                    .frames
-                    .as_ref()
-                    .and_then(|f| f.images.iter().rev().find(|f| f.top <= window.origin.1));
-                let (left, top) = frame.map_or((0, 0), |f| (f.left, f.top));
-
-                let point = |axis: &Axis, origin: u32, size: u32, base: u32, fraction: f32| {
+                // The captures put the window center here in the same
+                // coordinates the window origin uses: a window at top 10512
+                // length 6696 was focused at 13860, and one at 26160 at 29508.
+                // Not an offset from the frame, whatever 2-15 means by "medium"
+                let point = |axis: &Axis, origin: u32, size: u32, fraction: f32| {
                     let offset = (size as f32 * fraction.clamp(0.0, 1.0)) as u32;
                     origin
                         .saturating_add(offset)
-                        .saturating_sub(base)
-                        .min(axis.boundary)
+                        .clamp(axis.address_range.start, axis.address_range.last)
                 };
-                let x = point(
-                    &caps.address.x_axis,
-                    window.origin.0,
-                    window.size.0,
-                    left,
-                    at.0,
-                );
-                let y = point(
-                    &caps.address.y_axis,
-                    window.origin.1,
-                    window.size.1,
-                    top,
-                    at.1,
-                );
+                let x = point(&caps.address.x_axis, window.origin.0, window.size.0, at.0);
+                let y = point(&caps.address.y_axis, window.origin.1, window.size.1, at.1);
 
                 debug!(x, y, "focusing");
                 let outcome = match session.autofocus(x, y, color) {
