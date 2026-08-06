@@ -156,6 +156,12 @@ fn main() -> anyhow::Result<()> {
             ),
             Err(e) => println!("thumbnail refused: {e}"),
         }
+        // 2-11-6: after a thumbnail of strip film the host sets the coordinate
+        // information. Until it does, the unit has no frame lengths
+        match session.boundaries() {
+            Ok(b) => println!("boundaries: {b:?}"),
+            Err(e) => println!("boundaries unreadable: {e}"),
+        }
         session.refresh()?;
         println!("frames now: {:?}", session.capabilities().frames);
     }
