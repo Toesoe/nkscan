@@ -321,8 +321,10 @@ impl Boundary {
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(Self::HEAD + self.frames.len() * Self::RECT);
-        // Byte 0,1 count everything after them
-        let length = (Self::HEAD - 2 + self.frames.len() * Self::RECT) as u16;
+        // 2-11-6 gives bytes 0,1 as the parameter length "n-1", which for one
+        // frame is 18. The unit's own record says 20, the whole thing including
+        // these two bytes, and refuses 18 with common error 2. Match what it emits
+        let length = (Self::HEAD + self.frames.len() * Self::RECT) as u16;
         out.extend_from_slice(&length.to_be_bytes());
         out.push(self.frames.len() as u8);
         out.push(0);
@@ -817,8 +819,8 @@ mod tests {
         };
         let bytes = b.to_bytes();
         assert_eq!(bytes.len(), 20);
-        // Byte 0,1 is the length of what follows, byte 2 the frame count
-        assert_eq!(&bytes[..4], &[0x00, 0x12, 0x01, 0x00]);
+        // What the unit itself returns: the whole length, then the frame count
+        assert_eq!(&bytes[..4], &[0x00, 0x14, 0x01, 0x00]);
         assert_eq!(Boundary::from_bytes(&bytes), Some(b));
     }
 
