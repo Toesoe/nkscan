@@ -8,6 +8,8 @@
 //! ```text
 //! cargo run --example scan                  # red only
 //! cargo run --example scan -- rgb           # three channels, dumped to scan.raw
+//! cargo run --example scan -- rgb lockwb    # keep the channels in proportion
+//! cargo run --example scan -- rgb noae      # skip metering
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -23,8 +25,9 @@ use nkscan::{
     device::{self, Selector},
     protocol::{
         caps::{Capabilities, address::Axis},
-        window::Composition,
+        window::{Composition, Window},
     },
+    scan::{Exposure, expose},
     session::Session,
 };
 
@@ -36,8 +39,9 @@ fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let mode = std::env::args().nth(1).unwrap_or_default();
-    let ids: &[u8] = if mode == "rgb" { &[1, 2, 3] } else { &[1] };
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let has = |flag: &str| args.iter().any(|a| a == flag);
+    let ids: &[u8] = if has("rgb") { &[1, 2, 3] } else { &[1] };
 
     let devices = device::list();
     let device = Selector::Only.resolve(&devices)?;
@@ -69,13 +73,20 @@ fn main() -> anyhow::Result<()> {
         windows.push(w);
     }
     println!("{:#?}", windows[0]);
-    println!(
-        "exposures: {:?}",
-        windows
-            .iter()
-            .map(|w| (w.id, w.exposure))
-            .collect::<Vec<_>>()
-    );
+    let show = |what: &str, windows: &[Window]| {
+        let e: Vec<_> = windows.iter().map(|w| (w.id, w.exposure)).collect();
+        println!("{what}: {e:?}");
+    };
+    show("exposures as held", &windows);
+
+    if !has("noae") {
+        let exposure = Exposure::choose(session.capabilities(), has("lockwb"))?;
+        println!("metering: {exposure:?}");
+        let started = Instant::now();
+        windows = expose(&mut session, &windows, exposure)?;
+        println!("metered in {:?}", started.elapsed());
+        show("exposures metered", &windows);
+    }
 
     let started = Instant::now();
     for w in &windows {
@@ -100,7 +111,7 @@ fn main() -> anyhow::Result<()> {
     println!("scan finished in {:?}", started.elapsed());
 
     // Leaving the image unread is what wedges the next session
-    if mode == "noread" {
+    if has("noread") {
         println!("leaving the image unread");
         return Ok(());
     }
