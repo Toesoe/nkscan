@@ -87,14 +87,18 @@ impl Session {
         session.test_unit_ready(READY_TIMEOUT)?;
         // Hold the unit before touching anything that changes its state
         session.reserved = session.reserve()?;
-        // A scan left over from whoever had it last would refuse everything below
-        session.abort()?;
-        // 2-8: only SEND DIAGNOSTIC clears error information, so a fault
-        // outlives the session that caused it. Left there, the next operation's
-        // TEST UNIT READY reports it and we blame the wrong command
-        if let Ok(Some(stale)) = session.diagnose() {
-            warn!(?stale, "the unit was still holding a fault from earlier");
+
+        // A scan left over from whoever had it last refuses every non-basic
+        // command with 05h-2Ch, so ask with one and stop it only if it has
+        if let Err(Error::Device(fault)) = session.windows() {
+            if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) {
+                debug!("a scan was still valid from earlier, stopping it");
+                session.abort()?;
+            } else {
+                return Err(Error::Device(fault));
+            }
         }
+
         session.set_units(divisor)?;
         Ok(session)
     }
