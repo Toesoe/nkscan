@@ -939,6 +939,39 @@ matching it against a plane, would settle it.
 table 2-10-5 confirms 1000 to 667 dpi all scan at pitch 4, never 5. A layout
 that takes the bare `optical / asked` ratio sizes an 800 dpi read 20% short.
 
+## Autofocus addresses the medium, not the transport
+
+Confirmed on hardware by bisecting the sub-scanning address with everything else
+held fixed. The window was mechanism Y 14212, length 1200, so its centre is
+14212 + 600 = 14812, and `C8h` puts the frame at top 2236.
+
+| AF Y | What happened |
+|---|---|
+| 600 | swept for 7.6 s, reported out of focus |
+| 12576 | swept for 34 s, **reached focus** |
+| 14812 | refused in 13 ms, lens never moved |
+| 17322 | refused in 13 ms, lens never moved |
+
+12576 is 14812 − 2236: the window centre expressed from the frame origin. So
+§2-15's "the address on the medium where AF is performed" means exactly that,
+and it is a different coordinate space from a window origin, which `C1h` byte 17
+reports as `ADDR_MECHANISM` on this unit.
+
+The refusal threshold falls between 12576 and 14812, which is `C1h`'s Y boundary
+of 13176 — how far the medium runs. An address past it is not a medium address,
+and the unit rejects it in the time it takes to answer, having never moved. That
+makes the boundary the right bound to validate against, not the address range.
+
+**A refused autofocus looks identical to a failed one.** Both terminate with
+`02h-04h-02h` and then diagnose to `01h-61h-02h`, out of focus. Only the elapsed
+time and the absence of an `ActivatingOperation` poll tell them apart, so a bad
+address is worth catching before it is sent.
+
+Two things this rules out. It is not about a focus move first: Nikon Scan issues
+one early in every session and it looked like a prerequisite, but the successful
+autofocus above ran with no focus move at all. And it is not about having a
+window selected, which made no difference either.
+
 ## Sense codes the specs do not list
 
 **`01h-61h-02h` is OUT OF FOCUS.** Neither spec has an ASC 61h anywhere; this is
