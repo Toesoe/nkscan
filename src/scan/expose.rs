@@ -69,9 +69,7 @@ impl Exposure {
 
 /// Meter `windows` and answer them with new exposures
 ///
-/// Leaves everything else about them alone, so the caller can set them and
-/// scan. Nothing is left running: the pass is read out or aborted before this
-/// returns, since a scan whose data was never read locks out the next command.
+/// Leaves everything else about them alone, so the caller can set them and scan
 pub fn expose(
     session: &mut Session,
     windows: &[Window],

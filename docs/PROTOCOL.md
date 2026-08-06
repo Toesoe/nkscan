@@ -1035,12 +1035,19 @@ coordinates the window origin uses. Not an offset from the frame, whatever
 X is 5000 in every capture, which is the frame center and the sensor center at
 once, so it does not discriminate.
 
-**Some addresses are refused outright.** On an FH-869S strip holder, y 12576 was
-accepted and focused while 14812 and 17322 were answered in 13 ms with out of
-focus, nothing having moved. 8x_multisampling addresses 29508 successfully, so
-this is not a fixed limit -- it follows the holder, and what publishes it is not
-yet known. `C1h`'s Y boundary of 13176 falls in the right place for this holder
-but nothing corroborates it.
+**An address outside the frame table is refused outright.** It comes back in
+13 ms as `01h-61h-02h`, out of focus, with nothing having moved. Measured
+directly: with the table holding one rectangle of 0..13176, y 15682 was refused
+in 13.8 ms; with a table containing that address, the same autofocus took 11.2 s
+and succeeded.
+
+That retro-explains the earlier readings on an FH-869S. y 12576 focused while
+14812 and 17322 were refused, and the placeholder table the unit ships with runs
+0..13859 — 12576 is inside it and the other two are not. `8x_multisampling`
+focuses at 29508 because Nikon Scan had written a table reaching that far.
+
+`session::autofocus` refuses these itself now: a refusal and a search that ran
+and failed are otherwise indistinguishable.
 
 Beware of concluding too much from an address that works. 12576 focused fine and
 is 1636 units *before* a window at 14212, so it focused film that was never
@@ -1079,9 +1086,30 @@ Scan makes exactly that move and no other.
 
 Both Nikon Scan and the pre-rewrite driver write the table before anything
 moves: four 6696-dot frames butted together from the opening's front edge, which
-is `C8h`'s `top`, with `C8h`'s left edge and width. Only the frame length is the
-caller's -- nothing advertises the film format. Nikon Scan rewrites it with the
-measured edges once a thumbnail has found them. See `scan::framing::table`.
+is `Frames`'s `top`, with `Frames`'s left edge and width. Only the frame length
+is the caller's -- nothing advertises the film format. Nikon Scan rewrites it
+with the measured edges once a thumbnail has found them. See
+`scan::framing::table`.
+
+**Containment is what it wants, not correspondence.** Same window, same
+autofocus address, four tables:
+
+| Table | autofocus | SET WINDOW |
+|---|---|---|
+| three 8964 frames, window on the middle one | 12.59 s | 2.36 s |
+| one 13176 rectangle from the window's top | 11.16 s | 2.32 s |
+| one 8964 rectangle equal to the window | 12.72 s | 2.39 s |
+| one 13176 rectangle the window outruns | refused | *(nothing moved)* |
+
+A single rectangle half again as long as the window does as well as a table of
+matching frames. The table has to *hold* the window, not describe it.
+
+**A frame longer than the Y boundary stalls the mechanism.** The stage position
+a frame-kind SET WINDOW drives to runs backwards as the frame gets longer --
+`7766 - length/2` in motor steps, measured on hardware at lengths 6696, 9792 and
+13176. Past the boundary it comes out negative, the stage grinds against its
+home stop, and only a power cycle recovers it. `scan::framing::table` refuses
+those rather than sending them.
 
 ## Sense codes the specs do not list
 

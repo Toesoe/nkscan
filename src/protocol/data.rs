@@ -300,6 +300,30 @@ impl Boundary {
     /// Bytes each rectangle occupies
     const RECT: usize = 16;
 
+    /// The frame an address falls in, if any
+    ///
+    /// Autofocus takes an address the unit resolves against this table, and one
+    /// that lands in no frame is refused in 13 ms with out of focus, nothing
+    /// having moved
+    pub fn at(&self, x: u32, y: u32) -> Option<Rect> {
+        self.frames
+            .iter()
+            .copied()
+            .find(|f| (f.top..f.bottom).contains(&y) && (f.left..f.right).contains(&x))
+    }
+
+    /// The frame a window sits wholly inside, if any
+    ///
+    /// What a frame-kind SET WINDOW positions the stage against. Containment is
+    /// the requirement, measured: a single rectangle half again as long as the
+    /// window steps the stage exactly as a table of matching frames does
+    pub fn holding(&self, top: u32, left: u32, bottom: u32, right: u32) -> Option<Rect> {
+        self.frames
+            .iter()
+            .copied()
+            .find(|f| f.top <= top && bottom <= f.bottom && f.left <= left && right <= f.right)
+    }
+
     pub fn from_bytes(b: &[u8]) -> Option<Self> {
         let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
         let count = usize::from(head[2]);
