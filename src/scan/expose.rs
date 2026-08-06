@@ -3,7 +3,7 @@
 //! [`Exposure`] says which mechanism to use. This does it and hands back the
 //! same windows with their exposures filled in.
 
-use super::meter::Metering;
+use super::{meter::Metering, pass};
 use crate::{
     error::Error,
     protocol::{
@@ -79,11 +79,13 @@ pub fn expose(
         Exposure::Unit(kind) => {
             // The unit meters during a pass of its own. It writes the result
             // into the descriptors, so GET WINDOW is what reports it
-            let mut pass = windows.to_vec();
-            for w in &mut pass {
+            let mut metering = windows.to_vec();
+            for w in &mut metering {
                 w.scanning_kind = kind;
             }
-            run(session, &pass)?;
+            // Its own numbers are the point, not the image, so the pass is
+            // stopped rather than read out
+            pass::start(session, &metering, PASS_TIMEOUT)?;
             session.abort()?;
 
             let held = session.windows()?;
@@ -110,25 +112,22 @@ pub fn expose(
 
             // One proportional step lands a few percent under, so keep going
             // until a pass comes back on target rather than counting passes
-            let mut pass = prescan_windows(session, &seeded);
-            let mut layout;
-            let mut raw;
+            let mut windows = prescan_windows(session, &seeded);
+            let mut taken;
             let mut n = 0;
             loop {
-                layout = run(session, &pass)?;
-                raw = vec![0u8; layout.total_bytes() as usize];
-                let got = session.read_image(&layout, &mut raw)?;
-                raw.truncate(got);
+                taken = pass::take(session, &windows, PASS_TIMEOUT)?;
                 n += 1;
 
-                let settled = metering.settled(&layout, &raw)?;
-                debug!(pass = n, bytes = got, settled, "metering pass");
+                let settled = metering.settled(&taken.layout, &taken.data)?;
+                debug!(pass = n, settled, "metering pass");
                 if settled {
                     break;
                 }
 
-                let next = metering.apply(session.capabilities(), &layout, &raw, &pass)?;
-                for (w, exposure) in pass.iter_mut().zip(next) {
+                let next =
+                    metering.apply(session.capabilities(), &taken.layout, &taken.data, &windows)?;
+                for (w, exposure) in windows.iter_mut().zip(next) {
                     w.exposure = exposure;
                 }
                 if n >= metering.max_passes.max(1) {
@@ -136,13 +135,11 @@ pub fn expose(
                     break;
                 }
             }
-
-            // The unit measured this pass too: `DataType::Setup` reports the film base and
-            // the levels its own prescan found. Ours is a percentile and its is
-            // a min and a max, so they will not agree exactly. Worth logging
-            // side by side until we know which to trust for what
-            let measured = metering.measure(&layout, &raw)?;
-            for (n, (window, level)) in pass.iter().zip(&measured).enumerate() {
+            // `DataType::Setup` holds what the unit made of the same pass. Ours
+            // is a percentile and its is a min and a max, so the two will not
+            // agree exactly
+            let measured = metering.measure(&taken.layout, &taken.data)?;
+            for (n, (window, level)) in windows.iter().zip(&measured).enumerate() {
                 let unit = session.setup(window.id).ok();
                 let image = unit.as_ref().and_then(|s| s.images.first());
                 debug!(
@@ -156,10 +153,10 @@ pub fn expose(
                 );
             }
 
-            // Whatever the loop left in `pass` is what the last pass decided
+            // Whatever the loop left in `windows` is what the last pass decided
             Ok(seeded
                 .iter()
-                .zip(&pass)
+                .zip(&windows)
                 .map(|(w, metered)| Window {
                     exposure: metered.exposure,
                     ..w.clone()
@@ -215,19 +212,6 @@ fn prescan_windows(session: &Session, windows: &[Window]) -> Vec<Window> {
             w
         })
         .collect()
-}
-
-/// Set every window, scan them, and wait for the pass to finish
-fn run(session: &mut Session, windows: &[Window]) -> Result<crate::protocol::image::Layout, Error> {
-    for w in windows {
-        session.set_window(w)?;
-    }
-    let ids: Vec<u8> = windows.iter().map(|w| w.id).collect();
-    debug!(?ids, "exposure pass");
-
-    let started = session.scan(windows)?;
-    session.test_unit_ready(PASS_TIMEOUT)?;
-    Ok(started.layout)
 }
 
 /// Whether a set has anything worth metering
