@@ -146,9 +146,11 @@ impl DataType {
             Self::WhiteBalanceExposure => {
                 (0x8C, (Some(4), Some(1)), true, Some(D::EXPOSURE_READ), None)
             }
+            // 2-11-2 fixes no width, but Nikon Scan reads this with the
+            // 1-byte code and a color qualifier 2-11-3 does not list either
             Self::Setup => (
                 0x8D,
-                (None, None),
+                (Some(1), None),
                 true,
                 Some(D::SETUP_READ),
                 Some(D::SETUP_WRITE),
@@ -195,6 +197,8 @@ impl DataType {
                 | Self::Shading
                 | Self::DarkVoltage
                 | Self::WhiteBalanceExposure
+                // Undocumented in 2-11-3, but the captures read it per color
+                | Self::Setup
         )
     }
 
@@ -260,6 +264,75 @@ pub const fn width_code(width: u8) -> Option<u8> {
         4 => 0x03,
         _ => return None,
     })
+}
+
+/// What the unit remembers about one image, from 2-11-7
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Image {
+    /// Which image this is
+    pub index: u8,
+    /// Exposure after this image's prescan
+    pub exposure: u32,
+    /// White balance exposure from the same prescan
+    pub white_balance: u32,
+    /// Darkest level the prescan found
+    pub min: u16,
+    /// Brightest level the prescan found
+    pub max: u16,
+}
+
+/// Setup information, 2-11-7, data type `8Dh`
+///
+/// The unit's own record of what it measured: the film base and, per image,
+/// what a prescan decided. It survives across sessions, and `E1h`'s
+/// `SETUP_WRITE` means a driver can put its own numbers back
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Setup {
+    /// Byte 2, 0 on both units
+    pub format: u8,
+    /// Bytes 3,4. The film base level
+    pub base_level: u16,
+    /// Bytes 5-8, the exposure the base level was decided at
+    pub base_exposure: u32,
+    /// Bytes 9-12, the white balance exposure at that same measurement
+    pub base_white_balance: u32,
+    /// Byte 13 onwards, 13 bytes each
+    pub images: Vec<Image>,
+}
+
+impl Setup {
+    /// Bytes before the first image entry
+    const HEAD: usize = 14;
+    /// Bytes each image entry occupies
+    const IMAGE: usize = 13;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
+        let be16 = |s: &[u8], i: usize| u16::from_be_bytes([s[i], s[i + 1]]);
+        let be32 = |s: &[u8], i: usize| u32::from_be_bytes([s[i], s[i + 1], s[i + 2], s[i + 3]]);
+
+        let count = usize::from(head[13]);
+        let mut images = Vec::with_capacity(count);
+        for n in 0..count {
+            let at = Self::HEAD + n * Self::IMAGE;
+            let e = b.get(at..at + Self::IMAGE)?;
+            images.push(Image {
+                index: e[0],
+                exposure: be32(e, 1),
+                white_balance: be32(e, 5),
+                min: be16(e, 9),
+                max: be16(e, 11),
+            });
+        }
+
+        Some(Self {
+            format: head[2],
+            base_level: be16(head, 3),
+            base_exposure: be32(head, 5),
+            base_white_balance: be32(head, 9),
+            images,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -565,6 +638,39 @@ mod tests {
             CooperativeAction::from_bytes(&b[..CooperativeAction::LENGTH]),
             Some(CooperativeAction::Unknown(0x06, _))
         ));
+    }
+
+    /// The setup record an LS-9000 returned for one loaded image, payload only
+    #[test]
+    fn setup_information_decodes_a_retained_image() {
+        let b = [
+            0x00, 0x18, 0x00, 0x71, 0xF9, 0x00, 0x04, 0xFC, 0x62, 0x00, 0x04, 0xFC, 0x62, 0x01,
+            0x01, 0x00, 0x04, 0xF0, 0x00, 0x00, 0x04, 0xF0, 0x00, 0x12, 0x34, 0x56, 0x78,
+        ];
+        let setup = Setup::from_bytes(&b).unwrap();
+
+        assert_eq!(setup.format, 0);
+        assert_eq!(setup.base_level, 29177);
+        assert_eq!(setup.base_exposure, 326754);
+        assert_eq!(setup.base_white_balance, 326754);
+        assert_eq!(
+            setup.images,
+            vec![Image {
+                index: 1,
+                exposure: 0x0004F000,
+                white_balance: 0x0004F000,
+                min: 0x1234,
+                max: 0x5678,
+            }]
+        );
+    }
+
+    /// The count in byte 13 is what says how much follows
+    #[test]
+    fn a_record_shorter_than_its_image_count_is_refused() {
+        let mut b = vec![0u8; 27];
+        b[13] = 2;
+        assert!(Setup::from_bytes(&b).is_none());
     }
 
     /// A job neither spec describes is reported rather than mis-parsed

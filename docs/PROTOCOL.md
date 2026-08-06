@@ -939,6 +939,46 @@ matching it against a plane, would settle it.
 table 2-10-5 confirms 1000 to 667 dpi all scan at pitch 4, never 5. A layout
 that takes the bare `optical / asked` ratio sizes an 800 dpi read 20% short.
 
+## The unit keeps its own metering record
+
+`8Dh` setup information, 2-11-7, which only the LS-5000 spec documents while both
+units advertise it. An LS-9000 returned a 27-byte payload:
+
+```
+00 18 | 00 | 71 F9 | 00 04 FC 62 | 00 04 FC 62 | 01 | 01 | 00...
+```
+
+length 24, format 0, **base level 29177**, exposure at that base 326754, white
+balance exposure the same, one retained image at index 1 whose prescan fields
+were still zero. So the unit stores the film base and, per image, the exposure
+and the min/max levels a prescan found. `E1h` sets `SETUP_WRITE`, so a driver
+can put its own numbers back — which is how Nikon Scan carries per-frame
+exposures across a batch.
+
+Two things the tables get wrong here. 2-11-2 fixes no element width, but Nikon
+Scan reads it with the 1-byte code. And 2-11-3 does not list `8Dh` among the
+types taking a colour qualifier, yet the captures read it three times with
+qualifiers 01, 02 and 03 and get three different payloads. The exposures in
+those — 326754 / 233518 / 192611 — sit right beside the `8Ch` white balance read
+off our own unit, 329869 / 236947 / 193941.
+
+## What GET PARAMETER reports
+
+`E1h`, 2-16, the read side of SET PARAMETER, which we had never implemented.
+Nikon Scan brackets its autofocus with it:
+
+| Operation | Reply | Meaning |
+|---|---|---|
+| `91h` | `00 00 00 00 01 ...` | automatic AF is **on** |
+| `C1h` | `00 00 00 00 E2 ...` | lens at 226 |
+
+It reads `C1h` before the autofocus, writes the same 226 straight back as a focus
+move, then reads `C1h` again afterwards to recover where AF landed. That last
+read is what makes a focus repeatable without paying for another search.
+
+**Autofocus is slow by design.** The capture polls TEST UNIT READY 51 times
+waiting for one, so tens of seconds is what this unit does, not a fault.
+
 ## Autofocus addresses the medium, not the transport
 
 Confirmed on hardware by bisecting the sub-scanning address with everything else
