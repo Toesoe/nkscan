@@ -8,7 +8,7 @@ use crate::{
     error::Error,
     protocol::{
         caps::set_window::ScanMode,
-        window::{IR, Window},
+        window::{Flags, IR, Window},
     },
     session::Session,
 };
@@ -153,14 +153,12 @@ fn prescan_windows(session: &Session, windows: &[Window]) -> Vec<Window> {
         .iter()
         .map(|w| {
             let mut w = w.clone();
-            // Nikon Scan previews at 666x333. Whether Y does anything is not
-            // settled, so carry the caller's ratio rather than deciding here
-            let y = match w.resolution.1 < w.resolution.0 {
-                true => dpi / 2,
-                false => dpi,
-            };
-            w.resolution = (dpi, y);
+            // A preview halves Y where a scan is square, and runs without the
+            // averaging bit. The captures pair 666x333 with byte 41 = 01h and
+            // high speed every time
+            w.resolution = (dpi, dpi / 2);
             w.multiple_reading = 0;
+            w.flags.remove(Flags::AVERAGING);
             if fast {
                 w.scanning_mode = ScanMode::HIGH_SPEED;
             }

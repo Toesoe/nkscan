@@ -198,6 +198,17 @@ impl TryFrom<&[u8]> for Window {
     }
 }
 
+/// The deepest per-channel depth this unit offers, from `D1h` byte 10
+///
+/// `None` where the page advertises nothing, which would leave a descriptor with
+/// no legal value for byte 26
+pub fn deepest_depth(offered: BitDepth) -> Option<u8> {
+    DEPTHS
+        .iter()
+        .find(|(_, bit)| offered.contains(*bit))
+        .map(|(bits, _)| *bits)
+}
+
 /// How many planes a composition puts in the stream, per 2-10-6
 ///
 /// Only the two multi-level codes are supported, and [`Window::validate`]

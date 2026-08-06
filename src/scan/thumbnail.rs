@@ -18,7 +18,7 @@ use crate::{
         },
         data::CooperativeAction,
         image::Layout,
-        window::{Composition, Window},
+        window::{Composition, DEFAULT, LENGTH, Window, deepest_depth},
     },
     session::Session,
 };
@@ -77,7 +77,7 @@ pub fn scan(session: &mut Session) -> Result<Thumbnail, Error> {
         });
     }
 
-    let window = window(session);
+    let window = window(session)?;
     session.set_window(&window)?;
 
     let started = session.scan(std::slice::from_ref(&window))?;
@@ -96,25 +96,47 @@ pub fn scan(session: &mut Session) -> Result<Thumbnail, Error> {
 }
 
 /// One window over everything the holder can reach
-fn window(session: &Session) -> Window {
+fn window(session: &Session) -> Result<Window, Error> {
     let caps = session.capabilities();
-    let dpi = caps.address.thumbnail_resolution.start;
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
+    let unsupported = |reason: String| Error::Unsupported {
+        op: "thumbnail window",
+        reason,
+    };
 
-    let mut w = Window::try_from(&[0u8; crate::protocol::window::LENGTH][..])
-        .expect("a zeroed descriptor is the right length");
-    w.id = crate::protocol::window::DEFAULT;
-    w.resolution = (dpi, dpi);
+    let bpp = deepest_depth(caps.set_window.depth)
+        .ok_or_else(|| unsupported("this unit advertises no pixel depth".into()))?;
+
+    // Line ordering owes the host nothing, where the three-line mode owes it
+    // registration. Take it when offered rather than assuming it is
+    let offered = caps.set_window.interleaving;
+    let interleaving = match offered.contains(ColorInterleaving::LINE_WITHOUT_DISTANCE) {
+        true => ColorInterleaving::LINE_WITHOUT_DISTANCE,
+        false => {
+            return Err(unsupported(format!(
+                "a thumbnail needs line ordering and this unit offers {offered:?}"
+            )));
+        }
+    };
+
+    let mut w = Window::try_from(&[0u8; LENGTH][..]).expect("a zeroed descriptor is long enough");
+    // 2-7 reads the default color on its own, which is the one plane 2-10-6's
+    // black and white composition carries
+    w.id = DEFAULT;
+    w.composition = Composition::MultilevelBW;
+    w.resolution = (
+        caps.address.thumbnail_resolution.start,
+        caps.address.thumbnail_resolution.start,
+    );
     w.origin = (x.address_range.start, y.address_range.start);
     w.size = (x.boundary, y.address_range.last);
-    w.bpp = 16;
-    w.composition = Composition::MultilevelBW;
+    w.bpp = bpp;
     w.scanning_kind = ScanKind::THUMBNAIL;
     w.scanning_mode = ScanMode::NORMAL_QUALITY;
-    // Every thumbnail in the captures is line ordering, never the three-line mode
-    w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
-    w.ae_value = u8::MAX;
-    w
+    w.color_interleaving = interleaving;
+    // 2-10 byte 45: the default, and what the unit reports back for a 0
+    w.ae_value = 255;
+    Ok(w)
 }
 
 /// Whether the host owes the unit a thumbnail it has to build itself
