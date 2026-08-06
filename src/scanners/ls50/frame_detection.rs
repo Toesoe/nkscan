@@ -14,8 +14,8 @@ use crate::decode::Image;
 use std::fs::File;
 use std::io::Write;
 
-/// how many pixels to discard on each X edge of the frame
-const SLICE_DISCARD_PIXELS_FROM_FRAME_SIDES: u32 = 5;
+/// how many pixels to discard on each X edge of the frame. the actual image is 90px wide so discarding 8px works well
+const DISCARD_PIXELS_FROM_FRAME_SIDE: u32 = 4;
 
 /// halfwidth for moving average
 const SMOOTHING_RADIUS: usize = 20;
@@ -25,38 +25,69 @@ const EDGE_DETECTION_EPSILON: f32 = 1.0;
 // at 97dpi
 const PIXELS_PER_MM: f32 = 3.8189;
 
-/// Extract frame boundary candidates from a thumbnail image.
+/// extract frame boundary candidates from a thumbnail image
 #[derive(Debug, Clone)]
 pub struct FrameDetector {
     /// Film type for boundary detection. No influence on output
     pub film_type: FilmType,
-    pub frame_length_mm: usize,
+    pub frame_size: FrameSize,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum EdgeDirection{
-    LowToHigh,
-    HighToLow,
+enum EdgeDirection {
+    LowToHigh, // exposed to unexposed
+    HighToLow, // unexposed to exposed
 }
 
 #[derive(Debug, Clone, Copy)]
 struct Edge {
     y: u32,
     strength: f32,
-    direction: EdgeDirection
+    direction: EdgeDirection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FilmType {
+    Negative, // start frame transition is HighToLow
+    Positive, // start frame transition is LowToHigh
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum FilmType {
-    Negative,
-    Positive,
+pub enum FrameSize {
+    HalfFrame,
+    FullFrame,
+    XPan,
+    TexPan6x6,
+    TexPan6x7,
+    TexPan6x8,
+    TexPan6x9,
+    TexPan6x12,
+    TexPan6x17,
+    TexPan4x5,
+}
+
+impl FrameSize {
+    pub fn in_mm(self) -> usize {
+        match self {
+            FrameSize::HalfFrame => 18,
+            FrameSize::FullFrame => 36,
+            FrameSize::XPan => 65,
+            FrameSize::TexPan6x6 => 60,
+            FrameSize::TexPan6x7 => 70,
+            FrameSize::TexPan6x8 => 80,
+            FrameSize::TexPan6x9 => 90,
+            FrameSize::TexPan6x12 => 120,
+            FrameSize::TexPan6x17 => 170,
+            FrameSize::TexPan4x5 => 127,
+        }
+    }
 }
 
 impl Default for FrameDetector {
     fn default() -> Self {
         Self {
             film_type: FilmType::Negative,
-            frame_length_mm: 36
+            frame_size: FrameSize::FullFrame,
         }
     }
 }
@@ -67,17 +98,18 @@ impl FrameDetector {
         let profile = self.line_profile(image);
         let derivative = self.derivative(&profile);
 
-        let pitch = self.estimate_pitch(&self.derivative(&self.smooth(&profile))).unwrap();
+        let pitch = self
+            .estimate_pitch(&self.derivative(&self.smooth(&profile)))
+            .unwrap();
 
         let mut candidates = Vec::new();
         let mut magnitudes: Vec<f32> = derivative.iter().map(|x| x.abs()).collect();
 
-        magnitudes.sort_by(|a,b| a.partial_cmp(b).unwrap());
+        magnitudes.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        // compute a sensible edge threshold. use the top 2% peaks here
+        // use the top 2% peaks for thresholding a transition
         let edge_threshold = magnitudes[(magnitudes.len() as f32 * 0.98) as usize];
         let max = *magnitudes.last().unwrap();
-        dbg!(max);
 
         for y in 1..derivative.len() - 1 {
             let value = derivative[y];
@@ -87,35 +119,33 @@ impl FrameDetector {
                 continue;
             }
 
-            // skip edges with wrong polarity
-            let correct_polarity = match self.film_type {
-                FilmType::Negative => value < 0.0, // bright -> dark = base to image
-                FilmType::Positive => value > 0.0, // dark -> bright = base to image
-            };
-
-            if !correct_polarity {
+            // skip edges with wrong transition, we only care about the start of a frame
+            if self.film_type == FilmType::Negative && value > 0.0 ||
+               self.film_type == FilmType::Positive && value < 0.0 {
                 continue;
             }
 
             // ensure the current edge is actually different from the previous one
-            if strength >= derivative[y - 1].abs()
-                && strength >= derivative[y + 1].abs()
-            {
+            if strength >= derivative[y - 1].abs() && strength >= derivative[y + 1].abs() {
                 candidates.push(Edge {
                     y: y as u32,
                     strength,
-                    direction: if derivative[y] > 0.0 { EdgeDirection::LowToHigh } else { EdgeDirection::HighToLow }
+                    direction: if derivative[y] > 0.0 {
+                        EdgeDirection::LowToHigh
+                    } else {
+                        EdgeDirection::HighToLow
+                    },
                 });
             }
         }
 
-        dbg!(&candidates);
+        //dbg!(&candidates);
 
         if candidates.len() < 2 {
             return candidates.into_iter().map(|e| e.y).collect();
         }
 
-        // merge adjacent detections into one edge, keeping the strongest point which should be the actual transition
+        // merge adjacent detections into one edge, keep highest peak
         let mut peaks = Vec::new();
         let mut current = candidates[0];
 
@@ -137,9 +167,12 @@ impl FrameDetector {
         }
 
         let mut boundaries = self.fit_boundaries(&peaks, &profile, pitch);
-        boundaries = boundaries.windows(2)
+
+        // filter out the last match if it's just the transition from film base -> empty scan buffer
+        boundaries = boundaries
+            .windows(2)
             .filter_map(|w| {
-                if self.has_frame_content(&profile, w[0], w[1]) {
+                if self.has_frame_content(&profile, w[0], pitch) {
                     Some(w[0])
                 } else {
                     None
@@ -148,7 +181,6 @@ impl FrameDetector {
             .collect();
 
         dbg!(&peaks);
-        dbg!(pitch);
         dbg!(&boundaries);
 
         let mut bounds = File::create("/tmp/boundaries.txt").unwrap();
@@ -159,8 +191,13 @@ impl FrameDetector {
         boundaries
     }
 
+    fn find_first_frame_address(&self, profile: &[f32], pitch: f32) -> u32 {
+        return 0;
+    }
+
+    /// detect frame pitch in pixels from the preview strip
     fn estimate_pitch(&self, derivative: &Vec<f32>) -> Option<f32> {
-        let expected = self.frame_length_mm as f32 * PIXELS_PER_MM;
+        let expected = self.frame_size.in_mm() as f32 * PIXELS_PER_MM;
 
         let min_lag = (expected * 0.8) as usize;
         let max_lag = (expected * 1.2) as usize;
@@ -175,15 +212,12 @@ impl FrameDetector {
                 score += derivative[i] * derivative[i + lag];
             }
 
-            let denom_a: f32 = derivative[..derivative.len()-lag]
+            let denom_a: f32 = derivative[..derivative.len() - lag]
                 .iter()
-                .map(|x| x*x)
+                .map(|x| x * x)
                 .sum();
 
-            let denom_b: f32 = derivative[lag..]
-                .iter()
-                .map(|x| x*x)
-                .sum();
+            let denom_b: f32 = derivative[lag..].iter().map(|x| x * x).sum();
 
             score /= (denom_a * denom_b).sqrt();
 
@@ -196,12 +230,7 @@ impl FrameDetector {
         best_lag
     }
 
-    fn fit_boundaries(
-        &self,
-        peaks: &[Edge],
-        profile: &[f32],
-        pitch: f32,
-    ) -> Vec<u32> {
+    fn fit_boundaries(&self, peaks: &[Edge], profile: &[f32], pitch: f32) -> Vec<u32> {
         let tolerance = 20;
 
         let mut best = Vec::new();
@@ -217,11 +246,7 @@ impl FrameDetector {
                 let candidate = peaks
                     .iter()
                     .filter(|p| p.y.abs_diff(expected) <= tolerance)
-                    .max_by(|a, b| {
-                        a.strength
-                            .partial_cmp(&b.strength)
-                            .unwrap()
-                    });
+                    .max_by(|a, b| a.strength.partial_cmp(&b.strength).unwrap());
 
                 match candidate {
                     Some(edge) => {
@@ -234,11 +259,7 @@ impl FrameDetector {
                         let predicted = expected;
 
                         if result.len() > 2
-                            && self.has_frame_content(
-                                profile,
-                                predicted,
-                                pitch as u32,
-                            )
+                            && self.has_frame_content(profile, predicted, pitch)
                         {
                             result.push(predicted);
                         }
@@ -253,27 +274,10 @@ impl FrameDetector {
                 }
             }
 
-            // Extend backwards. The first detected boundary is normally
-            // frame 2 because frame 1 has no leader->frame transition.
-            let first = result[0];
-            let possible_first = first as i32 - pitch as i32;
-
-            if possible_first >= 0
-                && self.has_frame_content(&profile, possible_first as u32, pitch as u32)
-            {
-                result.insert(0, possible_first as u32);
-            }
-
-
-            let score =
-                result.len() as i32 * 1000
-                -
-                (result
+            let score = result.len() as i32 * 1000
+                - (result
                     .windows(2)
-                    .map(|w| {
-                        (w[1] as i32 - w[0] as i32 - pitch as i32)
-                            .abs()
-                    })
+                    .map(|w| (w[1] as i32 - w[0] as i32 - pitch as i32).abs())
                     .sum::<i32>());
 
             if score > best_score {
@@ -282,9 +286,19 @@ impl FrameDetector {
             }
         }
 
+        // try to detect a half frame sticking into the leader
+        let first = best[0];
+        let possible_first = first as i32 - pitch as i32;
+
+        if possible_first >= 0
+            && self.has_frame_content(&profile, possible_first as u32, pitch)
+        {
+            dbg!("found additional first frame");
+            best.insert(0, possible_first as u32);
+        }
+
         best
     }
-
 
     /// collapse each scanline into a single brightness value
     fn line_profile(&self, image: &Image) -> Vec<f32> {
@@ -293,7 +307,9 @@ impl FrameDetector {
                 let mut sum = 0f32;
 
                 // perform analysis on frame region only
-                for x in SLICE_DISCARD_PIXELS_FROM_FRAME_SIDES..image.rgb.width() - SLICE_DISCARD_PIXELS_FROM_FRAME_SIDES {
+                for x in DISCARD_PIXELS_FROM_FRAME_SIDE
+                    ..image.rgb.width() - DISCARD_PIXELS_FROM_FRAME_SIDE
+                {
                     let pixel = image.rgb.get_pixel(x, y);
 
                     // use BT.709
@@ -301,14 +317,14 @@ impl FrameDetector {
                     sum += pixel[1] as f32 * 0.7152;
                     sum += pixel[2] as f32 * 0.0722;
                 }
-                sum / (image.rgb.width() - (2 * SLICE_DISCARD_PIXELS_FROM_FRAME_SIDES)) as f32
+                sum / (image.rgb.width() - (2 * DISCARD_PIXELS_FROM_FRAME_SIDE)) as f32
             })
             .collect()
     }
 
-    fn has_frame_content(&self, profile: &[f32], start: u32, end: u32) -> bool {
+    fn has_frame_content(&self, profile: &[f32], start: u32, pitch: f32) -> bool {
         let start = start as usize;
-        let end = (end as usize).min(profile.len());
+        let end = (start + pitch as usize).min(profile.len());
 
         if end <= start {
             return false;
@@ -319,8 +335,7 @@ impl FrameDetector {
         let min = region.iter().copied().fold(f32::INFINITY, f32::min);
         let max = region.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
-        // Real frames contain density variation.
-        // Leader/tail is nearly flat.
+        // frames contain density variation, leader/tail is nearly flat
         max - min > 100.0
     }
 
