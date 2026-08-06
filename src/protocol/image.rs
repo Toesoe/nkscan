@@ -54,49 +54,77 @@ pub struct Layout {
     granule: usize,
 }
 
+/// A stream shape the unit's own numbers do not describe
+fn bad(reason: String) -> Error {
+    Error::Unsupported {
+        op: "image layout",
+        reason,
+    }
+}
+
+/// How many sensor steps one output pixel spans on each axis, 2-10
+///
+/// 2-10 gives Y as ignored and both axes as taking X's pitch. They do not: a
+/// 10000x1200 window at 666x333 comes back with exactly half the lines a square
+/// 666 gives, so Y sets the line stepping and earns its own pitch.
+///
+/// Fractions are discarded, and the resulting pitch is snapped to the ladder
+/// the unit publishes. A thumbnail runs off its own: 83 dpi against a 4000 dpi
+/// sensor is pitch 48, which divides no line gap count, and it scans anyway
+fn pitches(caps: &Capabilities, window: &Window) -> Result<(u32, u32), Error> {
+    let optical = u32::from(caps.address.x_axis.optical_dpi);
+    let asked = u32::from(window.resolution.0);
+    if optical == 0 || asked == 0 {
+        return Err(bad(format!(
+            "cannot pitch {asked} dpi against an optical resolution of {optical}"
+        )));
+    }
+
+    let snap = |raw: u32| match window.scanning_kind.contains(ScanKind::THUMBNAIL) {
+        true => raw.max(1),
+        false => caps.address.pitch_rule.snap(raw),
+    };
+
+    let optical_y = u32::from(caps.address.y_axis.optical_dpi).max(optical);
+    let asked_y = match window.resolution.1 {
+        0 => asked,
+        y => u32::from(y),
+    };
+    Ok((snap(optical / asked), snap(optical_y / asked_y)))
+}
+
+/// The transfer length every READ has to be a whole number of, `Address` byte 4
+///
+/// Bit 1 makes it a line across every color, bit 2 one line. Neither set means
+/// the unit constrains nothing, so any length will do
+fn read_granule(caps: &Capabilities, line: usize, channels: usize) -> usize {
+    let transfer = caps.address.transfer;
+    if transfer.contains(Transfer::READ_LINE_COLS) {
+        (line * channels).max(1)
+    } else if transfer.contains(Transfer::READ_LINE) {
+        line.max(1)
+    } else {
+        1
+    }
+}
+
 impl Layout {
     /// Work out what a scan of `windows` will produce
     ///
     /// `divisor` is the measurement unit in force, which
     /// [`Session`](crate::session::Session) pins at open
     pub fn new(caps: &Capabilities, windows: &[Window], divisor: u16) -> Result<Self, Error> {
-        let bad = |reason: String| Error::Unsupported {
-            op: "image layout",
-            reason,
-        };
-
         // Every rule about the set itself, including that they agree on
         // everything shaping the stream
         validate_set(windows)?;
         let first = &windows[0];
 
         let optical = u32::from(caps.address.x_axis.optical_dpi);
-        let asked = u32::from(first.resolution.0);
-        if optical == 0 || asked == 0 {
-            return Err(bad(format!(
-                "cannot pitch {asked} dpi against an optical resolution of {optical}"
-            )));
-        }
-        // 2-10, fractions discarded. The pitch rule is the image ladder, and a
-        // thumbnail runs off its own: 83 dpi against a 4000 dpi sensor is pitch
-        // 48, which divides no line gap count, and the unit scans it anyway
-        let thumbnail = first.scanning_kind.contains(ScanKind::THUMBNAIL);
-        let ladder = |raw: u32| match thumbnail {
-            true => raw.max(1),
-            false => caps.address.pitch_rule.snap(raw),
-        };
-        let pitch = ladder(optical / asked);
+        let (pitch, line_pitch) = pitches(caps, first)?;
 
-        // 2-10 says Y is ignored and both axes take X's pitch. They do not: a
-        // 10000x1200 window at 666x333 returns 1666x100, exactly half the lines
-        // a square 666 gives, so Y sets the stepping and gets its own pitch
-        let optical_y = u32::from(caps.address.y_axis.optical_dpi).max(optical);
-        let asked_y = match first.resolution.1 {
-            0 => asked,
-            y => u32::from(y),
-        };
-        let line_pitch = ladder(optical_y / asked_y);
-
+        // A window coordinate is one sensor step only at the unit's maximum
+        // resolution. At 1200 it is coarser, so the sizes scale to the sensor
+        // before the pitch divides them
         let (pixels, lines) = if divisor == COARSE_DIVISOR {
             let scale = |v: u32, p: u32| {
                 (u64::from(v) * u64::from(optical) / (u64::from(COARSE_DIVISOR) * u64::from(p)))
@@ -118,15 +146,7 @@ impl Layout {
 
         let channels: Vec<u8> = windows.iter().map(|w| w.id).collect();
         let line = pixels as usize * usize::from(bytes_per_sample);
-        // Address byte 4: bit 1 is [line bytes x colors], bit 2 is [line bytes]
-        let transfer = caps.address.transfer;
-        let granule = if transfer.contains(Transfer::READ_LINE_COLS) {
-            line * channels.len()
-        } else if transfer.contains(Transfer::READ_LINE) {
-            line
-        } else {
-            1
-        };
+        let granule = read_granule(caps, line, channels.len());
 
         Ok(Self {
             pixels,
@@ -142,7 +162,7 @@ impl Layout {
             readings_per_line: first.multiple_reading.saturating_add(1),
             ccd_lines: caps.address.lines,
             registration_gap: u32::from(caps.address.line_gap) / pitch,
-            granule: granule.max(1),
+            granule,
         })
     }
 

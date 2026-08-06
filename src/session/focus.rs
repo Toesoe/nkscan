@@ -75,10 +75,9 @@ impl Session {
             }
         }
 
-        // The unit resolves the address against its frame table. One that lands
-        // in no frame comes back in 13 ms as out of focus with nothing having
-        // moved, which is indistinguishable from a search that ran and failed,
-        // so it is worth refusing here where the reason is still known
+        // The unit resolves the address against its frame table, and answers one
+        // that lands in no frame with out of focus, which a real search failure
+        // is indistinguishable from
         if let Some(frames) = self.frames()
             && !frames.frames.is_empty()
             && frames.at(x, y).is_none()

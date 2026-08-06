@@ -5,14 +5,11 @@
 //! its section imposes, and absorbs the retry and polling semantics. Deciding
 //! what a scan should do belongs above this.
 
-mod data;
-mod focus;
-mod image;
-mod probe;
-mod window;
-
-pub use image::Chunks;
-pub use probe::{inquiry, probe, vpd};
+pub mod data;
+pub mod focus;
+pub mod image;
+pub mod probe;
+pub mod window;
 
 use crate::{
     error::Error,
@@ -39,10 +36,7 @@ pub struct Session {
     transport: Box<dyn Transport>,
     /// What a step of a window coordinate is currently worth
     divisor: u16,
-    /// The frame table as far as we know it, from the last read or write
-    ///
-    /// Both the stage and autofocus resolve against it, so it is worth holding
-    /// on to. `None` means nobody has looked yet, and nothing is checked
+    /// The frame table that windowing uses
     frames: Option<Boundary>,
     /// Whether we hold the unit, so [`Drop`] only releases what it took
     reserved: bool,
@@ -78,7 +72,7 @@ impl Session {
     /// every window coordinate is one pixel and agrees with the addresses and
     /// boundaries `Address` reports.
     pub fn open(mut transport: Box<dyn Transport>) -> Result<Self, Error> {
-        let caps = probe(transport.as_mut())?;
+        let caps = probe::capabilities(transport.as_mut())?;
         let divisor = caps.address.x_axis.dpi_range.last;
         let mut session = Self {
             transport,
@@ -169,7 +163,7 @@ impl Session {
     /// Needed after anything that changes the adapter or holder, since several
     /// fields track those rather than the model
     pub fn refresh(&mut self) -> Result<(), Error> {
-        self.caps = probe(self.transport.as_mut())?;
+        self.caps = probe::capabilities(self.transport.as_mut())?;
         Ok(())
     }
 
@@ -190,8 +184,8 @@ impl Session {
 
     /// Read the divisor back off the unit
     ///
-    /// It outlives a session -- it holds until the next MODE SELECT, a reset or
-    /// a power cycle -- so it is worth checking rather than assuming
+    /// It outlives a session: it holds until the next MODE SELECT, a reset or a
+    /// power cycle
     pub fn units(&mut self) -> Result<u16, Error> {
         let reply = self.mode_sense(mode::MEASUREMENT_UNITS, PageControl::Current)?;
         mode::divisor(&reply)
@@ -291,11 +285,9 @@ impl Session {
                     sleep(POLL_INTERVAL);
                 }
 
-                // Unit attention: the command did not run. Several can queue up
-                // -- ejecting raises both an adapter change and a reset -- so
-                // this arm firing repeatedly is normal. Capabilities track the
-                // adapter rather than the model, so what we cached may no
-                // longer describe what we are about to re-issue against
+                // Unit attention: the command did not run. Several queue up --
+                // ejecting raises an adapter change and a reset. Capabilities
+                // track the adapter, so what we cached may now be stale
                 Outcome::StateChanged(change) => {
                     debug!(?change, "device state changed under us, re-issuing");
                     self.refresh()?;

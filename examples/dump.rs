@@ -160,7 +160,7 @@ fn decode(code: u8, bytes: &[u8]) -> Option<String> {
 /// was asked for, which when probing arbitrary page codes is the expected
 /// answer rather than a failure
 fn probe(transport: &mut dyn Transport, cmd: Inquiry) -> Option<Vec<u8>> {
-    match session::inquiry(transport, cmd) {
+    match session::probe::inquiry(transport, cmd) {
         Ok(bytes) => Some(bytes),
         Err(e) => {
             println!("  {e}");
