@@ -105,6 +105,19 @@ impl Session {
         Ok(out)
     }
 
+    /// What the unit remembers about the film and the images on it
+    ///
+    /// 2-11-7, data type `8Dh`, per color. Holds the base level and, for each
+    /// image, what a prescan decided. Survives across sessions
+    pub fn setup(&mut self, color: u8) -> Result<data::Setup, Error> {
+        let (_, values) = self.read_data(data::DataType::Setup, color)?;
+        let data::Values::Bytes(record) = values else {
+            return Err(malformed("8Dh did not come back as bytes".into()));
+        };
+        data::Setup::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("8Dh was {} bytes", record.len())))
+    }
+
     /// Read the initiator cooperative action parameter a SCAN just asked for
     pub fn cooperation(&mut self) -> Result<data::CooperativeAction, Error> {
         let (_, values) = self.read_data(data::DataType::Cooperation, 0)?;
