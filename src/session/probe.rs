@@ -5,8 +5,13 @@ use crate::{
     error::Error,
     protocol::{
         caps::{
-            Capabilities, Page, address::Address, ccd::CcdMeasurement, identity::Identity,
-            other::Features, set_window::SetWindowFunction,
+            Capabilities, Page,
+            address::{Address, CoordinateBase},
+            ccd::CcdMeasurement,
+            frames::Frames,
+            identity::Identity,
+            other::Features,
+            set_window::SetWindowFunction,
         },
         cdbs::Inquiry,
         sense::{Fault, Outcome, interpret},
@@ -43,9 +48,19 @@ pub fn probe(t: &mut dyn Transport) -> Result<Capabilities, Error> {
         return Err(Error::NotFound);
     }
 
+    let address = Address::try_from(&vpd(t, Address::PAGE_CODE)?)?;
+    // The page only exists when C1h says it does
+    let frames = match address
+        .coordinate_base
+        .contains(CoordinateBase::FRAME_RECTS)
+    {
+        true => Some(Frames::try_from(&vpd(t, Frames::PAGE_CODE)?)?),
+        false => None,
+    };
+
     Ok(Capabilities {
         identity,
-        address: Address::try_from(&vpd(t, Address::PAGE_CODE)?)?,
+        address,
         features: Features::try_from(&vpd(t, Features::PAGE_CODE)?)?,
         set_window: SetWindowFunction::try_from(&vpd(t, SetWindowFunction::PAGE_CODE)?)?,
         // Neither spec lists this one in page 00h, so a refusal means the unit
@@ -58,5 +73,6 @@ pub fn probe(t: &mut dyn Transport) -> Result<Capabilities, Error> {
             }
             Err(e) => return Err(e),
         },
+        frames,
     })
 }
