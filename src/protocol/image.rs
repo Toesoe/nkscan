@@ -26,8 +26,11 @@ pub struct Layout {
     pub pixels: u32,
     /// Output lines, 2-10's `L/P`
     pub lines: u32,
-    /// Scanning pitch `P`
+    /// Scanning pitch `P` along the scan line
     pub pitch: u32,
+    /// The same down the frame. 2-10 derives both from the X resolution and
+    /// calls Y ignored, but the hardware halves the lines for a half Y
+    pub line_pitch: u32,
     /// What the unit will actually scan at, which is the optical resolution
     /// over the pitch and can be coarser than the window asked for
     pub dpi: u32,
@@ -74,24 +77,34 @@ impl Layout {
                 "cannot pitch {asked} dpi against an optical resolution of {optical}"
             )));
         }
-        // 2-10, fractions discarded. Y is not a setting and shares X's pitch.
-        // The pitch rule is the image ladder, and a thumbnail runs off its own:
-        // 83 dpi against a 4000 dpi sensor is pitch 48, which divides no line
-        // gap count, and the unit scans it anyway
-        let raw = (optical / asked).max(1);
-        let pitch = match first.scanning_kind.contains(ScanKind::THUMBNAIL) {
-            true => raw,
+        // 2-10, fractions discarded. The pitch rule is the image ladder, and a
+        // thumbnail runs off its own: 83 dpi against a 4000 dpi sensor is pitch
+        // 48, which divides no line gap count, and the unit scans it anyway
+        let thumbnail = first.scanning_kind.contains(ScanKind::THUMBNAIL);
+        let ladder = |raw: u32| match thumbnail {
+            true => raw.max(1),
             false => caps.address.pitch_rule.snap(raw),
         };
+        let pitch = ladder(optical / asked);
+
+        // 2-10 says Y is ignored and both axes take X's pitch. They do not: a
+        // 10000x1200 window at 666x333 returns 1666x100, exactly half the lines
+        // a square 666 gives, so Y sets the stepping and gets its own pitch
+        let optical_y = u32::from(caps.address.y_axis.optical_dpi).max(optical);
+        let asked_y = match first.resolution.1 {
+            0 => asked,
+            y => u32::from(y),
+        };
+        let line_pitch = ladder(optical_y / asked_y);
 
         let (pixels, lines) = if divisor == COARSE_DIVISOR {
-            let scale = |v: u32| {
-                (u64::from(v) * u64::from(optical) / (u64::from(COARSE_DIVISOR) * u64::from(pitch)))
+            let scale = |v: u32, p: u32| {
+                (u64::from(v) * u64::from(optical) / (u64::from(COARSE_DIVISOR) * u64::from(p)))
                     as u32
             };
-            (scale(first.size.0), scale(first.size.1))
+            (scale(first.size.0, pitch), scale(first.size.1, line_pitch))
         } else {
-            (first.size.0 / pitch, first.size.1 / pitch)
+            (first.size.0 / pitch, first.size.1 / line_pitch)
         };
 
         // 2-11-3: 14-bit data still transfers as two bytes
@@ -119,6 +132,7 @@ impl Layout {
             pixels,
             lines,
             pitch,
+            line_pitch,
             dpi: optical / pitch,
             bytes_per_sample,
             bits_per_sample: first.bpp,
@@ -295,6 +309,25 @@ mod tests {
                 .pitch,
             12
         );
+    }
+
+    /// 2-10 calls Y ignored. A 10000x1200 window at 666x333 came back as
+    /// 1666x100 on hardware, half the lines a square 666 gives, so it is not
+    #[test]
+    fn a_half_y_resolution_halves_the_lines() {
+        let square = Layout::new(&caps(0x01, 12, 3), &rgb(666, (10000, 1200)), 4000).unwrap();
+        assert_eq!((square.pixels, square.lines), (1666, 200));
+        assert_eq!(square.total_bytes(), 1999200);
+
+        let mut half = rgb(666, (10000, 1200));
+        for w in &mut half {
+            w.resolution = (666, 333);
+        }
+        let half = Layout::new(&caps(0x01, 12, 3), &half, 4000).unwrap();
+        assert_eq!((half.pixels, half.lines), (1666, 100));
+        assert_eq!(half.total_bytes(), 999600);
+        // X is untouched by it
+        assert_eq!((half.pitch, half.line_pitch), (6, 12));
     }
 
     /// A gap of 1 makes every even pitch legal and nothing odd past 1

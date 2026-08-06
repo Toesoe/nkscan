@@ -979,6 +979,23 @@ read is what makes a focus repeatable without paying for another search.
 **Autofocus is slow by design.** The capture polls TEST UNIT READY 51 times
 waiting for one, so tens of seconds is what this unit does, not a fault.
 
+## Y resolution is not ignored
+
+2-10 byte 4-5 is explicit: "This field is not referred to because the X-axis
+resolution and the Y-axis resolution are the same in this unit. This field is
+ignored in the SET WINDOW command." 2-10's pixel-count formula agrees, deriving
+one pitch from `Xdpi` and applying it to both axes.
+
+The hardware disagrees. A 10000 x 1200 window at **666x333** returned 999600
+bytes -- 1666 x 100 at three channels and two bytes -- against 1999200 for the
+same window at 666x666. Exactly half the lines. So Y sets the stepping down the
+frame and gets its own pitch.
+
+This is not an edge case to avoid: Nikon Scan halves Y on **every** preview and
+metering pass, 666x333, and squares it for scans and thumbnails. It is a
+deliberate half-rate mode, and a layout that takes 2-10 at its word asks for
+twice the data the unit will send.
+
 ## A thumbnail runs off its own ladder
 
 `C1h` bytes 70-73 publish a thumbnail resolution range separate from the image
