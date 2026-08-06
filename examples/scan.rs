@@ -21,7 +21,10 @@ use std::{
 
 use nkscan::{
     device::{self, Selector},
-    protocol::window::Composition,
+    protocol::{
+        caps::{Capabilities, address::Axis},
+        window::Composition,
+    },
     session::Session,
 };
 
@@ -41,7 +44,11 @@ fn main() -> anyhow::Result<()> {
     let mut session = Session::open(device.open()?)?;
 
     // The lowest resolution this unit offers, over a small patch of the frame
-    let dpi = session.capabilities().address.x_axis.dpi_range.start;
+    let caps = session.capabilities();
+    let dpi = caps.address.x_axis.dpi_range.start;
+    let (origin, size) = place(caps, PATCH);
+    println!("placing {size:?} at {origin:?}");
+
     let held = session.windows()?;
     let mut windows = Vec::new();
     for id in ids {
@@ -51,8 +58,8 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| panic!("no window {id}"))
             .clone();
         w.resolution = (dpi, dpi);
-        w.origin = (518, 2236);
-        w.size = (1200, 1200);
+        w.origin = origin;
+        w.size = size;
         // 2-10-6 has one code for a one-plane output and one for three
         w.composition = if ids.len() > 1 {
             Composition::MultilevelRGB
@@ -124,4 +131,46 @@ fn main() -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+/// How big a patch to ask for, before any axis says otherwise
+const PATCH: u32 = 1200;
+
+/// Put a window at the far end of what this holder offers, using only what the
+/// unit advertises so any scanner and any holder land somewhere legal
+///
+/// Answers `(origin, size)`
+fn place(caps: &Capabilities, patch: u32) -> ((u32, u32), (u32, u32)) {
+    let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
+
+    // 2-2-2-3: an axis with no address range has to be read whole
+    let width = if x.croppable() {
+        patch.min(x.boundary)
+    } else {
+        x.boundary
+    };
+    let height = if y.croppable() {
+        patch.min(y.boundary)
+    } else {
+        y.boundary
+    };
+
+    // A holder that publishes measured frames says exactly where the last one
+    // ends. One that publishes rectangles without lengths knows where frames
+    // start but not where they stop, and one that publishes nothing leaves the
+    // whole axis. Only the first can be placed against a frame
+    let last = caps.frames.as_ref().and_then(|f| f.images.last());
+    let (left, top) = match last {
+        Some(frame) => (
+            frame.left,
+            match frame.length {
+                Some(length) => frame.top + length.saturating_sub(height),
+                None => y.address_range.last,
+            },
+        ),
+        None => (x.address_range.start, y.address_range.last),
+    };
+
+    let clamp = |v: u32, axis: &Axis| v.clamp(axis.address_range.start, axis.address_range.last);
+    ((clamp(left, x), clamp(top, y)), (width, height))
 }

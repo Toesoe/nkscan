@@ -199,6 +199,7 @@ mod tests {
             features,
             set_window,
             ccd: None,
+            frames: None,
         }
     }
 
