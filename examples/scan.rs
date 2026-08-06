@@ -17,6 +17,7 @@
 //! cargo run --example scan -- rgb aty=11976 # put the window at a given Y
 //! cargo run --example scan -- rgb frame=1   # the second of the unit's frames
 //! cargo run --example scan -- rgb len=6696  # 6x4.5 frames rather than 6x6
+//! cargo run --example scan -- rgb notable   # put the whole-sensor table back
 //! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
 //! cargo run --example scan -- rgb thumb     # run a thumbnail pass first
@@ -41,7 +42,7 @@ use nkscan::{
             address::Axis,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        data::Boundary,
+        data::{Boundary, Rect},
         window::{Composition, Window},
     },
     scan::{Exposure, Focus, Framing, expose, framing, preamble, thumbnail},
@@ -80,7 +81,12 @@ fn main() -> anyhow::Result<()> {
     // The setup the captures run once before the first pass. len=N is the film
     // format, which nothing advertises
     let format = arg("len").unwrap_or(8964);
-    let table = framing::table(session.capabilities(), format);
+    // A table outlives a session, so showing what one is worth means writing the
+    // whole-sensor rectangle back rather than declining to write anything
+    let table = match has("notable") {
+        true => whole_sensor(session.capabilities()),
+        false => framing::table(session.capabilities(), format),
+    };
     if !has("nopreamble") {
         let started = Instant::now();
         preamble::run(&mut session, &table)?;
@@ -274,6 +280,19 @@ fn main() -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+/// The one rectangle the unit answers `88h` with before any host has told it
+/// where the frames are, so `notable` can put the mechanism back in that state
+fn whole_sensor(caps: &Capabilities) -> Boundary {
+    Boundary {
+        frames: vec![Rect {
+            top: 0,
+            left: 0,
+            bottom: caps.address.y_axis.address_range.last,
+            right: caps.address.x_axis.address_range.last,
+        }],
+    }
 }
 
 /// Where Nikon Scan put the window in the reference capture, and the frame's
