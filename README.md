@@ -124,7 +124,7 @@ rather than being ignored.
 
 **On a medium format body the exact holder cannot yet be identified.** The scanner reports a
 holder *class*, not a part number, so the rows above for FH-869GR in particular are not reachable
-today — capabilities fall back to what every holder in that family can do. See
+today -- capabilities fall back to what every holder in that family can do. See
 `docs/HOLDERS.md`.
 
 
