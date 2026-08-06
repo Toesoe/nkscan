@@ -1,12 +1,12 @@
-//! Scanning the whole holder at once
+//! Scanning all the available film at once to generate a thumbnail
 //!
-//! A thumbnail is how a strip's frames get found. `C1h` byte 16 says whether the
-//! unit publishes rectangles at all, and `C8h` says whether it knows where they
-//! end: a masked holder does, a strip holder reports a length of zero until
-//! something measures it.
+//!`Address` byte 16 says whether the unit publishes frames at all, and
+//!`Frames` says whether it knows where they end.
+//! A masked holder does, a strip holder reports a length
+//! of zero until something measures it.
 //!
-//! `E1h` puts thumbnail in the host cooperation bits on both families, so the
-//! unit hands us the pass and expects us to make sense of it.
+//! `Features` puts thumbnail in the host cooperation bits on both families, so
+//! the unit hands us the pass and expects us to make sense of it.
 
 use crate::{
     error::Error,
@@ -124,7 +124,7 @@ fn window(session: &Session) -> Result<Window, Error> {
 
 /// Whether the host owes the unit a thumbnail it has to build itself
 ///
-/// `E1h` byte 4 bit 0. Set on both families, so this is the normal case rather
+/// `Features` byte 4 bit 0. Set on both families, so this is the normal case rather
 /// than an exception
 pub fn host_builds(session: &Session) -> bool {
     session

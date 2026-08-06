@@ -49,7 +49,7 @@ pub fn probe(t: &mut dyn Transport) -> Result<Capabilities, Error> {
     }
 
     let address = Address::try_from(&vpd(t, Address::PAGE_CODE)?)?;
-    // The page only exists when C1h says it does
+    // The page only exists when `Address` says it does
     let frames = match address
         .coordinate_base
         .contains(CoordinateBase::FRAME_RECTS)

@@ -1,9 +1,9 @@
 //! The one-time setup a session owes the unit before it scans
 //!
 //! Nikon Scan runs this once after opening and before the first pass, and
-//! nothing in it is a scan. The captures are the only description of it: no
-//! section of either spec says it is needed, and the unit accepts commands
-//! without it. What it appears to buy is a mechanism in a known state.
+//! nothing in it is a scan. No section of either spec says it is needed,
+//! and the unit accepts commands without it.
+//! What it appears to buy is a mechanism in a known state.
 
 use crate::{
     error::Error,
@@ -15,13 +15,9 @@ use crate::{
 };
 use tracing::*;
 
-/// Put the unit into the state Nikon Scan leaves it in before its first scan
+/// Run the canonical Nikon Scan preamble.
 ///
-/// `frames` is where the caller believes the frames are, from
-/// [`framing::table`](super::framing::table). Everything else is gated on what
-/// the unit advertises, and each step is skipped rather than fatal where it is
-/// not offered: this whole sequence is undocumented, so refusing to work
-/// without it would be worse than going ahead.
+/// `frames` is where the caller believes the frames are, from [`framing::table`](super::framing::table)
 pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
     // The CCD's own response curves. The captures read these per channel
     // before anything else
@@ -34,13 +30,6 @@ pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
         }
     }
 
-    // Every window the unit holds, written back as it stands. A SET WINDOW is
-    // what moves the mechanism on this family, so this is the stage being put
-    // somewhere known rather than the descriptors being changed
-    //
-    // A descriptor the unit hands back is not necessarily one it will take:
-    // the power-on defaults reach past the holder aperture, and writing one
-    // back is answered with common error 1. Skip those rather than stop
     let held = session.windows()?;
     for w in &held {
         if let Err(e) = session.set_window(w) {
@@ -48,14 +37,13 @@ pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
         }
     }
 
-    // Where the lens is, and whether the unit focuses on its own schedule
+    // Where the focus motor is, and whether the unit focuses on its own schedule
     let position = session.get_parameter(Op::FocusMove).ok();
     if let Ok(auto) = session.get_parameter(Op::AutoAf) {
         debug!(on = auto.first, "automatic autofocus");
     }
 
-    // Drive the lens to where it already is. The captures do exactly this, and
-    // it is the only thing here that could be initializing the focus mechanism
+    // Drive the focus to where it already is
     if let Some(params) = position {
         let at = params.first.min(u32::from(u16::MAX)) as u16;
         match session.focus_to(at) {
@@ -64,10 +52,7 @@ pub fn run(session: &mut Session, frames: &Boundary) -> Result<(), Error> {
         }
     }
 
-    // Say where the frames are. This is the step the stage cares about: against
-    // the one whole-sensor rectangle the unit holds until it is told otherwise,
-    // a frame-kind SET WINDOW homes instead of stepping to the frame. The unit
-    // wants its current table read before it takes a new one
+    // Say where the frames are
     if offers(session, DataTypes::BOUNDARY_READ) && offers(session, DataTypes::BOUNDARY_WRITE) {
         match session.boundaries() {
             Ok(held) => debug!(frames = held.frames.len(), "the table the unit held"),

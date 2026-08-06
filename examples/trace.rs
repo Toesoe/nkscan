@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
-            // The 88h record is preceded by the six-byte data header 2-11-6 defines
+            // A Boundary record is preceded by the six-byte data header 2-11-6 defines
             0x28 if dtc(r.cdb) == Some(0x88) => {
                 match r.data.get(data::HEADER..).and_then(Boundary::from_bytes) {
                     Some(b) => {

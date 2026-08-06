@@ -95,7 +95,8 @@ bitflags! {
         /// Thumbnails are stored last frame to first, rather than first to last
         const THUMBNAIL_REVERSED = 1 << 4;
         /// The unit publishes frame rectangles
-        /// This implies the `C8h`-`CBh` "additional coordinate information" pages exist
+        /// This implies the "additional coordinate information" pages exist, of
+        /// which `Frames` is the first
         const FRAME_RECTS = 1 << 6;
     }
 }
@@ -329,7 +330,7 @@ mod tests {
         assert!(nine.x_axis.croppable());
         assert!(!five.x_axis.croppable());
 
-        // Only the LS-9000 publishes frame rectangles in C8h/C9h
+        // Only the LS-9000 publishes frame rectangles
         assert!(nine.coordinate_base.contains(CoordinateBase::FRAME_RECTS));
         assert!(!five.coordinate_base.contains(CoordinateBase::FRAME_RECTS));
 

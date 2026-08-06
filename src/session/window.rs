@@ -76,7 +76,8 @@ impl Session {
     /// and [`test_unit_ready`](Session::test_unit_ready) says when the data is
     /// there.
     ///
-    /// A `09h-80h` is not a blocker. The captures read the `87h` record and
+    /// A cooperative request is not a blocker. The captures read the
+    /// `DataType::Cooperation` record and
     /// send SCAN again with nothing in between: it says what the host will owe
     /// the *data*, not what has to happen before the scan runs. Whatever it
     /// asks for comes back on [`Started::cooperation`] for the caller to honor

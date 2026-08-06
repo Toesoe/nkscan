@@ -74,7 +74,7 @@ impl From<u8> for Channel {
     }
 }
 
-/// Byte 26 of a descriptor vs byte 10 of `D1h`, deepest first so a search for what a unit offers finds the best of them
+/// Byte 26 of a descriptor vs byte 10 of `SetWindowFunction`, deepest first so a search for what a unit offers finds the best of them
 const DEPTHS: [(u8, BitDepth); 6] = [
     (16, BitDepth::BIT_16),
     (14, BitDepth::BIT_14),
@@ -108,7 +108,7 @@ pub struct Window {
     /// [`Session::open`] pins that to the maximum resolution, so these are pixels
     pub origin: (u32, u32),
     /// Size of the window, in the same pixels as [`origin`].
-    /// Bounded by `C1h`'s boundary, which the power-on descriptor exceeds. Bytes 14-21
+    /// Bounded by `Address`'s boundary, which the power-on descriptor exceeds. Bytes 14-21
     pub size: (u32, u32),
     /// Brightness. Byte 22
     pub brightness: u8,
@@ -140,13 +140,13 @@ pub struct Window {
     pub flags: Flags,
     /// Setup mode. Byte 41 bits 3-1
     ///
-    /// Only meaningful when `D1h` advertises [`ScanKind::SETUP_2`], which caps it with the setup-mode count in byte 11 of that page
+    /// Only meaningful when `SetWindowFunction` advertises [`ScanKind::SETUP_2`], which caps it with the setup-mode count in byte 11 of that page
     pub setup_mode: u8,
-    /// Byte 42. `D1h` reports which of these the unit will do, so a selection is checkable against it with `contains`
+    /// Byte 42. `SetWindowFunction` reports which of these the unit will do, so a selection is checkable against it with `contains`
     pub scanning_kind: ScanKind,
-    /// Byte 43, likewise checkable against `D1h`
+    /// Byte 43, likewise checkable against `SetWindowFunction`
     pub scanning_mode: ScanMode,
-    /// Byte 44, likewise checkable against `D1h`
+    /// Byte 44, likewise checkable against `SetWindowFunction`
     pub color_interleaving: ColorInterleaving,
     /// Target output value for auto exposure. Byte 45, default 255. Sending 0 sets 255, and GET WINDOW then reports 255
     pub ae_value: u8,
@@ -257,7 +257,7 @@ impl TryFrom<&[u8]> for Window {
     }
 }
 
-/// The deepest per-channel depth this unit offers, from `D1h` byte 10
+/// The deepest per-channel depth this unit offers, from `SetWindowFunction` byte 10
 ///
 /// `None` where the page advertises nothing, which would leave a descriptor with
 /// no legal value for byte 26
@@ -407,7 +407,7 @@ impl Window {
         }
 
         // SET WINDOW ignores Y, so only X is worth bounding. A thumbnail runs
-        // off its own ladder, C1h bytes 70-73, well below the image one
+        // off its own ladder, Address bytes 70-73, well below the image one
         let dpi = self.resolution.0;
         let range = match self.scanning_kind.contains(ScanKind::THUMBNAIL) {
             true => caps.address.thumbnail_resolution,
@@ -467,7 +467,7 @@ impl Window {
         }
 
         // Reading every CCD line at once walks the bar in blocks of Line Gap
-        // Count, and C1h quotes its own geometry in whole ones. A width that is
+        // Count, and Address quotes its own geometry in whole ones. A width that is
         // not divides the bar mid-block and the columns come back interleaved
         // wrong, so it is worth saying -- but only in the mode that reads that way
         let block = u32::from(caps.address.line_gap);
@@ -576,7 +576,7 @@ impl Window {
             }
         }
 
-        // The value is a read position, 0 meaning the unit's own order. `D1h`
+        // The value is a read position, 0 meaning the unit's own order. `SetWindowFunction`
         // bytes 8-9 also pin which component may sit at each position, but
         // nothing states how a window identifier maps to a component, so that
         // half is left to SCAN
@@ -810,12 +810,13 @@ mod tests {
         let w = nth(0);
         assert_eq!(w.resolution, (4000, 4000));
         assert_eq!(w.origin, (0, 0));
-        // 10000 x 13860 at 4000 dpi is the 6x9 frame, matching C1h's y boundary
+        // 10000 x 13860 at 4000 dpi is the 6x9 frame, matching Address's y boundary
         assert_eq!(w.size, (10000, 13860));
         assert_eq!(w.bpp, 16);
         assert_eq!(w.composition, Composition::MultilevelBW);
         assert_eq!(w.ae_value, 255);
-        // The same flags D1h advertises, so a window can be checked against it
+        // The same flags SetWindowFunction advertises, so a window can be
+        // checked against it
         assert_eq!(w.scanning_kind, ScanKind::IMAGE);
         assert_eq!(w.scanning_mode, ScanMode::NORMAL_QUALITY);
         assert_eq!(
@@ -854,7 +855,7 @@ mod tests {
         Page, address::Address, identity::Identity, other::Features, set_window::SetWindowFunction,
     };
 
-    /// Capabilities from a C1h page, with the other pages left minimal
+    /// Capabilities from an Address page, with the other pages left minimal
     fn caps_from(page: Vec<u8>) -> Capabilities {
         let address = Address::try_from(&Page::new(Address::PAGE_CODE, page).unwrap()).unwrap();
 
@@ -935,7 +936,7 @@ mod tests {
         );
     }
 
-    /// C1h publishes a separate resolution range for thumbnails, far below the
+    /// Address publishes a separate resolution range for thumbnails, far below the
     /// image ladder, and a thumbnail has to be checked against that one
     #[test]
     fn a_thumbnail_is_checked_against_the_thumbnail_ladder() {

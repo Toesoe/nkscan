@@ -172,9 +172,9 @@ impl Activity {
 
 /// Post-processing the host has to do before the command will proceed
 ///
-/// 09h-80h is a handshake, not an error: read data type 87h, do the work, and
-/// re-issue. The ASCQ is also byte 0 of the 87h record, so dispatch on the
-/// record and the 4th byte never matters
+/// 09h-80h is a handshake, not an error: read `DataType::Cooperation`, do the
+/// work, and re-issue. The ASCQ is also byte 0 of that record, so dispatch on
+/// the record and the 4th byte never matters
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Coop {
     /// The driver builds the thumbnail

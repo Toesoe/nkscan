@@ -1,6 +1,6 @@
 //! Additional address information page, 2-2-2-6, code 0xC8
 //!
-//! Where the holder's frames sit. Only published when `C1h` byte 16 sets
+//! Where the holder's frames sit. Only published when `Address` byte 16 sets
 //! [`FRAME_RECTS`](super::address::CoordinateBase::FRAME_RECTS)
 
 use super::{Error, Page};
@@ -18,7 +18,8 @@ pub struct Frame {
     ///
     /// A masked holder publishes its frames outright. A strip holder does not:
     /// 2-11-3 measures the length during thumbnail scanning, so until the host
-    /// has found the boundaries itself and sent them back with `88h`, this is 0.
+    /// has found the boundaries itself and sent them back as
+    /// `DataType::Boundary`, this is 0.
     /// `None` is that obligation, not a missing field
     pub length: Option<u32>,
 }

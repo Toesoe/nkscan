@@ -36,10 +36,10 @@ pub enum Focus {
     /// Let the unit focus on a point of the window, given as a fraction of its
     /// size. `(0.5, 0.5)` is the middle
     ///
-    /// `color` needs the unit to offer `A1h`. `None` uses `A0h` and lets it
-    /// choose the channel.
+    /// `color` needs the unit to offer `Op::ColorAutoFocus`. `None` uses
+    /// `Op::AutoFocus` and lets it choose the channel.
     Auto { at: (f32, f32), color: Option<u8> },
-    /// Drive the lens to an absolute position, bounded by `C1h` bytes 76-79
+    /// Drive the lens to an absolute position, bounded by `Address` bytes 76-79
     At(u16),
     /// Leave the focus wherever it is
     Hold,
@@ -96,9 +96,9 @@ impl Focus {
                     Err(e) => Err(e),
                 };
 
-                // 2-16 reports where the lens ended up. Nikon Scan reads C1h
-                // straight after every autofocus, and it is what makes a focus
-                // repeatable without focusing again
+                // 2-16 reports where the lens ended up. Nikon Scan reads
+                // `Op::FocusMove` straight after every autofocus, and it is
+                // what makes a focus repeatable without focusing again
                 if let Ok(params) = session.get_parameter(Op::FocusMove) {
                     info!(position = params.first, "focused at");
                 }
