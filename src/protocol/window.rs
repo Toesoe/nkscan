@@ -444,8 +444,8 @@ impl Window {
             if size == 0 {
                 return Err(bad("window size", format!("{name} is empty")));
             }
-            // The boundary is the holder's opening, not the unit's limit. A wider
-            // holder scans past it -- 9996 has been read off a 9000 against 8964
+            // The boundary is the loaded adapter's opening, not the unit's
+            // limit. A wider one scans past it -- 9996 read off a 9000 against 8964
             // here -- and the unit's own power-on descriptors exceed it too, so
             // this is worth saying and not worth refusing
             if size > axis.boundary {
