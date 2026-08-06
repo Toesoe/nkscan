@@ -6,9 +6,11 @@
 //! happens here, once, before anything moves.
 
 pub mod expose;
+pub mod focus;
 pub mod meter;
 
 pub use expose::expose;
+pub use focus::Focus;
 pub use meter::Metering;
 
 use crate::{

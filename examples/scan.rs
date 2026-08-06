@@ -10,6 +10,7 @@
 //! cargo run --example scan -- rgb           # three channels, dumped to scan.raw
 //! cargo run --example scan -- rgb lockwb    # keep the channels in proportion
 //! cargo run --example scan -- rgb noae      # skip metering
+//! cargo run --example scan -- rgb nofocus   # skip autofocus
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -27,7 +28,7 @@ use nkscan::{
         caps::{Capabilities, address::Axis},
         window::{Composition, Window},
     },
-    scan::{Exposure, expose},
+    scan::{Exposure, Focus, expose},
     session::Session,
 };
 
@@ -78,6 +79,12 @@ fn main() -> anyhow::Result<()> {
         println!("{what}: {e:?}");
     };
     show("exposures as held", &windows);
+
+    if !has("nofocus") {
+        let started = Instant::now();
+        Focus::default().apply(&mut session, &windows)?;
+        println!("focused in {:?}", started.elapsed());
+    }
 
     if !has("noae") {
         let exposure = Exposure::choose(session.capabilities(), has("lockwb"))?;
