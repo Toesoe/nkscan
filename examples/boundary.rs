@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use nkscan::{
     device::{self, Selector},
-    protocol::session::Session,
+    session::Session,
 };
 
 fn main() -> anyhow::Result<()> {

@@ -18,8 +18,8 @@ use nkscan::{
             set_window::SetWindowFunction,
         },
         cdbs::Inquiry,
-        session,
     },
+    session,
     transport::Transport,
 };
 #[derive(Parser)]

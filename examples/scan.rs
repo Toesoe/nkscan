@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use nkscan::{
     device::{self, Selector},
-    protocol::session::Session,
+    session::Session,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -42,45 +42,57 @@ fn main() -> anyhow::Result<()> {
     println!("set window in {:?}", started.elapsed());
 
     let started = Instant::now();
-    match session.scan(&[window.id]) {
-        Ok(()) => {
+    let layout = match session.scan(std::slice::from_ref(&window)) {
+        Ok(layout) => {
             println!("scan started in {:?}", started.elapsed());
-            let started = Instant::now();
-            session.test_unit_ready(Duration::from_secs(180))?;
-            println!("scan finished in {:?}", started.elapsed());
-
-            // Leaving the image unread is what wedges the next session
-            if std::env::args().nth(1).as_deref() == Some("noread") {
-                println!("leaving the image unread");
-                return Ok(());
-            }
-
-            // 2-10's formula: pitch is the optical resolution over the asked-for
-            // one, and the pixel count is the window over the pitch
-            let pitch =
-                u32::from(session.capabilities().address.x_axis.optical_dpi) / u32::from(dpi);
-            let (pixels, lines) = (window.size.0 / pitch, window.size.1 / pitch);
-            let bytes_per_pixel = window.bpp / 8;
-            let line = pixels as usize * bytes_per_pixel as usize;
-            println!("expecting {pixels} x {lines}, {line} bytes a line");
-
-            let mut buf = vec![0u8; line * lines as usize];
-            let started = Instant::now();
-            let got = session.read_image(&mut buf, line, bytes_per_pixel)?;
-            println!(
-                "read {got} of {} bytes in {:?}",
-                buf.len(),
-                started.elapsed()
-            );
-
-            let words: Vec<u16> = buf[..got.min(16)]
-                .chunks_exact(2)
-                .map(|c| u16::from_be_bytes([c[0], c[1]]))
-                .collect();
-            println!("first pixels: {words:?}");
+            layout
         }
-        Err(e) => println!("scan refused after {:?}: {e}", started.elapsed()),
+        Err(e) => {
+            println!("scan refused after {:?}: {e}", started.elapsed());
+            return Ok(());
+        }
+    };
+
+    let started = Instant::now();
+    session.test_unit_ready(Duration::from_secs(180))?;
+    println!("scan finished in {:?}", started.elapsed());
+
+    // Leaving the image unread is what wedges the next session
+    if std::env::args().nth(1).as_deref() == Some("noread") {
+        println!("leaving the image unread");
+        return Ok(());
     }
+
+    println!(
+        "expecting {} x {} at pitch {}, {} bytes",
+        layout.pixels,
+        layout.lines,
+        layout.pitch,
+        layout.total_bytes()
+    );
+
+    let started = Instant::now();
+    let mut got = 0u64;
+    let mut first = Vec::new();
+    let mut chunks = session.image_chunks(&layout)?;
+    while let Some(chunk) = chunks.next() {
+        let chunk = chunk?;
+        if first.is_empty() {
+            first = chunk[..chunk.len().min(16)].to_vec();
+        }
+        got += chunk.len() as u64;
+    }
+    println!(
+        "read {got} of {} bytes in {:?}",
+        layout.total_bytes(),
+        started.elapsed()
+    );
+
+    let words: Vec<u16> = first
+        .chunks_exact(2)
+        .map(|c| u16::from_be_bytes([c[0], c[1]]))
+        .collect();
+    println!("first pixels: {words:?}");
 
     Ok(())
 }

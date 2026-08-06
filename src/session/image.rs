@@ -1,0 +1,142 @@
+//! Moving image data off the unit. Section 2-11-3
+//!
+//! Bytes and nothing else: type `00h` has no data header and no length of its
+//! own, and 2-11 has consecutive reads carry on rather than restart. What the
+//! bytes mean is [`Layout`]'s business, and unscrambling them is a decoder's.
+
+use super::{MOVE_TIMEOUT, Session};
+use crate::{
+    error::Error,
+    protocol::{
+        cdbs::Read,
+        data::DataType,
+        image::Layout,
+        sense::{Fault, Refusal},
+    },
+    transport::Data,
+};
+use tracing::*;
+
+impl Session {
+    /// Read image data into `buf`, continuing where the last read stopped
+    ///
+    /// Answers how much arrived. Short of `buf` means the unit ran out, either
+    /// by transferring less than asked or by answering `05h-2Ch` once the image
+    /// is spent
+    pub fn read_image(&mut self, layout: &Layout, buf: &mut [u8]) -> Result<usize, Error> {
+        let chunk = self.chunk_size(layout)?;
+        let code = DataType::Image.row().code;
+        let width = layout.width_code();
+
+        let mut done = 0;
+        while done < buf.len() {
+            let want = chunk.min(buf.len() - done);
+            let cmd = Read::new(code, 0, width, want as u32);
+            let slice = &mut buf[done..done + want];
+
+            match self.run(&cmd.cdb(), Data::In(slice), MOVE_TIMEOUT) {
+                Ok(completion) => {
+                    done += completion.transferred;
+                    if completion.transferred < want {
+                        break;
+                    }
+                }
+                // 2-11-5: reading past the end of the image is how it says the
+                // image is spent, not a fault
+                Err(Error::Device(fault))
+                    if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) =>
+                {
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        debug!(bytes = done, "read image");
+        Ok(done)
+    }
+
+    /// Stream the image a chunk at a time, without a buffer the size of the scan
+    ///
+    /// Each chunk is a whole number of [`Layout::granule`]s, so a decoder can
+    /// consume them without straddling a boundary the unit will not split on
+    pub fn image_chunks<'a>(&'a mut self, layout: &Layout) -> Result<Chunks<'a>, Error> {
+        let chunk = self.chunk_size(layout)?;
+        Ok(Chunks {
+            session: self,
+            buf: vec![0u8; chunk],
+            layout: layout.clone(),
+            remaining: layout.total_bytes(),
+            spent: false,
+        })
+    }
+
+    /// How much to ask for in one READ
+    ///
+    /// Bounded by what the transport can carry and by `C1h`'s general SCSI
+    /// buffer size, then rounded down to whole granules
+    fn chunk_size(&self, layout: &Layout) -> Result<usize, Error> {
+        let mut chunk = self.transport.max_transfer();
+        if let Some(limit) = self.caps.address.scsi_buffer {
+            chunk = chunk.min(usize::from(limit));
+        }
+
+        let granule = layout.granule();
+        if granule > chunk {
+            return Err(Error::Unsupported {
+                op: "image read",
+                reason: format!(
+                    "this unit reads in units of {granule} bytes, and no more than {chunk} can be transferred at once"
+                ),
+            });
+        }
+        Ok(chunk / granule * granule)
+    }
+}
+
+/// Borrowed chunks of image data, in the order the unit sends them
+///
+/// Not an [`Iterator`]: each chunk borrows the reader's own buffer, so the next
+/// call invalidates the last
+pub struct Chunks<'a> {
+    session: &'a mut Session,
+    buf: Vec<u8>,
+    layout: Layout,
+    remaining: u64,
+    spent: bool,
+}
+
+impl Chunks<'_> {
+    /// The next chunk, or `None` once the image is spent
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Option<Result<&[u8], Error>> {
+        if self.spent || self.remaining == 0 {
+            return None;
+        }
+
+        let want = self.buf.len().min(self.remaining as usize);
+        let layout = &self.layout;
+        match self.session.read_image(layout, &mut self.buf[..want]) {
+            Err(e) => {
+                self.spent = true;
+                Some(Err(e))
+            }
+            Ok(0) => {
+                self.spent = true;
+                None
+            }
+            Ok(got) => {
+                self.remaining -= got as u64;
+                // The unit ran out before the layout said it would
+                if got < want {
+                    self.spent = true;
+                }
+                Some(Ok(&self.buf[..got]))
+            }
+        }
+    }
+
+    /// Bytes the layout still expects
+    pub fn remaining(&self) -> u64 {
+        self.remaining
+    }
+}

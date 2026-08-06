@@ -1,7 +1,10 @@
 //! Focusing, which is EXECUTE operations 91h, A0h, A1h and C1h. Section 2-15-4
 
-use super::{caps::other::HostCooperation, data::Operation, session::Session};
-use crate::error::Error;
+use super::Session;
+use crate::{
+    error::Error,
+    protocol::{caps::other::HostCooperation, data::Operation},
+};
 use std::time::Duration;
 
 /// Auto Focus, 2-15-4 A0h
