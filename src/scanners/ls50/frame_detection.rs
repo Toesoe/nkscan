@@ -35,9 +35,9 @@ pub struct FrameDetector {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum EdgeDirection {
-    LowToHigh, // exposed to unexposed
-    HighToLow, // unexposed to exposed
+struct Boundary {
+    y: u32,
+    detected: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,7 +52,8 @@ pub struct Frame {
     pub start_line_y: u32, // pixel index in preview strip, not hardware address
     pub content_score: f32, // trust in this frame
     pub is_empty: bool,
-    pub is_leader: bool // override empty calculation
+    pub is_leader: bool, // override empty calculation
+    is_interpolated: bool
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -151,7 +152,7 @@ impl FrameDetector {
             }
         }
 
-        //dbg!(&candidates);
+        dbg!(&candidates);
 
         if candidates.len() < 2 {
             return self.edges_to_frames(candidates);
@@ -180,6 +181,9 @@ impl FrameDetector {
 
         let mut frames = self.fit_boundaries(&peaks, &profile, pitch);
         self.classify_empty_frames(&mut frames);
+
+        dbg!(&peaks);
+        dbg!(&frames);
 
         frames
     }
@@ -220,7 +224,7 @@ impl FrameDetector {
     }
 
     fn fit_boundaries(&self, peaks: &[Edge], profile: &[f32], pitch: f32) -> Vec<Frame> {
-        let tolerance = 20;
+        let tolerance = (pitch * 0.25) as u32;
 
         let mut best = Vec::new();
         let mut best_score = i32::MIN;
@@ -232,14 +236,21 @@ impl FrameDetector {
             let mut misses = 0;
 
             while misses < 3 {
+                dbg!(expected);
+
                 let candidate = peaks
                     .iter()
                     .filter(|p| p.y.abs_diff(expected) <= tolerance)
                     .max_by(|a, b| a.strength.partial_cmp(&b.strength).unwrap());
+ 
+                dbg!(candidate.map(|c| c.y));
 
                 match candidate {
                     Some(edge) => {
-                        result.push(edge.y);
+                        result.push(Boundary {
+                            y: edge.y,
+                            detected: true
+                        });
                         expected = edge.y + pitch as u32;
                         misses = 0;
                     }
@@ -250,7 +261,10 @@ impl FrameDetector {
                         if result.len() > 2
                             && self.has_frame_content(profile, predicted, pitch)
                         {
-                            result.push(predicted);
+                            result.push(Boundary {
+                                y: predicted,
+                                detected: false,
+                            });
                         }
 
                         expected += pitch as u32;
@@ -263,10 +277,17 @@ impl FrameDetector {
                 }
             }
 
-            let score = result.len() as i32 * 1000
+            let detected_count = result.iter().filter(|b| b.detected).count();
+            let interpolated_count = result.len() - detected_count;
+
+            // final scoring. put more weight on actually detected boundaries than on inferred ones
+            let score: i32 =
+                detected_count as i32 * 1000
+                + result.len() as i32 * 100
+                - interpolated_count as i32 * 300
                 - (result
                     .windows(2)
-                    .map(|w| (w[1] as i32 - w[0] as i32 - pitch as i32).abs())
+                    .map(|w| (w[1].y as i32 - w[0].y as i32 - pitch as i32).abs())
                     .sum::<i32>());
 
             if score > best_score {
@@ -276,7 +297,7 @@ impl FrameDetector {
         }
 
         // try to detect a half frame sticking into the leader
-        let first = best[0];
+        let first = best[0].y;
         let possible_first = first as i32 - pitch as i32;
 
         let added_leader =
@@ -285,21 +306,22 @@ impl FrameDetector {
 
         if added_leader {
             dbg!("found additional first frame");
-            best.insert(0, possible_first as u32);
+            best.insert(0, Boundary {y: possible_first as u32, detected: false });
         }
         
         // convert boundary positions into frames
         best.windows(2)
             .enumerate()
             .map(|(index, window)| {
-                let y = window[0];
+                let frame = window[0];
 
                 Frame {
                     index,
-                    start_line_y: y,
-                    content_score: self.score_frame_content(profile, y, pitch),
+                    start_line_y: frame.y,
+                    content_score: self.score_frame_content(profile, frame.y, pitch),
                     is_empty: false,
-                    is_leader: added_leader && index == 0
+                    is_leader: added_leader && index == 0,
+                    is_interpolated: !frame.detected
                 }
             })
             .collect()
@@ -412,6 +434,7 @@ impl FrameDetector {
                 content_score: 0.0,
                 is_empty: true,
                 is_leader: false,
+                is_interpolated: true
             })
             .collect()
     }
