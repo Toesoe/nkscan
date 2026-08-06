@@ -127,8 +127,8 @@ impl FrameDetector {
 
         magnitudes.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        // use the top 2% peaks for thresholding a transition
-        let edge_threshold = magnitudes[(magnitudes.len() as f32 * 0.98) as usize];
+        // use the top 1% peaks for thresholding a transition
+        let edge_threshold = magnitudes[(magnitudes.len() as f32 * 0.99) as usize];
 
         for y in 1..derivative.len() - 1 {
             let value = derivative[y];
