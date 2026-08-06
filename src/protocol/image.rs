@@ -6,7 +6,11 @@
 use crate::{
     error::Error,
     protocol::{
-        caps::{Capabilities, address::Transfer, set_window::ColorInterleaving},
+        caps::{
+            Capabilities,
+            address::Transfer,
+            set_window::{ColorInterleaving, ScanKind},
+        },
         data::width_code,
         window::{Window, validate_set},
     },
@@ -70,9 +74,15 @@ impl Layout {
                 "cannot pitch {asked} dpi against an optical resolution of {optical}"
             )));
         }
-        // 2-10, fractions discarded, then snapped to what this unit will scan
-        // at. Y is not a setting and shares X's pitch
-        let pitch = caps.address.pitch_rule.snap(optical / asked);
+        // 2-10, fractions discarded. Y is not a setting and shares X's pitch.
+        // The pitch rule is the image ladder, and a thumbnail runs off its own:
+        // 83 dpi against a 4000 dpi sensor is pitch 48, which divides no line
+        // gap count, and the unit scans it anyway
+        let raw = (optical / asked).max(1);
+        let pitch = match first.scanning_kind.contains(ScanKind::THUMBNAIL) {
+            true => raw,
+            false => caps.address.pitch_rule.snap(raw),
+        };
 
         let (pixels, lines) = if divisor == COARSE_DIVISOR {
             let scale = |v: u32| {
@@ -153,6 +163,7 @@ impl Layout {
 mod tests {
     use super::*;
     use crate::protocol::{
+        caps::set_window::ScanKind,
         caps::{
             Page,
             address::{Address, PitchRule},
@@ -259,6 +270,31 @@ mod tests {
             assert_eq!((l.pitch, l.dpi), (pitch, dpi), "{asked} dpi");
             assert_eq!(l.pixels, 12000 / pitch, "{asked} dpi");
         }
+    }
+
+    /// 83 dpi against a 4000 dpi sensor is pitch 48, which divides no line gap
+    /// count. A real thumbnail of 8964 x 34644 came back as 186 x 721, exactly
+    /// what the unsnapped pitch gives, and 268212 bytes at one channel
+    #[test]
+    fn a_thumbnail_pitch_is_not_snapped_to_the_image_ladder() {
+        let mut windows = rgb(83, (8964, 34644));
+        windows.truncate(1);
+        windows[0].composition = Composition::MultilevelBW;
+        windows[0].scanning_kind = ScanKind::THUMBNAIL;
+
+        let l = Layout::new(&caps(0x01, 12, 3), &windows, 4000).unwrap();
+        assert_eq!(l.pitch, 48);
+        assert_eq!((l.pixels, l.lines), (186, 721));
+        assert_eq!(l.total_bytes(), 268212);
+
+        // The same window as an image snaps to the ladder instead
+        windows[0].scanning_kind = ScanKind::IMAGE;
+        assert_eq!(
+            Layout::new(&caps(0x01, 12, 3), &windows, 4000)
+                .unwrap()
+                .pitch,
+            12
+        );
     }
 
     /// A gap of 1 makes every even pitch legal and nothing odd past 1

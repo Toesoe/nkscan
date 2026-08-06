@@ -979,6 +979,30 @@ read is what makes a focus repeatable without paying for another search.
 **Autofocus is slow by design.** The capture polls TEST UNIT READY 51 times
 waiting for one, so tens of seconds is what this unit does, not a fault.
 
+## A thumbnail runs off its own ladder
+
+`C1h` bytes 70-73 publish a thumbnail resolution range separate from the image
+one: 83 to 83 on an LS-9000, against an image range of 666 to 4000. Two things
+follow, both confirmed against hardware.
+
+A thumbnail has to be checked against that range, not the image range. And the
+pitch rule does **not** apply to it. 83 dpi against a 4000 dpi sensor is pitch
+48, which divides no line gap count, and the unit scans it anyway. A thumbnail
+of 8964 x 34644 returned 268212 bytes, which is 186 x 721 at one channel and two
+bytes -- exactly the unsnapped `optical / asked` pitch through 2-10's formula.
+Snapping 48 down to 12 predicts 4313178 bytes instead.
+
+**Reading it short is normal.** 2-11-3: for strip film the length is measured
+during the thumbnail, so "there is no way for the initiator to check when the
+end of the film comes", and the transfer comes back short. That arrives as CHECK
+CONDITION with ILI set and the shortfall in the information field, which is
+worth handling everywhere rather than only here.
+
+**The pass alone does not populate `C8h`.** `E1h` sets the thumbnail bit in the
+host cooperation field, so the unit hands over the data and expects the initiator
+to find the boundaries and send them back with `88h`. Running the pass and
+reading it out leaves the frame length at zero.
+
 ## Autofocus takes the window center, in window coordinates
 
 Nikon Scan sends the center of the window it is about to scan, in the same
