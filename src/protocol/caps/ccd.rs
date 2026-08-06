@@ -41,7 +41,7 @@ impl CcdMeasurement {
     /// How many response curves a measurement produces
     ///
     /// 2-2-2-7: as many as the channels in byte 4 times the types in byte 9,
-    /// which is what sizes the reply to a `91h` READ
+    /// which is what sizes the reply to a `DataType::CcdData` READ
     pub fn curves(&self) -> usize {
         self.colors.bits().count_ones() as usize * usize::from(self.types)
     }

@@ -3,11 +3,14 @@
 //! [`Exposure`] says which mechanism to use. This does it and hands back the
 //! same windows with their exposures filled in.
 
-use super::Exposure;
+use super::Metering;
 use crate::{
     error::Error,
     protocol::{
-        caps::set_window::ScanMode,
+        caps::{
+            Capabilities,
+            set_window::{AnalogControl, ScanKind, ScanMode},
+        },
         window::{Flags, Window},
     },
     session::Session,
@@ -17,6 +20,52 @@ use tracing::*;
 
 /// Long enough for a low-resolution pass over a whole frame
 const PASS_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// How the exposures get decided
+///
+/// `SetWindowFunction` byte 4 says whether the unit will meter for itself. If
+/// neither AE bit is set, we do it. There is no host-cooperation bit for this in
+/// `Features` the way there is for autofocus, so the missing scan kind is the
+/// only signal.
+#[derive(Debug, Clone, Copy)]
+pub enum Exposure {
+    /// The unit meters itself. This is a scanning kind, so it goes in the
+    /// window descriptor
+    Unit(ScanKind),
+    /// We take an ordinary pass and work the exposures out from it
+    Host(Metering),
+}
+
+impl Exposure {
+    /// Pick whichever mechanism this unit has
+    pub fn choose(caps: &Capabilities, lock_white_balance: bool) -> Result<Self, Error> {
+        let kinds = caps.set_window.kind;
+
+        if lock_white_balance && kinds.contains(ScanKind::AE_WB) {
+            return Ok(Self::Unit(ScanKind::AE_WB));
+        }
+        if !lock_white_balance && kinds.contains(ScanKind::AE) {
+            return Ok(Self::Unit(ScanKind::AE));
+        }
+
+        // We meter by moving the exposure in the descriptor, so the unit has to
+        // offer that as an analog control. `SetWindowFunction` byte 14
+        let aic = caps.set_window.aic;
+        if !aic.intersects(AnalogControl::EXPOSURE_VALUE | AnalogControl::EXPOSURE_TIME) {
+            return Err(Error::Unsupported {
+                op: "exposure",
+                reason: format!(
+                    "this unit runs no AE pass and offers no exposure control, only {aic:?}"
+                ),
+            });
+        }
+
+        Ok(Self::Host(Metering {
+            lock_white_balance,
+            ..Metering::default()
+        }))
+    }
+}
 
 /// Meter `windows` and answer them with new exposures
 ///
@@ -54,8 +103,9 @@ pub fn expose(
 
         Exposure::Host(metering) => {
             // Exposures persist in the unit across sessions, so metering from
-            // whatever is in the descriptors compounds run over run. 8Ch is the
-            // unit's own neutral, measured at start-up, so we start there every
+            // whatever is in the descriptors compounds run over run.
+            // `DataType::WhiteBalanceExposure` is the unit's own neutral,
+            // measured at start-up, so we start there every
             // time. Locking needs it to mean anything at all, and unlocked it
             // still saves the extra pass a stale exposure would cost by clipping
             let seeded = seed_white_balance(session, windows)?;
@@ -89,7 +139,7 @@ pub fn expose(
                 }
             }
 
-            // The unit measured this pass too: 8Dh reports the film base and
+            // The unit measured this pass too: `DataType::Setup` reports the film base and
             // the levels its own prescan found. Ours is a percentile and its is
             // a min and a max, so they will not agree exactly. Worth logging
             // side by side until we know which to trust for what
@@ -131,7 +181,8 @@ fn seed_white_balance(session: &mut Session, windows: &[Window]) -> Result<Vec<W
         .iter()
         .map(|w| {
             let mut w = w.clone();
-            // 2-11-3 answers 8Ch in R, G, B, and the default qualifier is green
+            // 2-11-3 answers `DataType::WhiteBalanceExposure` in R, G, B, and
+            // the default qualifier is green
             if let Some(&exposure) = w.channel().visible_index().and_then(|n| wb.get(n)) {
                 w.exposure = exposure;
             }

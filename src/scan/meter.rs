@@ -3,7 +3,7 @@
 //! [`Exposure`](super::Exposure) decides when this is needed. We take an
 //! ordinary low-resolution pass and work out the per-channel exposures from it.
 //! Nikon Scan does the same: nothing in the capture corpus uses a setup scan
-//! kind or reads `81h`.
+//! kind or reads `DataType::MaxValue`.
 //!
 //! The sensor is linear in integration time, so one proportional step gets us
 //! there. The exception is a clipped pass. A channel sitting at full scale
@@ -75,7 +75,8 @@ impl Metering {
             });
         }
 
-        // D1h bytes 16-24. Anything outside it comes back as common error 2
+        // `SetWindowFunction` bytes 16-24. Anything outside it comes back as
+        // common error 2
         let limit = &caps.set_window.exposure;
         let ceiling = ceiling(layout.bits_per_sample);
         let target = (f32::from(ceiling) * self.target.clamp(0.0, 1.0)) as u16;

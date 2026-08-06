@@ -1,4 +1,5 @@
-//! Focusing, which is EXECUTE operations 91h, A0h, A1h and C1h. Section 2-15-4
+//! Focusing, which is EXECUTE operations `Op::AutoAf`, `Op::AutoFocus`,
+//! `Op::ColorAutoFocus` and `Op::FocusMove`. Section 2-15-4
 
 use super::Session;
 use crate::{
@@ -39,8 +40,8 @@ impl Session {
     /// focus, having moved nothing. What bounds that is not yet known, so this
     /// only checks the range the axis reports.
     ///
-    /// `color` picks the channel, which needs the unit to offer A1h; `None`
-    /// uses A0h and lets it choose.
+    /// `color` picks the channel, which needs the unit to offer
+    /// `Op::ColorAutoFocus`; `None` uses `Op::AutoFocus` and lets it choose.
     pub fn autofocus(&mut self, x: u32, y: u32, color: Option<u8>) -> Result<(), Error> {
         let operation = match color.is_some() {
             true => Op::ColorAutoFocus,

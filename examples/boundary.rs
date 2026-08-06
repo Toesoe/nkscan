@@ -1,4 +1,4 @@
-//! REMOVE LATER: is C1h's boundary a limit or just the holder's opening?
+//! REMOVE LATER: is Address's boundary a limit or just the holder's opening?
 //!
 //! Sends back a descriptor the unit already holds. Its own defaults are wider
 //! than the boundary it reports, so accepting one proves the boundary is advisory

@@ -97,7 +97,8 @@ fn main() -> anyhow::Result<()> {
             .join(" ")
     );
 
-    // Our unit lists E3h even though its spec's table 2-2-1-2 does not, but ask
+    // Our unit lists the CcdMeasurement page even though its spec's table
+    // 2-2-1-2 does not, but ask
     // anyway for one that follows the document
     let unlisted: Vec<u8> = UNLISTED
         .iter()

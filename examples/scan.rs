@@ -85,7 +85,7 @@ fn main() -> anyhow::Result<()> {
     // whole-sensor rectangle back rather than declining to write anything
     let table = match has("notable") {
         true => whole_sensor(session.capabilities()),
-        false => framing::table(session.capabilities(), format),
+        false => framing::table(session.capabilities(), format)?,
     };
     if !has("nopreamble") {
         let started = Instant::now();
@@ -193,7 +193,7 @@ fn main() -> anyhow::Result<()> {
         let started = Instant::now();
         // afy=N drives the sub-scanning address straight, to find out which
         // coordinate space AF actually wants. 2-15 calls it an address on the
-        // medium, while C1h says SET WINDOW addresses are mechanism positions
+        // medium, while Address says SET WINDOW addresses are mechanism positions
         let focused = match arg("afy") {
             Some(y) => {
                 println!("autofocus at raw y={y}");
@@ -282,7 +282,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The one rectangle the unit answers `88h` with before any host has told it
+/// The one rectangle the unit answers `DataType::Boundary` with before any host has told it
 /// where the frames are, so `notable` can put the mechanism back in that state
 fn whole_sensor(caps: &Capabilities) -> Boundary {
     Boundary {
@@ -299,7 +299,7 @@ fn whole_sensor(caps: &Capabilities) -> Boundary {
 /// front edge a scan is supposed to sit at: frame 2 of the 6x9 strip
 /// (`docs/CAPTURES.md`), origin `(518, 12720)`, size `(8964, 8964)`.
 ///
-/// Until this unit has measured a strip it answers `88h` with one rectangle
+/// Until this unit has measured a strip it answers `DataType::Boundary` with one rectangle
 /// covering the whole sensor, so "read the boundary" is not enough to know
 /// where the frames are; the measured geometry from `--frame` wins when the
 /// unit has it, and this is what a scan falls back to.
@@ -309,7 +309,7 @@ const NIKON_SIZE: (u32, u32) = (8964, 8964);
 /// Put a window at the front edge of the chosen measured frame, or at the
 /// window Nikon Scan itself used when nothing is measured.
 ///
-/// The unit's rectangles (`88h`) are in window-origin coordinates, so the
+/// The unit's rectangles are in window-origin coordinates, so the
 /// frame's front edge is its own top-left corner and its size is the whole
 /// rectangle -- the stage goes to the frame and stays there. No frame is
 /// measured until the host has done the boundary write-back 2-11-6 asks for,

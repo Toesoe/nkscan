@@ -33,7 +33,7 @@ pub struct Capabilities {
     pub set_window: set_window::SetWindowFunction,
     /// Missing from the page-00h list, so a unit may genuinely not have it
     pub ccd: Option<ccd::CcdMeasurement>,
-    /// Published only when `C1h` byte 16 sets `FRAME_RECTS`
+    /// Published only when `Address` byte 16 sets `FRAME_RECTS`
     pub frames: Option<frames::Frames>,
 }
 

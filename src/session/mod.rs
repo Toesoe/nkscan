@@ -52,7 +52,7 @@ pub(crate) const MOVE_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Long enough for a cold unit to warm its lamp and initialize
 ///
-/// Nothing advertised bounds this: `C1h` bytes 80,81 are the lamp warm-up
+/// Nothing advertised bounds this: `Address` bytes 80,81 are the lamp warm-up
 /// maximum, and both specs give them as 0
 const READY_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -70,7 +70,7 @@ impl Session {
     ///
     /// Pins the measurement unit divisor to the unit's maximum resolution, so
     /// every window coordinate is one pixel and agrees with the addresses and
-    /// boundaries `C1h` reports. A hard reset or a power cycle puts it back to
+    /// boundaries `Address` reports. A hard reset or a power cycle puts it back to
     /// 1200, so a session that outlives one has to open again
     pub fn open(mut transport: Box<dyn Transport>) -> Result<Self, Error> {
         let caps = probe(transport.as_mut())?;
@@ -232,7 +232,8 @@ impl Session {
     /// As [`run`](Self::run), but hands a cooperative request back rather than
     /// refusing it
     ///
-    /// Only SCAN and READ raise one. 2-7: read the parameter with `87h`, do the
+    /// Only SCAN and READ raise one. 2-7: read the parameter with
+    /// `DataType::Cooperation`, do the
     /// work, and issue the command again
     pub fn run_cooperative(
         &mut self,

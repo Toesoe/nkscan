@@ -3,7 +3,7 @@
 use super::{caps::other::DataTypes, sense::Coop};
 use bitflags::bitflags;
 
-/// The header 2-11-6 puts in front of every type from 80h up
+/// The header 2-11-6 puts in front of every type but `DataType::Image`
 pub const HEADER: usize = 6;
 
 /// One row of table 2-11-2, which both specs give identically for every code
@@ -21,14 +21,14 @@ pub struct Row {
     pub count: Option<u32>,
     /// Whether the 6-byte data header precedes the valid data
     pub header: bool,
-    /// The `E1h` bit that says a unit will READ it, where the page has one
+    /// The `Features` bit that says a unit will READ it, where the page has one
     pub read: Option<DataTypes>,
-    /// The `E1h` bit that says a unit will SEND it
+    /// The `Features` bit that says a unit will SEND it
     pub write: Option<DataTypes>,
 }
 
 /// Table 2-11-2 in full, so a type either unit implements can be named even
-/// where ours does not. Support is never baked in here -- `E1h` decides that at
+/// where ours does not. Support is never baked in here -- `Features` decides that at
 /// runtime through [`Row::read`] and [`Row::write`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataType {
@@ -48,7 +48,7 @@ pub enum DataType {
     AnalogGain,
     DigitalGain,
     WhiteBalanceExposure,
-    /// 8Dh, which the 9000 calls Reserved while advertising it in `E1h`
+    /// The 9000 calls this Reserved while advertising it in `Features`
     Setup,
     Perforation,
     Boundary2,
@@ -173,7 +173,7 @@ impl DataType {
                 Some(D::DRIVER_VERSION_WRITE),
             ),
             Self::LeakVolume => (0x93, (Some(2), Some(3)), true, Some(D::LEAK_READ), None),
-            // Both buffers are always there, so E1h has no bit for them
+            // Both buffers are always there, so Features has no bit for them
             Self::RamBuffer => (0xE0, (None, None), true, None, None),
             Self::EepromBuffer => (0xE1, (None, None), true, None, None),
         };
@@ -266,10 +266,10 @@ pub const fn width_code(width: u8) -> Option<u8> {
     })
 }
 
-/// One frame's rectangle as `88h` carries it, 2-11-6
+/// One frame's rectangle as `DataType::Boundary` carries it, 2-11-6
 ///
 /// Sub-scanning is Y and main-scanning is X, and this record puts them in that
-/// order -- the reverse of `C8h`, which leads with the left edge. Inclusive of
+/// order -- the reverse of `Frames`, which leads with the left edge. Inclusive of
 /// the lower right, so a 13860 line frame ends at 13859
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Rect {
@@ -283,7 +283,7 @@ pub struct Rect {
     pub right: u32,
 }
 
-/// Boundary information, 2-11-6, data type `88h`
+/// Boundary information, 2-11-6, `DataType::Boundary`
 ///
 /// Where each frame sits. After a thumbnail of strip film the host works these
 /// out and sends them, which is what gives the unit frame lengths it could not
@@ -352,10 +352,10 @@ pub struct Image {
     pub max: u16,
 }
 
-/// Setup information, 2-11-7, data type `8Dh`
+/// Setup information, 2-11-7, `DataType::Setup`
 ///
 /// The unit's own record of what it measured: the film base and, per image,
-/// what a prescan decided. It survives across sessions, and `E1h`'s
+/// what a prescan decided. It survives across sessions, and `Features`'s
 /// `SETUP_WRITE` means a driver can put its own numbers back
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Setup {
@@ -408,27 +408,25 @@ impl Setup {
 
 /// What EXECUTE can be told to do, table 2-15-3
 ///
-/// `E1h` bytes 20-35 say which of these a unit has, so nothing here is assumed
+/// `Features` bytes 20-35 say which of these a unit has, so nothing here is assumed
 /// to exist. Only the ones either spec names are spelled out
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
-    /// 80h, the same as a power-on
+    /// The same as a power-on
     Initialize,
-    /// 81h
     ReturnToOrigin,
-    /// 91h. The first setting value is 0 off, 1 on
+    /// The first setting value is 0 off, 1 on
     AutoAf,
-    /// 92h, likewise
+    /// Likewise
     AutoCalibration,
-    /// A0h. Takes an address in both setting values
+    /// Takes an address in both setting values
     AutoFocus,
-    /// A1h, the same plus a channel
+    /// The same plus a channel
     ColorAutoFocus,
-    /// B0h
     SetupShading,
-    /// C1h. Moves the scan block in the AF direction, first value the position
+    /// Moves the scan block in the AF direction, first value the position
     FocusMove,
-    /// D0h, which ejects
+    /// Ejects
     Unload,
     /// A code neither spec names
     Other(u8),
@@ -471,7 +469,7 @@ impl From<u8> for Op {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// The operation parameter SET PARAMETER carries, table 2-15-2
 ///
-/// The table runs to 13 bytes and `C1h` claims 15, but Nikon Scan sends 9 and it
+/// The table runs to 13 bytes and `Address` claims 15, but Nikon Scan sends 9 and it
 /// works, leaving off the speed, torque and driving method. What the two setting
 /// values mean depends on the operation: for AF they are the address to focus
 /// on, for a focus move the first is the position
@@ -607,7 +605,8 @@ impl Truncation {
 
 /// What the scanner wants doing, and the numbers to do it with
 ///
-/// 2-11-5, read back with `87h` once a SCAN says a job is pending. Byte 0 picks
+/// 2-11-5, read back as `DataType::Cooperation` once a SCAN says a job is
+/// pending. Byte 0 picks
 /// the layout of everything after byte 4, and the four layouts share nothing
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CooperativeAction {

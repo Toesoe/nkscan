@@ -16,7 +16,7 @@ use tracing::*;
 impl Session {
     /// READ one data type, in two passes so the data header can size the second
     ///
-    /// Only for the codes from 80h up, which are the ones the data header
+    /// Only for the types the data header
     /// precedes. Image data carries none and goes through
     /// [`read_image`](Session::read_image)
     pub fn read_data(
@@ -47,16 +47,14 @@ impl Session {
         };
 
         if !row.header {
-            return refuse(format!(
-                "{code:02X}h carries no data header to size a read by"
-            ));
+            return refuse(format!("{kind:?} carries no data header to size a read by"));
         }
         match row.read {
             Some(bit) if self.caps.features.data_types.contains(bit) => {}
-            _ => return refuse(format!("this unit does not offer {code:02X}h")),
+            _ => return refuse(format!("this unit does not offer {kind:?}")),
         }
         let Some(width) = row.width else {
-            return refuse(format!("{code:02X}h takes a width 2-11-2 does not fix"));
+            return refuse(format!("{kind:?} takes a width 2-11-2 does not fix"));
         };
         let qualifier = data::width_code(width).expect("2-11-2 widths are all encodable");
         let color = if kind.per_color() { color } else { 0 };
@@ -73,11 +71,11 @@ impl Session {
         // short read is enough to size the real one
         let probe = fetch(data::HEADER as u32)?;
         let (probe, _) = data::Header::from_bytes(&probe)
-            .ok_or_else(|| malformed(format!("{code:02X}h header was {} bytes", probe.len())))?;
+            .ok_or_else(|| malformed(format!("{kind:?} header was {} bytes", probe.len())))?;
 
         let raw = fetch(data::HEADER as u32 + probe.length)?;
         let (header, payload) = data::Header::from_bytes(&raw)
-            .ok_or_else(|| malformed(format!("{code:02X}h header was {} bytes", raw.len())))?;
+            .ok_or_else(|| malformed(format!("{kind:?} header was {} bytes", raw.len())))?;
 
         // Analog gain reports 16 bytes against a documented 8, and the tail is
         // stale, so the table wins wherever it fixes a count
@@ -100,25 +98,21 @@ impl Session {
             _ => {
                 return Err(Error::Unsupported {
                     op: "send data type",
-                    reason: format!("this unit does not take {code:02X}h"),
+                    reason: format!("this unit does not take {kind:?}"),
                 });
             }
         }
         let Some(width) = row.width else {
             return Err(Error::Unsupported {
                 op: "send data type",
-                reason: format!("{code:02X}h takes a width 2-11-2 does not fix"),
+                reason: format!("{kind:?} takes a width 2-11-2 does not fix"),
             });
         };
         let qualifier = data::width_code(width).expect("2-11-2 widths are all encodable");
         let color = if kind.per_color() { color } else { 0 };
 
         let cmd = Send::new(code, color, qualifier, body.len() as u32);
-        debug!(
-            code = format!("{code:02X}h"),
-            bytes = body.len(),
-            "send data"
-        );
+        debug!(?kind, bytes = body.len(), "send data");
         self.run(&cmd.cdb(), Data::Out(body), PROBE_TIMEOUT)?;
         Ok(())
     }
@@ -127,7 +121,7 @@ impl Session {
     pub fn boundaries(&mut self) -> Result<data::Boundary, Error> {
         let (_, record) = self.read_record(data::DataType::Boundary, 0)?;
         data::Boundary::from_bytes(&record)
-            .ok_or_else(|| malformed(format!("88h was {} bytes", record.len())))
+            .ok_or_else(|| malformed(format!("Boundary was {} bytes", record.len())))
     }
 
     /// Tell the unit where each frame is
@@ -141,7 +135,7 @@ impl Session {
 
     /// The exposures the unit measured for neutral white when it started up
     ///
-    /// 2-11-8, data type `8Ch`, one 4-byte value per color, answered in R, G, B
+    /// 2-11-8, `DataType::WhiteBalanceExposure`, one 4-byte value per color, answered in R, G, B
     /// order. The ratios are the unit's own white balance, so metering that
     /// wants to preserve neutral starts from these rather than from whatever
     /// the last session left in the descriptors.
@@ -155,12 +149,12 @@ impl Session {
             let (_, values) = self.read_data(data::DataType::WhiteBalanceExposure, color)?;
             let data::Values::Longs(v) = values else {
                 return Err(malformed(format!(
-                    "8Ch color {color} did not come back as longs"
+                    "WhiteBalanceExposure color {color} did not come back as longs"
                 )));
             };
-            *slot = *v
-                .first()
-                .ok_or_else(|| malformed(format!("8Ch color {color} was empty")))?;
+            *slot = *v.first().ok_or_else(|| {
+                malformed(format!("WhiteBalanceExposure color {color} was empty"))
+            })?;
         }
         debug!(?out, "start-up white balance");
         Ok(out)
@@ -168,25 +162,25 @@ impl Session {
 
     /// What the unit remembers about the film and the images on it
     ///
-    /// 2-11-7, data type `8Dh`, per color. Holds the base level and, for each
+    /// 2-11-7, `DataType::Setup`, per color. Holds the base level and, for each
     /// image, what a prescan decided. Survives across sessions
     pub fn setup(&mut self, color: u8) -> Result<data::Setup, Error> {
         let (_, values) = self.read_data(data::DataType::Setup, color)?;
         let data::Values::Bytes(record) = values else {
-            return Err(malformed("8Dh did not come back as bytes".into()));
+            return Err(malformed("Setup did not come back as bytes".into()));
         };
         data::Setup::from_bytes(&record)
-            .ok_or_else(|| malformed(format!("8Dh was {} bytes", record.len())))
+            .ok_or_else(|| malformed(format!("Setup was {} bytes", record.len())))
     }
 
     /// Read the initiator cooperative action parameter a SCAN just asked for
     pub fn cooperation(&mut self) -> Result<data::CooperativeAction, Error> {
         let (_, values) = self.read_data(data::DataType::Cooperation, 0)?;
         let data::Values::Bytes(record) = values else {
-            return Err(malformed("87h did not come back as bytes".into()));
+            return Err(malformed("Cooperation did not come back as bytes".into()));
         };
         data::CooperativeAction::from_bytes(&record)
-            .ok_or_else(|| malformed(format!("87h was {} bytes", record.len())))
+            .ok_or_else(|| malformed(format!("Cooperation was {} bytes", record.len())))
     }
 
     /// Set the operation parameter, activate the operation, and confirm its

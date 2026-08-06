@@ -83,7 +83,7 @@ impl Session {
 
     /// How much to ask for in one READ
     ///
-    /// Bounded by what the transport can carry and by `C1h`'s general SCSI
+    /// Bounded by what the transport can carry and by `Address`'s general SCSI
     /// buffer size, then rounded down to whole granules
     fn chunk_size(&self, layout: &Layout) -> Result<usize, Error> {
         let mut chunk = self.transport.max_transfer();

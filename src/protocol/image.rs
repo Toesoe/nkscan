@@ -118,7 +118,7 @@ impl Layout {
 
         let channels: Vec<u8> = windows.iter().map(|w| w.id).collect();
         let line = pixels as usize * usize::from(bytes_per_sample);
-        // C1h byte 4: bit 1 is [line bytes x colors], bit 2 is [line bytes]
+        // Address byte 4: bit 1 is [line bytes x colors], bit 2 is [line bytes]
         let transfer = caps.address.transfer;
         let granule = if transfer.contains(Transfer::READ_LINE_COLS) {
             line * channels.len()
@@ -164,7 +164,8 @@ impl Layout {
 
     /// How many bytes the whole scan will hand back
     ///
-    /// The modes that raise a `09h-80h` are the ones this can be wrong for: the
+    /// The modes that raise a cooperative request are the ones this can be
+    /// wrong for: the
     /// multi-line record reports its own byte and line counts, and a scan whose
     /// CCD lines need re-registering carries extra lines at the seams. Prefer
     /// the unit's numbers where it gives them
@@ -352,7 +353,7 @@ mod tests {
         assert_eq!((coarse.pixels, coarse.lines), (4000, 8000));
     }
 
-    /// C1h byte 4 gives the two constraints different units, and the LS-5000
+    /// Address byte 4 gives the two constraints different units, and the LS-5000
     /// sets the wider one
     #[test]
     fn the_read_granule_follows_the_advertised_units() {
