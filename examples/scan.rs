@@ -155,20 +155,19 @@ fn place(caps: &Capabilities, patch: u32) -> ((u32, u32), (u32, u32)) {
         y.boundary
     };
 
-    // A holder that publishes measured frames says exactly where the last one
-    // ends. One that publishes rectangles without lengths knows where frames
-    // start but not where they stop, and one that publishes nothing leaves the
-    // whole axis. Only the first can be placed against a frame
+    // Where a frame starts is published; where it ends is only published for a
+    // holder that has measured it. Failing that the boundary is the longest
+    // window this holder allows, which is as far as the scannable region goes
     let last = caps.frames.as_ref().and_then(|f| f.images.last());
     let (left, top) = match last {
         Some(frame) => (
             frame.left,
-            match frame.length {
-                Some(length) => frame.top + length.saturating_sub(height),
-                None => y.address_range.last,
-            },
+            frame.top + frame.length.unwrap_or(y.boundary).saturating_sub(height),
         ),
-        None => (x.address_range.start, y.address_range.last),
+        None => (
+            x.address_range.start,
+            y.address_range.start + y.boundary.saturating_sub(height),
+        ),
     };
 
     let clamp = |v: u32, axis: &Axis| v.clamp(axis.address_range.start, axis.address_range.last);
