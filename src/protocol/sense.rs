@@ -25,6 +25,10 @@ pub enum Failure {
     UnexpectedStatus(u8),
     #[error("unrecognized sense")]
     Unrecognized,
+    /// Neither spec lists this one. It is SPC's OUT OF FOCUS, and it only
+    /// arrives through SEND DIAGNOSTIC after the generic mechanical error
+    #[error("autofocus did not reach focus")]
+    OutOfFocus, // 01h-61h-02h
 }
 
 /// The device refused a CDB we built -- a missing capability check on our side
@@ -200,12 +204,20 @@ impl From<u8> for Coop {
     }
 }
 
-/// A parameter the scanner moved for us
+/// Something the unit noted about a command that still completed
+///
+/// Sense key 01h is RECOVERED ERROR, so none of these mean the command failed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Adjustment {
     /// Requested resolution was off the pitch ladder; GET WINDOW is
     /// authoritative for what it actually used
     ResolutionRounded, // 01h-37h-00h
+    /// Autofocus ran without reaching focus. Neither spec lists this one; it is
+    /// SPC's OUT OF FOCUS, and it arrives through SEND DIAGNOSTIC rather than
+    /// on the command itself
+    OutOfFocus, // 01h-61h-02h
+    /// A recovered error we have no name for
+    Unreported,
 }
 
 /// Why cached state is stale
@@ -296,8 +308,10 @@ fn from_sense(s: &Sense) -> Outcome {
     match (s.key, s.asc, s.ascq) {
         (0x00, 0x00, 0x00) => Complete,
 
-        // Recovered: it worked, something moved
+        // Recovered: it worked, and the unit had a note about it
         (0x01, 0x37, 0x00) => CompleteWith(Adjustment::ResolutionRounded),
+        (0x01, 0x61, 0x02) => CompleteWith(Adjustment::OutOfFocus),
+        (0x01, ..) => CompleteWith(Adjustment::Unreported),
 
         // Not ready
         (0x02, 0x04, 0x00) => Working(Activity::Initializing),

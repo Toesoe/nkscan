@@ -939,6 +939,23 @@ matching it against a plane, would settle it.
 table 2-10-5 confirms 1000 to 667 dpi all scan at pitch 4, never 5. A layout
 that takes the bare `optical / asked` ratio sizes an 800 dpi read 20% short.
 
+## Sense codes the specs do not list
+
+**`01h-61h-02h` is OUT OF FOCUS.** Neither spec has an ASC 61h anywhere; this is
+plain SPC leaking through. It turned up when autofocus was pointed at the middle
+of a full-width window and could not converge.
+
+Getting to it is the two-stage retrieval §2-8 describes. The autofocus itself
+terminated with `02h-04h-02h-00h`, LOGICAL UNIT NOT READY / mechanical error,
+which says nothing. SEND DIAGNOSTIC then reported the real code — and cleared it,
+so there is exactly one chance to ask. `session::execute` now asks
+automatically the moment a mechanical error comes back, since otherwise the
+detail is gone by the time anyone thinks to look.
+
+Sense key 01h is RECOVERED ERROR, so this is not a failed command: the operation
+finished and the lens is wherever it ended up. Treating it as fatal would refuse
+to scan over something the unit considers advisory.
+
 ## Follow-ups
 
 - **CCD calibration, when the unit advertises it.** Not done yet, and it sits

@@ -254,8 +254,10 @@ impl Session {
             match interpret(&completion) {
                 Outcome::Complete => return Ok((completion, None)),
                 Outcome::CompleteWith(adjustment) => {
-                    // GET WINDOW is authoritative for what the unit actually used
-                    debug!(?adjustment, "the scanner moved a parameter");
+                    // Sense key 01h, so the command finished. Worth saying out
+                    // loud: it means the unit did something other than what we
+                    // asked, and GET WINDOW is what reports the result
+                    info!(?adjustment, "the scanner had a note about that");
                     return Ok((completion, None));
                 }
 
