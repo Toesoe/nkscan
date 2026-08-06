@@ -105,10 +105,10 @@ fn main() -> anyhow::Result<()> {
         let began = Instant::now();
         println!(
             "thumbnail available={} framing {:?} ready={} host builds={}",
-            thumbnail::available(&session),
+            thumbnail::available(session.capabilities()),
             Framing::of(&session),
             Framing::of(&session).ready(),
-            thumbnail::host_builds(&session)
+            thumbnail::host_builds(session.capabilities())
         );
         match thumbnail::scan(&mut session) {
             Ok(t) => println!(

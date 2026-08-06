@@ -2,15 +2,11 @@
 //!
 //! Four mechanisms, picked from what the unit and the loaded adapter advertise.
 
+use super::thumbnail;
 use crate::{
     error::Error,
     protocol::{
-        caps::{
-            Capabilities,
-            address::CoordinateBase,
-            other::{DataTypes, HostCooperation},
-            set_window::ScanKind,
-        },
+        caps::{Capabilities, address::CoordinateBase, other::DataTypes},
         data::{Boundary, Rect},
     },
     session::Session,
@@ -43,7 +39,7 @@ impl Framing {
             if caps.frames.as_ref().is_some_and(|f| f.measured()) {
                 return Self::Published;
             }
-            if thumbnails(caps) {
+            if thumbnail::available(caps) {
                 return Self::Thumbnail;
             }
             return Self::Caller;
@@ -124,17 +120,4 @@ pub fn table(caps: &Capabilities, length: u32) -> Result<Boundary, Error> {
         }));
     }
     Ok(Boundary { frames })
-}
-
-/// Whether this unit and adapter can capture a thumbnail
-fn thumbnails(caps: &Capabilities) -> bool {
-    caps.set_window.kind.contains(ScanKind::THUMBNAIL)
-        && caps.address.thumbnail_resolution.start > 0
-}
-
-/// Whether the host has to build the thumbnail itself, `Features` byte 4 bit 0
-pub fn host_builds_thumbnail(caps: &Capabilities) -> bool {
-    caps.features
-        .cooperation
-        .contains(HostCooperation::THUMBNAIL)
 }
