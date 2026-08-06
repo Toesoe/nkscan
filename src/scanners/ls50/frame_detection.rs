@@ -136,12 +136,10 @@ impl FrameDetector {
             return peaks.into_iter().map(|e| e.y).collect();
         }
 
-        let mut boundaries = self.fit_boundaries(&peaks, pitch);
-
-        boundaries = boundaries
-            .windows(2)
+        let mut boundaries = self.fit_boundaries(&peaks, &profile, pitch);
+        boundaries = boundaries.windows(2)
             .filter_map(|w| {
-                if self.has_frame_content(&profile, w[0], w[1] - w[0]) {
+                if self.has_frame_content(&profile, w[0], w[1]) {
                     Some(w[0])
                 } else {
                     None
@@ -153,10 +151,15 @@ impl FrameDetector {
         dbg!(pitch);
         dbg!(&boundaries);
 
+        let mut bounds = File::create("/tmp/boundaries.txt").unwrap();
+        for y in &boundaries {
+            writeln!(bounds, "{}", y).unwrap();
+        }
+
         boundaries
     }
 
-    fn estimate_pitch(&self, derivative: &Vec<f32>) -> Option<usize> {
+    fn estimate_pitch(&self, derivative: &Vec<f32>) -> Option<f32> {
         let expected = self.frame_length_mm as f32 * PIXELS_PER_MM;
 
         let min_lag = (expected * 0.8) as usize;
@@ -164,9 +167,6 @@ impl FrameDetector {
 
         let mut best_lag = None;
         let mut best_score = 0.0;
-
-        let mut csv = File::create("/tmp/autocorr.csv").unwrap();
-        writeln!(csv, "lag,score").unwrap();
 
         for lag in min_lag..=max_lag {
             let mut score = 0.0;
@@ -187,48 +187,97 @@ impl FrameDetector {
 
             score /= (denom_a * denom_b).sqrt();
 
-            writeln!(csv, "{},{}", lag, score).unwrap();
-
             if score > best_score {
                 best_score = score;
-                best_lag = Some(lag);
+                best_lag = Some(lag as f32);
             }
         }
 
         best_lag
     }
 
-    fn fit_boundaries(&self, peaks: &[Edge], pitch: usize) -> Vec<u32> {
-        let tolerance = 15;
+    fn fit_boundaries(
+        &self,
+        peaks: &[Edge],
+        profile: &[f32],
+        pitch: f32,
+    ) -> Vec<u32> {
+        let tolerance = 20;
 
         let mut best = Vec::new();
+        let mut best_score = i32::MIN;
 
         for start in peaks {
             let mut result = Vec::new();
             let mut expected = start.y;
 
-            loop {
+            let mut misses = 0;
+
+            while misses < 3 {
                 let candidate = peaks
                     .iter()
                     .filter(|p| p.y.abs_diff(expected) <= tolerance)
-                    .max_by(|a,b| {
-                        a.strength.partial_cmp(&b.strength).unwrap()
+                    .max_by(|a, b| {
+                        a.strength
+                            .partial_cmp(&b.strength)
+                            .unwrap()
                     });
 
                 match candidate {
                     Some(edge) => {
                         result.push(edge.y);
-                        expected += pitch as u32;
+                        expected = edge.y + pitch as u32;
+                        misses = 0;
                     }
-                    None => break,
+                    None => {
+                        // allow a missing frame boundary
+                        let predicted = expected;
+
+                        if result.len() > 2
+                            && self.has_frame_content(
+                                profile,
+                                predicted,
+                                pitch as u32,
+                            )
+                        {
+                            result.push(predicted);
+                        }
+
+                        expected += pitch as u32;
+                        misses += 1;
+                    }
                 }
 
-                if result.len() > 45 {
+                if expected > profile.len() as u32 {
                     break;
                 }
             }
 
-            if result.len() > best.len() {
+            // Extend backwards. The first detected boundary is normally
+            // frame 2 because frame 1 has no leader->frame transition.
+            let first = result[0];
+            let possible_first = first as i32 - pitch as i32;
+
+            if possible_first >= 0
+                && self.has_frame_content(&profile, possible_first as u32, pitch as u32)
+            {
+                result.insert(0, possible_first as u32);
+            }
+
+
+            let score =
+                result.len() as i32 * 1000
+                -
+                (result
+                    .windows(2)
+                    .map(|w| {
+                        (w[1] as i32 - w[0] as i32 - pitch as i32)
+                            .abs()
+                    })
+                    .sum::<i32>());
+
+            if score > best_score {
+                best_score = score;
                 best = result;
             }
         }
@@ -257,9 +306,9 @@ impl FrameDetector {
             .collect()
     }
 
-    fn has_frame_content(&self, profile: &[f32], y: u32, pitch: u32) -> bool {
-        let start = y as usize;
-        let end = (start + pitch as usize).min(profile.len());
+    fn has_frame_content(&self, profile: &[f32], start: u32, end: u32) -> bool {
+        let start = start as usize;
+        let end = (end as usize).min(profile.len());
 
         if end <= start {
             return false;
@@ -267,10 +316,11 @@ impl FrameDetector {
 
         let region = &profile[start..end];
 
-        let min = region.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = region.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = region.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = region.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
-        // A real frame has density variation. Empty leader/tail does not.
+        // Real frames contain density variation.
+        // Leader/tail is nearly flat.
         max - min > 100.0
     }
 
