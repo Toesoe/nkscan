@@ -60,27 +60,32 @@ pub fn expose(
             // still saves the extra pass a stale exposure would cost by clipping
             let seeded = seed_white_balance(session, windows)?;
 
-            // One proportional step lands a few percent under, so a second pass
-            // measures from where the first got to. The captures take two
+            // One proportional step lands a few percent under, so keep going
+            // until a pass comes back on target rather than counting passes
             let mut pass = prescan_windows(session, &seeded);
             let mut layout;
             let mut raw;
-            let mut got;
             let mut n = 0;
             loop {
                 layout = run(session, &pass)?;
                 raw = vec![0u8; layout.total_bytes() as usize];
-                got = session.read_image(&layout, &mut raw)?;
+                let got = session.read_image(&layout, &mut raw)?;
                 raw.truncate(got);
                 n += 1;
-                debug!(pass = n, bytes = got, "metering pass");
 
-                if n >= metering.passes.max(1) {
+                let settled = metering.settled(&layout, &raw)?;
+                debug!(pass = n, bytes = got, settled, "metering pass");
+                if settled {
                     break;
                 }
+
                 let next = metering.apply(session.capabilities(), &layout, &raw, &pass)?;
                 for (w, exposure) in pass.iter_mut().zip(next) {
                     w.exposure = exposure;
+                }
+                if n >= metering.max_passes.max(1) {
+                    debug!(passes = n, "metering did not settle");
+                    break;
                 }
             }
 
@@ -103,12 +108,12 @@ pub fn expose(
                 );
             }
 
-            let exposures = metering.apply(session.capabilities(), &layout, &raw, &pass)?;
+            // Whatever the loop left in `pass` is what the last pass decided
             Ok(seeded
                 .iter()
-                .zip(exposures)
-                .map(|(w, exposure)| Window {
-                    exposure,
+                .zip(&pass)
+                .map(|(w, metered)| Window {
+                    exposure: metered.exposure,
                     ..w.clone()
                 })
                 .collect())

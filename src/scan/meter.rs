@@ -31,9 +31,12 @@ pub struct Metering {
     /// and the film keeps its cast. Off means each one fills the range by
     /// itself, which takes the orange mask off a negative
     pub lock_white_balance: bool,
-    /// How many passes to take. One lands a few percent under, and a second
-    /// measures from where the first got to. Nikon Scan takes two
-    pub passes: usize,
+    /// How close to `target` counts as landed, as a fraction. A pass that comes
+    /// back inside this needs no correction and no further pass
+    pub tolerance: f32,
+    /// Passes to take before giving up on converging. A clipped channel needs
+    /// at least two, since halving it is a retreat rather than a correction
+    pub max_passes: usize,
 }
 
 impl Default for Metering {
@@ -42,7 +45,8 @@ impl Default for Metering {
             target: 0.97,
             percentile: 0.999,
             lock_white_balance: false,
-            passes: 2,
+            tolerance: 0.02,
+            max_passes: 3,
         }
     }
 }
@@ -117,6 +121,26 @@ impl Metering {
 }
 
 impl Metering {
+    /// Whether a pass landed close enough that correcting it is not worth
+    /// another pass
+    ///
+    /// A channel with nothing to measure counts as settled: there is no
+    /// correction to make from a level of zero. A clipped one never does,
+    /// since where it actually sits is unknown.
+    pub fn settled(&self, layout: &Layout, raw: &[u8]) -> Result<bool, Error> {
+        let ceiling = ceiling(layout.bits_per_sample);
+        let target = f32::from(ceiling) * self.target.clamp(0.0, 1.0);
+
+        Ok(self
+            .measure(layout, raw)?
+            .into_iter()
+            .all(|level| match level {
+                None => true,
+                Some(l) if l >= ceiling => false,
+                Some(l) => (f32::from(l) / target - 1.0).abs() <= self.tolerance,
+            }))
+    }
+
     /// The high tail of each channel, in the order `layout` lists them
     ///
     /// What the exposures get decided from, so it is worth being able to look
@@ -354,6 +378,25 @@ mod tests {
             .unwrap();
         // The visible three lock to green's 2x; infrared takes its own 4x
         assert_eq!(got, vec![2000, 2000, 2000, 4000]);
+    }
+
+    /// A pass already on target needs no correction and no further pass
+    #[test]
+    fn a_pass_on_target_is_settled() {
+        let m = Metering {
+            target: 1.0,
+            ..Default::default()
+        };
+        let w = windows(&[1, 2, 3], 1000);
+        let l = layout(&w);
+
+        // Full scale is the target, and 65535 is clipped rather than landed
+        assert!(m.settled(&l, &raw(&[65000, 65000, 65000])).unwrap());
+        assert!(!m.settled(&l, &raw(&[65535, 65000, 65000])).unwrap());
+        // Half of target is nowhere near it
+        assert!(!m.settled(&l, &raw(&[32767, 65000, 65000])).unwrap());
+        // Nothing to measure is nothing to correct
+        assert!(m.settled(&l, &raw(&[0, 65000, 65000])).unwrap());
     }
 
     /// A dark channel gives us nothing to scale, so it keeps what it had
