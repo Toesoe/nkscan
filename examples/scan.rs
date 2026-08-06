@@ -15,6 +15,9 @@
 //! cargo run --example scan -- rgb afy=600   # autofocus at a raw sub-scan address
 //! cargo run --example scan -- rgb aftop     # focus the window origin, not its middle
 //! cargo run --example scan -- rgb aty=11976 # put the window at a given Y
+//! cargo run --example scan -- rgb halfy     # preview at 666x333, as Nikon Scan does
+//! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
+//! cargo run --example scan -- rgb multiline # the three-line CCD mode
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -29,7 +32,7 @@ use std::{
 use nkscan::{
     device::{self, Selector},
     protocol::{
-        caps::{Capabilities, address::Axis},
+        caps::{Capabilities, address::Axis, set_window::ColorInterleaving},
         window::{Composition, Window},
     },
     scan::{Exposure, Focus, expose},
@@ -68,6 +71,10 @@ fn main() -> anyhow::Result<()> {
     // The lowest resolution this unit offers, over a small patch of the frame
     let caps = session.capabilities();
     let dpi = caps.address.x_axis.dpi_range.start;
+    let aperture = (
+        caps.frames.as_ref().and_then(|f| f.images.first()).map_or(0, |f| f.left),
+        caps.address.x_axis.boundary,
+    );
     let (mut origin, size) = place(caps, PATCH);
     // aty=N puts the window where we want it, so the scan can be moved onto
     // film autofocus will actually accept
@@ -87,9 +94,21 @@ fn main() -> anyhow::Result<()> {
             .find(|w| w.id == *id)
             .unwrap_or_else(|| panic!("no window {id}"))
             .clone();
-        w.resolution = (dpi, dpi);
+        // Three things Nikon Scan's preview descriptor does that ours does not,
+        // each on its own flag so they can be bisected
+        w.resolution = match has("halfy") {
+            true => (dpi, dpi / 2),
+            false => (dpi, dpi),
+        };
         w.origin = origin;
         w.size = size;
+        if has("aperture") {
+            w.origin.0 = aperture.0;
+            w.size.0 = aperture.1;
+        }
+        if has("multiline") {
+            w.color_interleaving = ColorInterleaving::MULTILINE_SIMULTANEOUS;
+        }
         // 2-10-6 has one code for a one-plane output and one for three
         w.composition = if ids.len() > 1 {
             Composition::MultilevelRGB

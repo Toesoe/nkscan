@@ -153,7 +153,13 @@ fn prescan_windows(session: &Session, windows: &[Window]) -> Vec<Window> {
         .iter()
         .map(|w| {
             let mut w = w.clone();
-            w.resolution = (dpi, dpi);
+            // Nikon Scan previews at 666x333. Whether Y does anything is not
+            // settled, so carry the caller's ratio rather than deciding here
+            let y = match w.resolution.1 < w.resolution.0 {
+                true => dpi / 2,
+                false => dpi,
+            };
+            w.resolution = (dpi, y);
             w.multiple_reading = 0;
             if fast {
                 w.scanning_mode = ScanMode::HIGH_SPEED;
