@@ -129,16 +129,14 @@ impl Metering {
     /// since where it actually sits is unknown.
     pub fn settled(&self, layout: &Layout, raw: &[u8]) -> Result<bool, Error> {
         let ceiling = ceiling(layout.bits_per_sample);
-        let target = f32::from(ceiling) * self.target.clamp(0.0, 1.0);
+        let target = (f32::from(ceiling) * self.target.clamp(0.0, 1.0)) as u16;
 
-        Ok(self
-            .measure(layout, raw)?
-            .into_iter()
-            .all(|level| match level {
+        Ok(self.measure(layout, raw)?.into_iter().all(|level| {
+            match level.and_then(|l| step(l, target, ceiling)) {
                 None => true,
-                Some(l) if l >= ceiling => false,
-                Some(l) => (f32::from(l) / target - 1.0).abs() <= self.tolerance,
-            }))
+                Some(scale) => (scale - 1.0).abs() <= f64::from(self.tolerance),
+            }
+        }))
     }
 
     /// The high tail of each channel, in the order `layout` lists them
