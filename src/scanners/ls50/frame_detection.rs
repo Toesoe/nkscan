@@ -9,6 +9,8 @@
 //! smooth the result, then look for strong transitions corresponding to frame
 //! boundaries.
 
+use image::Rgb;
+
 use crate::decode::Image;
 
 use std::fs::File;
@@ -19,9 +21,7 @@ const DISCARD_PIXELS_FROM_FRAME_SIDE: u32 = 4;
 
 /// halfwidth for moving average
 const SMOOTHING_RADIUS: usize = 20;
-
 const EDGE_DETECTION_EPSILON: f32 = 1.0;
-const FRAME_SCORING_EMPTY_THRESHOLD: f32 = 0.2;
 
 // at 97dpi
 const PIXELS_PER_MM: f32 = 3.8189;
@@ -53,7 +53,7 @@ pub struct Frame {
     pub content_score: f32, // trust in this frame
     pub is_empty: bool,
     pub is_leader: bool, // override empty calculation
-    is_interpolated: bool
+    pub is_interpolated: bool
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -226,69 +226,60 @@ impl FrameDetector {
     fn fit_boundaries(&self, peaks: &[Edge], profile: &[f32], pitch: f32) -> Vec<Frame> {
         let tolerance = (pitch * 0.25) as u32;
 
-        let mut best = Vec::new();
+        // ------------------------------------------------------------------
+        // Pass 1: find the strongest chain using only detected boundaries
+        // ------------------------------------------------------------------
+
+        let mut best: Vec<Boundary> = Vec::new();
         let mut best_score = i32::MIN;
 
         for start in peaks {
             let mut result = Vec::new();
-            let mut expected = start.y;
+            let mut expected = start.y as f32;
 
-            let mut misses = 0;
-
-            while misses < 3 {
-                dbg!(expected);
-
+            loop {
+                // candidate chain selection. prioritize closer boundaries
                 let candidate = peaks
                     .iter()
-                    .filter(|p| p.y.abs_diff(expected) <= tolerance)
-                    .max_by(|a, b| a.strength.partial_cmp(&b.strength).unwrap());
- 
-                dbg!(candidate.map(|c| c.y));
+                    .filter(|p| p.y.abs_diff(expected as u32) <= tolerance)
+                    .copied()
+                    .max_by(|a, b| {
+                        let edge_score = |p: &Edge| {
+                            let distance = p.y.abs_diff(expected as u32) as f32 / pitch;
+                            p.strength * (1.0 - distance)
+                        };
+
+                        edge_score(a)
+                            .partial_cmp(&edge_score(b))
+                            .unwrap()
+                    });
 
                 match candidate {
                     Some(edge) => {
                         result.push(Boundary {
                             y: edge.y,
-                            detected: true
+                            detected: true,
                         });
-                        expected = edge.y + pitch as u32;
-                        misses = 0;
-                    }
-                    None => {
-                        // allow a missing frame boundary
-                        let predicted = expected;
 
-                        if result.len() > 2
-                            && self.has_frame_content(profile, predicted, pitch)
-                        {
-                            result.push(Boundary {
-                                y: predicted,
-                                detected: false,
-                            });
-                        }
-
-                        expected += pitch as u32;
-                        misses += 1;
+                        expected += pitch;
                     }
+
+                    None => break,
                 }
 
-                if expected > profile.len() as u32 {
+                if expected > profile.len() as f32 {
                     break;
                 }
             }
 
-            let detected_count = result.iter().filter(|b| b.detected).count();
-            let interpolated_count = result.len() - detected_count;
-
-            // final scoring. put more weight on actually detected boundaries than on inferred ones
-            let score: i32 =
-                detected_count as i32 * 1000
-                + result.len() as i32 * 100
-                - interpolated_count as i32 * 300
-                - (result
+            let score =
+                result.len() as i32 * 1000
+                - result
                     .windows(2)
-                    .map(|w| (w[1].y as i32 - w[0].y as i32 - pitch as i32).abs())
-                    .sum::<i32>());
+                    .map(|w| {
+                        (w[1].y as i32 - w[0].y as i32 - pitch as i32).abs()
+                    })
+                    .sum::<i32>();
 
             if score > best_score {
                 best_score = score;
@@ -296,32 +287,94 @@ impl FrameDetector {
             }
         }
 
-        // try to detect a half frame sticking into the leader
+        if best.is_empty() {
+            return Vec::new();
+        }
+        let scores: Vec<f32> = best
+            .iter()
+            .map(|b| self.frame_content_score(profile, b.y, pitch))
+            .collect();
+
+        let content_threshold = self.frame_score_threshold(&scores);
+
+        let mut recovered = Vec::new();
+
+        let mut expected = best[0].y;
+        let end = profile.len() as u32;
+
+        while expected < end {
+            let candidate = peaks
+                .iter()
+                .filter(|p| p.y.abs_diff(expected) <= tolerance)
+                .max_by(|a, b| a.strength.partial_cmp(&b.strength).unwrap());
+
+            match candidate {
+                Some(edge) => {
+                    recovered.push(Boundary {
+                        y: edge.y,
+                        detected: true,
+                    });
+
+                    expected = edge.y + pitch as u32;
+                }
+
+                None => {
+                    let score = self.frame_content_score(profile, expected, pitch);
+
+                    if score > content_threshold {
+                        recovered.push(Boundary {
+                            y: expected,
+                            detected: false,
+                        });
+                    }
+
+                    expected += pitch as u32;
+                }
+            }
+        }
+
+        let mut best = recovered;
+
+        let scores: Vec<f32> = best
+            .iter()
+            .map(|b| self.frame_content_score(profile, b.y, pitch))
+            .collect();
+
+        let content_threshold = self.frame_score_threshold(&scores);
+
+        let mut added_leader = false;
+
         let first = best[0].y;
         let possible_first = first as i32 - pitch as i32;
 
-        let added_leader =
-            possible_first >= 0 &&
-            self.has_frame_content(profile, possible_first as u32, pitch);
+        if possible_first >= 0 {
+            let score = self.frame_content_score(profile, possible_first as u32, pitch);
 
-        if added_leader {
-            dbg!("found additional first frame");
-            best.insert(0, Boundary {y: possible_first as u32, detected: false });
+            if score > content_threshold {
+                best.insert(
+                    0,
+                    Boundary {
+                        y: possible_first as u32,
+                        detected: false,
+                    },
+                );
+
+                added_leader = true;
+            }
         }
-        
-        // convert boundary positions into frames
+
         best.windows(2)
             .enumerate()
             .map(|(index, window)| {
-                let frame = window[0];
+                let boundary = window[0];
 
                 Frame {
                     index,
-                    start_line_y: frame.y,
-                    content_score: self.score_frame_content(profile, frame.y, pitch),
+                    start_line_y: boundary.y,
+                    content_score: self.frame_content_score(profile, boundary.y, pitch),
                     is_empty: false,
                     is_leader: added_leader && index == 0,
-                    is_interpolated: !frame.detected
+                    is_interpolated: !boundary.detected,
                 }
             })
             .collect()
@@ -349,24 +402,7 @@ impl FrameDetector {
             .collect()
     }
 
-    fn has_frame_content(&self, profile: &[f32], start: u32, pitch: f32) -> bool {
-        let start = start as usize;
-        let end = (start + pitch as usize).min(profile.len());
-
-        if end <= start {
-            return false;
-        }
-
-        let region = &profile[start..end];
-
-        let min = region.iter().copied().fold(f32::INFINITY, f32::min);
-        let max = region.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-
-        // frames contain density variation, leader/tail is nearly flat
-        max - min > 100.0
-    }
-
-    fn score_frame_content(&self, profile: &[f32], start: u32, pitch: f32) -> f32 {
+    fn frame_content_score(&self, profile: &[f32], start: u32, pitch: f32) -> f32 {
         let start = start as usize;
         let end = (start + pitch as usize).min(profile.len());
 
@@ -376,7 +412,6 @@ impl FrameDetector {
 
         let region = &profile[start..end];
 
-        // trim gradients
         let mean = region.iter().sum::<f32>() / region.len() as f32;
 
         let variance = region
@@ -394,21 +429,20 @@ impl FrameDetector {
             .sum::<f32>()
             / region.len() as f32;
 
-        // returned score
         variance.sqrt() * 0.5 + detail_energy * 0.5
     }
 
-    fn classify_empty_frames(&self, frames: &mut [Frame]) {
-        let mut scores: Vec<f32> = frames
-            .iter()
-            .map(|f| f.content_score)
-            .collect();
+    fn frame_score_threshold(&self, scores: &[f32]) -> f32 {
+        if scores.is_empty() {
+            return 0.0;
+        }
 
-        scores.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut sorted = scores.to_vec();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        let median = scores[scores.len() / 2];
+        let median = sorted[sorted.len() / 2];
 
-        let mut deviations: Vec<f32> = scores
+        let mut deviations: Vec<f32> = sorted
             .iter()
             .map(|s| (s - median).abs())
             .collect();
@@ -417,10 +451,24 @@ impl FrameDetector {
 
         let mad = deviations[deviations.len() / 2];
 
-        let threshold = median - mad * 3.0;
+        // accept frames that are not extreme low outliers
+        (median - mad * 3.0).max(median * 0.1)
+    }
+
+    fn classify_empty_frames(&self, frames: &mut [Frame]) {
+        if frames.is_empty() {
+            return;
+        }
+
+        let scores: Vec<f32> = frames
+            .iter()
+            .map(|f| f.content_score)
+            .collect();
+
+        let threshold = self.frame_score_threshold(&scores);
 
         for frame in frames.iter_mut() {
-            frame.is_empty = if !frame.is_leader { frame.content_score < threshold } else { false };
+            frame.is_empty = frame.content_score < threshold;
         }
     }
 
@@ -461,5 +509,33 @@ impl FrameDetector {
             .windows(2)
             .map(|window| window[1] - window[0])
             .collect()
+    }
+
+    pub fn dump_frame_overlay(
+        image: &Image,
+        frames: &[Frame],
+        path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut output = image.rgb.clone();
+
+        for frame in frames {
+            let y = frame.start_line_y as u32;
+
+            if y >= output.height() {
+                continue;
+            }
+
+            for x in 0..20 {
+                output.put_pixel(x, y, Rgb([65535, 0, 0]));
+            }
+
+            for x in output.width() - 20..output.width() {
+                output.put_pixel(x, y, Rgb([65535, 0, 0]));
+            }
+        }
+
+        output.save(path)?;
+
+        Ok(())
     }
 }
