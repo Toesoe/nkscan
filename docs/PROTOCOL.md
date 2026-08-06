@@ -987,10 +987,17 @@ held fixed. The window was mechanism Y 14212, length 1200, so its centre is
 
 | AF Y | What happened |
 |---|---|
-| 600 | swept for 7.6 s, reported out of focus |
-| 12576 | swept for 34 s, **reached focus** |
-| 14812 | refused in 13 ms, lens never moved |
-| 17322 | refused in 13 ms, lens never moved |
+| 0 | holder moved there, lens never swept, out of focus |
+| 600 | holder moved there, lens never swept, out of focus |
+| 12576 | holder moved there, lens swept ~27 s, **reached focus** |
+| 14812 | refused in 13 ms, nothing moved |
+| 17322 | refused in 13 ms, nothing moved |
+
+Autofocus runs in two stages. It drives the holder to the medium address first,
+which takes seconds, and only then decides whether to sweep the lens. Where
+there is no film under the sensor it declines without sweeping, and the elapsed
+time is the stage move alone — watching the mechanism is the only way to tell
+that apart from a search that ran and failed.
 
 12576 is 14812 − 2236: the window centre expressed from the frame origin. So
 §2-15's "the address on the medium where AF is performed" means exactly that,
@@ -1001,6 +1008,16 @@ The refusal threshold falls between 12576 and 14812, which is `C1h`'s Y boundary
 of 13176 — how far the medium runs. An address past it is not a medium address,
 and the unit rejects it in the time it takes to answer, having never moved. That
 makes the boundary the right bound to validate against, not the address range.
+
+**SET WINDOW homes the stage.** Whenever anything else has moved it, the next
+SET WINDOW drives the holder almost fully out and then back to the window
+origin, costing about 5.5 s. When the stage is already where the window wants
+it, the same command takes 6-19 ms. Pointing autofocus at the window origin
+rather than its centre does not avoid it: tested, and SET WINDOW still homed and
+still took 5.3 s. So an autofocus costs a homing cycle no matter where it is
+aimed, and the only way to avoid paying it per frame is not to autofocus per
+frame -- read the position back with GET PARAMETER `C1h` and set it with a focus
+move, which drives the lens alone in about 100 ms.
 
 **A refused autofocus looks identical to a failed one.** Both terminate with
 `02h-04h-02h` and then diagnose to `01h-61h-02h`, out of focus. Only the elapsed
