@@ -2,7 +2,7 @@
 //!
 //!`Address` byte 16 says whether the unit publishes frames at all, and
 //!`Frames` says whether it knows where they end.
-//! A masked holder does, a strip holder reports a length
+//! A fixed-format mount does; loose film reports a length
 //! of zero until something measures it.
 //!
 //! `Features` puts thumbnail in the host cooperation bits on both families, so
@@ -24,7 +24,7 @@ use crate::{
 use std::time::Duration;
 use tracing::*;
 
-/// The whole holder at the lowest resolution there is, so give it room
+/// Everything loaded, at the lowest resolution there is, so give it room
 const THUMBNAIL_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// A thumbnail pass and what came back
@@ -38,17 +38,17 @@ pub struct Thumbnail {
     pub data: Vec<u8>,
 }
 
-/// Whether this unit and holder will thumbnail at all
+/// Whether this unit and adapter will thumbnail at all
 ///
 /// Thumbnail support follows the adapter rather than the model, so this is
-/// re-decided whenever the holder changes
+/// re-decided whenever the adapter changes
 pub fn available(session: &Session) -> bool {
     let caps = session.capabilities();
     caps.set_window.kind.contains(ScanKind::THUMBNAIL)
         && caps.address.thumbnail_resolution.start > 0
 }
 
-/// Scan the whole holder
+/// Scan everything loaded
 ///
 /// Reads the pass out: a scan whose data is never read locks out every command
 /// that follows.
@@ -56,7 +56,7 @@ pub fn scan(session: &mut Session) -> Result<Thumbnail, Error> {
     if !available(session) {
         return Err(Error::Unsupported {
             op: "thumbnail",
-            reason: "this unit and holder do not offer thumbnail scanning".into(),
+            reason: "this unit and adapter do not offer thumbnail scanning".into(),
         });
     }
 
@@ -78,7 +78,7 @@ pub fn scan(session: &mut Session) -> Result<Thumbnail, Error> {
     })
 }
 
-/// One window over everything the holder can reach
+/// One window over everything the adapter can reach
 fn window(session: &Session) -> Result<Window, Error> {
     let caps = session.capabilities();
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);

@@ -32,7 +32,7 @@ pub enum Failure {
 }
 
 /// The device refused a CDB we built -- a missing capability check on our side
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
     #[error("invalid field in CDB")]
     BadCdbField, // 05h-24h

@@ -136,8 +136,8 @@ impl Session {
     /// Tell the unit where each frame is
     ///
     /// 2-11-6: after a thumbnail of strip film the host works these out and
-    /// sends them, which is the only way a holder that cannot measure its own
-    /// frames comes to know their length
+    /// sends them, which is the only way frames the unit cannot measure for
+    /// itself come to have a length
     pub fn set_boundaries(&mut self, boundary: &data::Boundary) -> Result<(), Error> {
         self.send_data(data::DataType::Boundary, 0, &boundary.to_bytes())?;
         self.frames = Some(boundary.clone());

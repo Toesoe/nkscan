@@ -92,22 +92,23 @@ impl Session {
         // nothing about readiness. Everything below is a real command, and a
         // cold unit would spend the whole of the first one's budget not ready
         session.test_unit_ready(READY_TIMEOUT)?;
-        // Hold the unit before touching anything that changes its state
         session.reserved = session.reserve()?;
-
-        // A scan left over from whoever had it last refuses every non-basic
-        // command with 05h-2Ch, so ask with one and stop it only if it has
-        if let Err(Error::Device(fault)) = session.windows() {
-            if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) {
-                debug!("a scan was still valid from earlier, stopping it");
-                session.abort()?;
-            } else {
-                return Err(Error::Device(fault));
-            }
-        }
-
+        session.stop_stale_scan()?;
         session.set_units(divisor)?;
         Ok(session)
+    }
+
+    /// Run a command that some units will not have, answering whether it ran
+    ///
+    /// `Err` stays `Err` for every refusal but the one named
+    fn tolerate(&mut self, cdb: &[u8], timeout: Duration, allowed: Refusal) -> Result<bool, Error> {
+        match self.run(cdb, Data::None, timeout) {
+            Ok(_) => Ok(true),
+            Err(Error::Device(fault)) if matches!(*fault, Fault::Rejected(refusal, _) if refusal == allowed) => {
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Take the unit, so no other initiator can interleave with us
@@ -116,13 +117,25 @@ impl Session {
     /// command too, in 2-4 and not in its own command list, so a unit that has
     /// never heard of it is not an error. Answers whether we got it
     fn reserve(&mut self) -> Result<bool, Error> {
-        match self.run(&ReserveUnit.cdb(), Data::None, PROBE_TIMEOUT) {
-            Ok(_) => Ok(true),
+        let held = self.tolerate(&ReserveUnit.cdb(), PROBE_TIMEOUT, Refusal::UnknownOpcode)?;
+        if !held {
+            debug!("this unit has no RESERVE UNIT");
+        }
+        Ok(held)
+    }
+
+    /// Stop a scan the last program to hold the unit left valid
+    ///
+    /// While one is, every non-basic command is refused as out of sequence, so
+    /// issuing one is how to tell
+    fn stop_stale_scan(&mut self) -> Result<(), Error> {
+        match self.windows() {
+            Ok(_) => Ok(()),
             Err(Error::Device(fault))
-                if matches!(*fault, Fault::Rejected(Refusal::UnknownOpcode, _)) =>
+                if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) =>
             {
-                debug!("this unit has no RESERVE UNIT");
-                Ok(false)
+                debug!("a scan was still valid from earlier, stopping it");
+                self.abort()
             }
             Err(e) => Err(e),
         }
@@ -132,21 +145,11 @@ impl Session {
     ///
     /// 2-13: the scan block stops where it is, and a scan has to be issued again
     /// to read anything. GOOD comes back even when nothing was running, so this
-    /// is also how to get to a known state.
-    ///
-    /// Worth doing at open. A scan whose data was never read stays valid, and
-    /// while it is, every non-basic command is refused with `05h-2Ch` -- so one
-    /// program exiting early locks out the next one
+    /// is also how to get to a known state
     pub fn abort(&mut self) -> Result<(), Error> {
-        match self.run(&Abort.cdb(), Data::None, PROBE_TIMEOUT) {
-            Ok(_) => {}
-            Err(Error::Device(fault))
-                if matches!(*fault, Fault::Rejected(Refusal::UnknownOpcode, _)) =>
-            {
-                debug!("this unit has no ABORT");
-                return Ok(());
-            }
-            Err(e) => return Err(e),
+        if !self.tolerate(&Abort.cdb(), PROBE_TIMEOUT, Refusal::UnknownOpcode)? {
+            debug!("this unit has no ABORT");
+            return Ok(());
         }
         // An operation activation command, so it answers before it acts
         self.test_unit_ready(MOVE_TIMEOUT)
@@ -250,7 +253,7 @@ impl Session {
     ) -> Result<(Completion, Option<Coop>), Error> {
         let deadline = Instant::now() + timeout;
         let mut changes = 0usize;
-        // Polling produces the same outcome over and over, so log transitions
+        // Polling repeats the same outcome, so only log the transitions
         let mut reported: Option<Activity> = None;
 
         loop {
@@ -270,41 +273,38 @@ impl Session {
             let completion = self.transport.execute(cdb, payload, left)?;
 
             match interpret(&completion) {
+                // Done, either quietly or having done something other than what
+                // we asked. GET WINDOW is what reports the difference
                 Outcome::Complete => return Ok((completion, None)),
                 Outcome::CompleteWith(adjustment) => {
-                    // Sense key 01h, so the command finished. Worth saying out
-                    // loud: it means the unit did something other than what we
-                    // asked, and GET WINDOW is what reports the result
                     info!(?adjustment, "the scanner had a note about that");
                     return Ok((completion, None));
                 }
 
+                // The scanner wants post-processing before it will go on
+                Outcome::NeedsHost(coop) => return Ok((completion, Some(coop))),
+
                 // Not yet. Polling is re-issuing
                 Outcome::Working(activity) => {
-                    if reported != Some(activity) {
+                    if reported.replace(activity) != Some(activity) {
                         debug!(?activity, "waiting");
-                        reported = Some(activity);
                     }
                     sleep(POLL_INTERVAL);
                 }
 
-                // Unit attention: the command did not run. Several can be
-                // queued -- ejecting a holder raises a holder change and a
-                // reset -- so this arm firing repeatedly is normal
+                // Unit attention: the command did not run. Several can queue up
+                // -- ejecting raises both an adapter change and a reset -- so
+                // this arm firing repeatedly is normal. Capabilities track the
+                // adapter rather than the model, so what we cached may no
+                // longer describe what we are about to re-issue against
                 Outcome::StateChanged(change) => {
                     debug!(?change, "device state changed under us, re-issuing");
-                    // Several fields track the adapter and holder rather than
-                    // the model, so what we cached may no longer describe the
-                    // unit we are about to re-issue against
                     self.refresh()?;
                     changes += 1;
                     if changes >= MAX_CHANGES {
                         return Err(unsettled(change, changes));
                     }
                 }
-
-                // The scanner wants post-processing before it will go on
-                Outcome::NeedsHost(coop) => return Ok((completion, Some(coop))),
 
                 terminal => return Err(Error::from_outcome(terminal, &completion)),
             }
