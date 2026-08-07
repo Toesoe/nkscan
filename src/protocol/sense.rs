@@ -25,8 +25,10 @@ pub enum Failure {
     UnexpectedStatus(u8),
     #[error("unrecognized sense")]
     Unrecognized,
-    /// Neither spec lists this one. It is SPC's OUT OF FOCUS, and it only
-    /// arrives through SEND DIAGNOSTIC after the generic mechanical error
+    /// Neither spec lists this one. It is SPC's OUT OF FOCUS: some units put it
+    /// directly on the command's own completion, and [`from_sense`] catches it
+    /// there; others report the generic `02h-04h-02h` and only reveal this
+    /// through SEND DIAGNOSTIC afterward, which [`diagnosed`] reads
     #[error("autofocus did not reach focus")]
     OutOfFocus, // 01h-61h-02h
 }
@@ -212,10 +214,6 @@ pub enum Adjustment {
     /// Requested resolution was off the pitch ladder; GET WINDOW is
     /// authoritative for what it actually used
     ResolutionRounded, // 01h-37h-00h
-    /// Autofocus ran without reaching focus. Neither spec lists this one; it is
-    /// SPC's OUT OF FOCUS, and it arrives through SEND DIAGNOSTIC rather than
-    /// on the command itself
-    OutOfFocus, // 01h-61h-02h
     /// A recovered error we have no name for
     Unreported,
 }
@@ -282,6 +280,18 @@ pub enum Outcome {
     Failed(Failure),
 }
 
+/// Classify a SEND DIAGNOSTIC sense, once a generic mechanical failure has
+/// sent a caller looking for the real cause
+///
+/// 2-8: the wrapper on the command itself only ever says `Failure::Mechanism`;
+/// this is the one place that reads what SEND DIAGNOSTIC left behind
+pub fn diagnosed(sense: &Sense) -> Failure {
+    match (sense.key, sense.asc, sense.ascq) {
+        (0x01, 0x61, 0x02) => Failure::OutOfFocus,
+        _ => Failure::Mechanism,
+    }
+}
+
 /// Read a completion as what to do next
 ///
 /// Status first: BUSY and RESERVATION CONFLICT arrive with no sense at all,
@@ -310,7 +320,11 @@ fn from_sense(s: &Sense) -> Outcome {
 
         // Recovered: it worked, and the unit had a note about it
         (0x01, 0x37, 0x00) => CompleteWith(Adjustment::ResolutionRounded),
-        (0x01, 0x61, 0x02) => CompleteWith(Adjustment::OutOfFocus),
+        // Out of focus is the one recovered error that is not advisory: the
+        // command's whole point was reaching focus, and it did not. Failed
+        // rather than CompleteWith is what lets a caller see it as one signal
+        // whichever route reported it, `diagnosed`'s the other
+        (0x01, 0x61, 0x02) => Failed(Failure::OutOfFocus),
         (0x01, ..) => CompleteWith(Adjustment::Unreported),
 
         // Not ready
@@ -352,5 +366,56 @@ fn from_sense(s: &Sense) -> Outcome {
         (0x0B, ..) => Failed(Failure::Aborted),
 
         _ => Failed(Failure::Unrecognized),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::{Completion, Status};
+
+    fn sense(key: u8, asc: u8, ascq: u8) -> Sense {
+        Sense {
+            key,
+            asc,
+            ascq,
+            tsc: None,
+            ili: false,
+            information: None,
+            raw: Vec::new(),
+        }
+    }
+
+    /// A unit that puts 01h-61h-02h on the autofocus command's own completion
+    /// has to fail it, not complete it with a note: unlike every other
+    /// recovered error, the command's whole point was reaching focus, and it
+    /// did not. This is the one place a caller (`scan::focus`) needs to see
+    /// [`Failure::OutOfFocus`] whichever of the two routes reported it
+    #[test]
+    fn out_of_focus_on_the_command_itself_fails_rather_than_completes() {
+        let completion = Completion {
+            status: Status::CheckCondition,
+            sense: Some(sense(0x01, 0x61, 0x02)),
+            transferred: 0,
+        };
+        assert!(matches!(
+            interpret(&completion),
+            Outcome::Failed(Failure::OutOfFocus)
+        ));
+    }
+
+    /// Every other sense key 01h condition is genuinely advisory: the command
+    /// completed, and this is a footnote
+    #[test]
+    fn other_recovered_errors_still_complete() {
+        let completion = Completion {
+            status: Status::CheckCondition,
+            sense: Some(sense(0x01, 0x37, 0x00)),
+            transferred: 0,
+        };
+        assert!(matches!(
+            interpret(&completion),
+            Outcome::CompleteWith(Adjustment::ResolutionRounded)
+        ));
     }
 }

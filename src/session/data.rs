@@ -7,7 +7,7 @@ use crate::{
         caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         data,
-        sense::{Failure, Fault},
+        sense::{self, Failure, Fault},
     },
     transport::{Data, Sense, Status},
 };
@@ -225,17 +225,12 @@ impl Session {
                 if matches!(*fault, Fault::Reported(Failure::Mechanism, _)) =>
             {
                 match self.diagnose() {
-                    Ok(Some(sense)) => {
-                        // The wrapper says mechanical whatever the cause was
-                        let failure = match (sense.key, sense.asc, sense.ascq) {
-                            (0x01, 0x61, 0x02) => Failure::OutOfFocus,
-                            _ => Failure::Mechanism,
-                        };
-                        Err(Error::Device(Box::new(Fault::Reported(
-                            failure,
-                            Some(sense),
-                        ))))
-                    }
+                    // The wrapper says mechanical whatever the cause was;
+                    // `sense::diagnosed` is what actually reads it
+                    Ok(Some(sense)) => Err(Error::Device(Box::new(Fault::Reported(
+                        sense::diagnosed(&sense),
+                        Some(sense),
+                    )))),
                     _ => Err(Error::Device(fault)),
                 }
             }
