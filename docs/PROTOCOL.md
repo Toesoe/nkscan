@@ -1205,15 +1205,15 @@ looks for frames where the film between them is; on an FH-869S slide strip the
 right reading beats the wrong one about five to one, so both are tried and the
 stronger kept.
 
-Measured on a three-frame 6x6 strip, thumbnail 186 x 721 at 83 dpi, one row being
-48 dots of Y:
+Measured on a three-frame 6x6 strip, thumbnail 186 x 721 at 83 dpi, one column
+being 48 dots of Y:
 
 | | frame 1 | frame 2 | frame 3 |
 |---|---|---|---|
 | top | 2640 | 12624 | 22560 |
 | visible edge | 2736 | 12720 | 22656 |
 
-Every top lands two rows ahead of where the picture starts, so a frame table
+Every top lands two columns ahead of where the picture starts, so a frame table
 opens in the gap rather than clipping the first line of the image. The wind comes
 out at 9936 dots, 63.1 mm.
 
