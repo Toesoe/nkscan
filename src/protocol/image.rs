@@ -54,11 +54,13 @@ pub struct Layout {
     granule: usize,
 }
 
-#[cfg(test)]
 impl Layout {
-    /// A single-line 16-bit layout, for tests about the stream rather than
-    /// about the capability parsing that normally produces one
-    pub(crate) fn fixture(pixels: u32, lines: u32, channels: Vec<u8>) -> Self {
+    /// Describe a single-line 16-bit stream directly
+    ///
+    /// [`new`](Self::new) derives a layout from what a unit advertises, which is
+    /// what a scan wants. This is for bytes that are already off the unit and no
+    /// longer have one to ask.
+    pub fn single_line(pixels: u32, lines: u32, channels: Vec<u8>) -> Self {
         Self {
             pixels,
             lines,
