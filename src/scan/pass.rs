@@ -6,8 +6,8 @@
 use crate::{
     error::Error,
     protocol::{
-        caps::set_window::ColorInterleaving, data::CooperativeAction, decode::Decoder,
-        image::Layout, window::Window,
+        caps::set_window::ColorInterleaving, curves::Curves, data::CooperativeAction,
+        decode::Decoder, image::Layout, window::Window,
     },
     session::{Session, window::Started},
 };
@@ -29,20 +29,22 @@ pub struct Pass {
 ///
 /// Correcting the CCD's rows against each other wherever they were read at
 /// once, since a three-line pass has the mismatch whether or not anyone asked
-/// about it. A unit that publishes no curves, or publishes ones that do not
-/// match the page describing them, decodes uncorrected.
-pub fn decoder(session: &mut Session, layout: &Layout) -> Result<Decoder, Error> {
+/// about it. `curves` comes from
+/// [`ccd_curves`](Session::ccd_curves), and `None` there, from a unit with no
+/// curves or a reply that does not match its page, decodes uncorrected.
+///
+/// Borrowed rather than owned so that a caller taking pass after pass builds
+/// the tables once.
+pub fn decoder<'a>(layout: &Layout, curves: Option<&'a Curves>) -> Result<Decoder<'a>, Error> {
     let decoder = Decoder::new(layout)?;
-    if !layout
-        .interleaving
-        .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
-    {
-        return Ok(decoder);
+    match curves.filter(|_| {
+        layout
+            .interleaving
+            .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
+    }) {
+        Some(curves) => Ok(decoder.correcting(curves)),
+        None => Ok(decoder),
     }
-    Ok(match session.ccd_curves(0) {
-        Some(curves) => decoder.correcting(curves),
-        None => decoder,
-    })
 }
 
 /// Stage the windows and start a pass, returning once the data is ready
