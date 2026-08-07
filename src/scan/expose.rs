@@ -235,8 +235,7 @@ fn prescan_windows(caps: &Capabilities, windows: &[Window]) -> Vec<Window> {
 
 /// Whether a set has anything worth metering
 ///
-/// Infrared measures obstructions, so a set of nothing else has no exposure to
-/// decide from a film's tones.
+/// Infrared measures obstructions, so a set of nothing else has no exposure to decide from a film's tones.
 pub fn meterable(windows: &[Window]) -> bool {
     windows.iter().any(|w| w.channel().is_color())
 }
