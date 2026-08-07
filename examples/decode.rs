@@ -20,11 +20,7 @@
 use std::{fs, io::Write, path::PathBuf};
 
 use nkscan::protocol::{
-    caps::{Page, ccd::CcdMeasurement, set_window::ColorInterleaving},
-    curves::Curves,
-    decode::Decoder,
-    image::Layout,
-    window::Channel,
+    caps::set_window::ColorInterleaving, decode::Decoder, image::Layout, window::Channel,
 };
 
 /// What a display expects, near enough for judging an image by eye
@@ -67,26 +63,7 @@ fn main() -> anyhow::Result<()> {
         ..Layout::single_line(pixels, lines, ids.clone())
     };
     let mut decoder = Decoder::new(&layout)?;
-    // `curves=<file>` is a DataType::CcdData reply saved by examples/ccd.rs, so
-    // a dump can be decoded with and without the correction and the two compared
-    if let Some(file) = args.iter().find_map(|a| a.strip_prefix("curves=")) {
-        let raw = fs::read(file)?;
-        let words: Vec<u16> = raw
-            .chunks_exact(2)
-            .map(|w| u16::from_be_bytes([w[0], w[1]]))
-            .collect();
-        let page = CcdMeasurement::try_from(&Page::new(
-            CcdMeasurement::PAGE_CODE,
-            fs::read(format!("{file}.page"))?,
-        )?)?;
-        match Curves::parse(&page, &words, layout.ccd_lines as usize, 0) {
-            Some(c) => {
-                println!("correcting {} CCD rows", c.rows());
-                decoder = decoder.correcting(c);
-            }
-            None => println!("the curves do not fit the page, decoding uncorrected"),
-        }
-    }
+
     // Multi-sampling makes the wire longer than the image: the readings are
     // averaged away rather than kept
     println!(
@@ -163,15 +140,22 @@ fn write_pnm(
         3 => "P6",
         n => anyhow::bail!("{n} channels has no Netpbm form"),
     };
-    let mut file = fs::File::create(dest)?;
+    let mut file = std::io::BufWriter::new(fs::File::create(dest)?);
     write!(file, "{magic}\n{cols} {rows}\n65535\n")?;
-    let mut bytes = Vec::with_capacity(rows * cols * channels.len() * 2);
-    for pixel in 0..rows * cols {
-        for &c in channels {
-            bytes.extend_from_slice(&samples[pixel * stride + c].to_be_bytes());
+
+    // A row at a time. Building the file in memory first would hold a second
+    // copy of the image, which at full resolution is another half a gigabyte
+    let mut row = Vec::with_capacity(cols * channels.len() * 2);
+    for y in 0..rows {
+        row.clear();
+        for x in 0..cols {
+            for &c in channels {
+                row.extend_from_slice(&samples[(y * cols + x) * stride + c].to_be_bytes());
+            }
         }
+        file.write_all(&row)?;
     }
-    file.write_all(&bytes)?;
+    file.flush()?;
     println!("wrote {}", dest.display());
     Ok(())
 }

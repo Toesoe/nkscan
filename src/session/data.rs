@@ -192,14 +192,6 @@ impl Session {
     /// does not match the page describing it. An uncorrected scan is what this
     /// produced before the correction existed, so it is not worth failing over.
     pub fn ccd_curves(&mut self, kind: usize) -> Option<Curves> {
-        if self.curves.is_none() {
-            self.curves = self.read_ccd_curves(kind);
-        }
-        self.curves.clone()
-    }
-
-    /// The read behind [`ccd_curves`](Self::ccd_curves), before it is cached
-    fn read_ccd_curves(&mut self, kind: usize) -> Option<Curves> {
         let ccd = self.caps.ccd.clone()?;
         let rows = usize::from(self.caps.address.lines).max(1);
         let (_, values) = self

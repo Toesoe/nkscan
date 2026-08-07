@@ -114,13 +114,15 @@ pub fn expose(
             // One proportional step lands a few percent under, so keep going
             // until a pass comes back on target rather than counting passes
             let mut windows = prescan_windows(session.capabilities(), &seeded);
+            // Built once and borrowed by every pass, rather than per pass
+            let curves = session.ccd_curves(0);
             // Every pass has the same shape, so one buffer serves all of them
             let mut samples = Vec::new();
             let mut layout = None;
             let mut n = 0;
             loop {
                 let taken = pass::take(session, &windows, PASS_TIMEOUT)?;
-                let mut decoder = pass::decoder(session, &taken.layout)?;
+                let mut decoder = pass::decoder(&taken.layout, curves.as_ref())?;
                 samples.resize(decoder.samples(), 0);
                 decoder.push(&taken.data, &mut samples)?;
                 let layout = layout.insert(taken.layout);

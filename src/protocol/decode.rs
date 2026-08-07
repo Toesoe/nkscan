@@ -25,23 +25,24 @@ fn bad(reason: String) -> Error {
 
 /// A view of an unscrambled pass
 ///
-/// Borrowed throughout. The samples are the buffer a [`Decoder`] filled, which
-/// the caller owns, so nothing here copies an image.
-#[derive(Debug, Clone, Copy)]
+/// The samples are the buffer a [`Decoder`] filled, which the caller owns, so
+/// nothing here copies an image. The identifiers are a handful of bytes and are
+/// owned, which keeps the view off the layout's lifetime.
+#[derive(Debug, Clone)]
 pub struct Image<'a> {
     /// One sample per channel per pixel, channels interleaved
     pub samples: &'a [u16],
     pub rows: usize,
     pub cols: usize,
     /// Channel identifiers, in the order `samples` interleaves them
-    pub channels: &'a [u8],
+    pub channels: Vec<u8>,
     /// Valid bits in a sample, which can be fewer than 16
     pub bits: u8,
 }
 
 impl<'a> Image<'a> {
     /// Read a filled buffer as the image `layout` describes
-    pub fn new(layout: &'a Layout, samples: &'a [u16]) -> Result<Self, Error> {
+    pub fn new(layout: &Layout, samples: &'a [u16]) -> Result<Self, Error> {
         let decoder = Decoder::new(layout)?;
         if samples.len() < decoder.samples() {
             return Err(bad(format!(
@@ -55,13 +56,13 @@ impl<'a> Image<'a> {
             samples,
             rows,
             cols,
-            channels: &layout.channels,
+            channels: layout.channels.clone(),
             bits: layout.bits_per_sample,
         })
     }
 
     /// Every sample of one channel
-    pub fn plane(&self, channel: usize) -> impl Iterator<Item = u16> + 'a {
+    pub fn plane(&self, channel: usize) -> impl Iterator<Item = u16> + use<'a> {
         self.samples
             .iter()
             .skip(channel)
@@ -74,17 +75,17 @@ impl<'a> Image<'a> {
 ///
 /// Orderings differ in the size of a block and in where its samples land. They
 /// do not differ in how bytes arrive, so [`Decoder`] owns that part.
-enum Ordering {
+enum Ordering<'a> {
     /// 2-11-3-1 format 1, one wire line per output line
     ///
     /// Every sample comes off a single CCD row, so there is no inter-line
     /// mismatch here and nothing for the CCD curves to correct
     Lines(Lines),
     /// Every CCD row read at once, 2-11-3 and 2-11-5-3
-    Transposed(Transposed),
+    Transposed(Transposed<'a>),
 }
 
-impl Ordering {
+impl Ordering<'_> {
     /// Bytes one [`emit`](Self::emit) consumes
     fn block_bytes(&self) -> usize {
         match self {
@@ -157,7 +158,7 @@ impl Lines {
 /// stage advances one column per position and the CCD's rows sit `gap` columns
 /// apart, so `gap` stage positions fill a contiguous run of `gap * ccd_lines`
 /// columns: `[row 0 x gap][row 1 x gap][row 2 x gap]`.
-struct Transposed {
+struct Transposed<'a> {
     /// Output rows, which is the sensor bar
     rows: usize,
     /// Output columns, which is stage positions times CCD rows
@@ -174,7 +175,7 @@ struct Transposed {
     stage: usize,
     bytes_per_sample: usize,
     /// The rows' remap onto each other, where the unit gave us one
-    curves: Option<Curves>,
+    curves: Option<&'a Curves>,
 }
 
 /// Where one output channel sits in a stage position
@@ -236,7 +237,7 @@ impl Slot {
     }
 }
 
-impl Transposed {
+impl Transposed<'_> {
     fn emit(&self, n: usize, block: &[u8], out: &mut [u16]) {
         let first = n * self.gap * self.ccd_lines;
         for col in 0..self.gap * self.ccd_lines {
@@ -261,7 +262,7 @@ impl Transposed {
                         let raw = sample_at(&block[off..off + self.bytes_per_sample]);
                         // Before the average, not after: the remap is not
                         // linear, so the two orders disagree
-                        sum += u32::from(match &self.curves {
+                        sum += u32::from(match self.curves {
                             Some(curves) => curves.correct(line, raw),
                             None => raw,
                         });
@@ -286,15 +287,15 @@ fn sample_at(sample: &[u8]) -> u16 {
 /// Unscrambles a scan into a caller-owned buffer
 ///
 /// A chunk can end anywhere, so partial blocks are held until the rest arrives
-pub struct Decoder {
-    ordering: Ordering,
+pub struct Decoder<'a> {
+    ordering: Ordering<'a>,
     /// A block the last chunk ended part-way through
     carry: Vec<u8>,
     /// Blocks emitted so far
     done: usize,
 }
 
-impl Decoder {
+impl<'a> Decoder<'a> {
     /// A decoder for a stream shaped like `layout`
     ///
     /// Only [`LINE_WITHOUT_DISTANCE`](ColorInterleaving::LINE_WITHOUT_DISTANCE)
@@ -381,7 +382,7 @@ impl Decoder {
     /// Only the three-line ordering has rows to correct. A single-line pass
     /// reads every sample off one row, so this is dropped there rather than
     /// applied to no effect.
-    pub fn correcting(mut self, curves: Curves) -> Self {
+    pub fn correcting(mut self, curves: &'a Curves) -> Self {
         if let Ordering::Transposed(t) = &mut self.ordering {
             t.curves = Some(curves);
         }
