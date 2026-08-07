@@ -18,17 +18,90 @@ fn bad(reason: String) -> Error {
     }
 }
 
-/// Unscrambles a scan into a caller-owned buffer
-pub struct Decoder {
+/// How a stream is scrambled, and how to put one block of it right
+///
+/// The orderings differ in the unit they scramble over and in where a sample
+/// lands, not in how bytes arrive, so [`Decoder`] owns the reassembly and each
+/// of these owns one [`emit`](Ordering::emit).
+enum Ordering {
+    /// 2-11-3-1 format 1, one wire line per output line
+    ///
+    /// Every sample comes off a single CCD row, so there is no inter-line
+    /// mismatch here and nothing for the CCD curves to correct
+    Lines(Lines),
+}
+
+impl Ordering {
+    /// Bytes one [`emit`](Self::emit) consumes
+    fn block_bytes(&self) -> usize {
+        match self {
+            Self::Lines(l) => l.pixels * l.channels * l.bytes_per_sample,
+        }
+    }
+
+    /// Blocks the layout promises
+    fn blocks(&self) -> usize {
+        match self {
+            Self::Lines(l) => l.lines,
+        }
+    }
+
+    /// Samples the output holds
+    fn samples(&self) -> usize {
+        match self {
+            Self::Lines(l) => l.lines * l.pixels * l.channels,
+        }
+    }
+
+    /// Put block `n` where it belongs
+    fn emit(&self, n: usize, block: &[u8], out: &mut [u16]) {
+        match self {
+            Self::Lines(l) => l.emit(n, block, out),
+        }
+    }
+}
+
+/// 2-11-3-1 format 1: a line holds each channel's row end to end, and the
+/// output wants them interleaved per pixel
+struct Lines {
     pixels: usize,
     lines: usize,
     channels: usize,
     bytes_per_sample: usize,
-    /// Bytes one line of every channel occupies on the wire
-    line_bytes: usize,
-    /// The part of a line the last chunk ended in the middle of
+}
+
+impl Lines {
+    fn emit(&self, n: usize, line: &[u8], out: &mut [u16]) {
+        let row = n * self.pixels * self.channels;
+        for (channel, plane) in line
+            .chunks_exact(self.pixels * self.bytes_per_sample)
+            .enumerate()
+        {
+            for (x, sample) in plane.chunks_exact(self.bytes_per_sample).enumerate() {
+                out[row + x * self.channels + channel] = sample_at(sample);
+            }
+        }
+    }
+}
+
+/// One big-endian sample, whichever width 2-11-3 gave it
+fn sample_at(sample: &[u8]) -> u16 {
+    match sample {
+        [b] => u16::from(*b),
+        [hi, lo] => u16::from_be_bytes([*hi, *lo]),
+        _ => unreachable!("the width is checked when the decoder is built"),
+    }
+}
+
+/// Unscrambles a scan into a caller-owned buffer
+///
+/// Bytes arrive in whatever lengths the transport allows, so this holds
+/// whatever part of a block the last chunk left and emits complete blocks only.
+pub struct Decoder {
+    ordering: Ordering,
+    /// The part of a block the last chunk ended in the middle of
     carry: Vec<u8>,
-    /// Lines written so far
+    /// Blocks emitted so far
     done: usize,
 }
 
@@ -39,8 +112,9 @@ impl Decoder {
     /// so far. The three-line ordering puts the sensor bar on the output's Y
     /// axis and reads it out backwards, tiles stage positions against CCD lines
     /// in blocks of the line gap, and gives each channel and multi-sample repeat
-    /// its own readout slot. That is a second decoder, not a branch in this one;
-    /// `FrameTranspose` on the pre-rewrite `main` is a working implementation.
+    /// its own readout slot. It is another [`Ordering`], and the one the CCD
+    /// correction belongs in; `FrameTranspose` on the pre-rewrite `main` is a
+    /// working implementation of the geometry.
     pub fn new(layout: &Layout) -> Result<Self, Error> {
         if !layout
             .interleaving
@@ -66,38 +140,37 @@ impl Decoder {
             )));
         }
 
-        let pixels = layout.pixels as usize;
-        let channels = layout.channels.len();
-        let bytes_per_sample = usize::from(layout.bytes_per_sample);
-        Ok(Self {
-            pixels,
+        let ordering = Ordering::Lines(Lines {
+            pixels: layout.pixels as usize,
             lines: layout.lines as usize,
-            channels,
-            bytes_per_sample,
-            line_bytes: pixels * channels * bytes_per_sample,
-            carry: Vec::new(),
+            channels: layout.channels.len(),
+            bytes_per_sample: usize::from(layout.bytes_per_sample),
+        });
+        Ok(Self {
+            carry: Vec::with_capacity(ordering.block_bytes()),
+            ordering,
             done: 0,
         })
     }
 
     /// Samples the output buffer has to hold
     pub fn samples(&self) -> usize {
-        self.lines * self.pixels * self.channels
+        self.ordering.samples()
     }
 
-    /// Lines written so far, of the [`Layout`]'s total
+    /// Blocks emitted so far, of the [`Layout`]'s total
     pub fn decoded(&self) -> usize {
         self.done
     }
 
-    /// Whether every line the layout promised arrived
+    /// Whether every block the layout promised arrived
     pub fn complete(&self) -> bool {
-        self.done == self.lines
+        self.done == self.ordering.blocks()
     }
 
-    /// Feed the next chunk, writing whatever lines it completes into `out`
+    /// Feed the next chunk, writing whatever blocks it completes into `out`
     ///
-    /// Bytes past the last line the layout promised are dropped: the unit pads
+    /// Bytes past the last block the layout promised are dropped: the unit pads
     /// a short read rather than truncating one.
     pub fn push(&mut self, chunk: &[u8], out: &mut [u16]) -> Result<(), Error> {
         if out.len() < self.samples() {
@@ -108,50 +181,37 @@ impl Decoder {
             )));
         }
 
+        let width = self.ordering.block_bytes();
         let mut rest = chunk;
 
-        // Finish the line the last chunk ended part-way through
+        // Finish the block the last chunk ended part-way through
         if !self.carry.is_empty() {
-            let want = self.line_bytes - self.carry.len();
-            let take = want.min(rest.len());
+            let take = (width - self.carry.len()).min(rest.len());
             self.carry.extend_from_slice(&rest[..take]);
             rest = &rest[take..];
-            if self.carry.len() < self.line_bytes {
+            if self.carry.len() < width {
                 return Ok(());
             }
-            let line = std::mem::take(&mut self.carry);
-            self.emit(&line, out);
+            let block = std::mem::take(&mut self.carry);
+            self.take(&block, out);
+            self.carry = block;
+            self.carry.clear();
         }
 
-        let mut lines = rest.chunks_exact(self.line_bytes);
-        for line in &mut lines {
-            self.emit(line, out);
+        let mut blocks = rest.chunks_exact(width);
+        for block in &mut blocks {
+            self.take(block, out);
         }
-        self.carry.extend_from_slice(lines.remainder());
+        self.carry.extend_from_slice(blocks.remainder());
         Ok(())
     }
 
-    /// One wire line into one output line
-    ///
-    /// 2-11-3-1 format 1: the line holds each channel's row end to end, and the
-    /// output wants them interleaved per pixel
-    fn emit(&mut self, line: &[u8], out: &mut [u16]) {
-        if self.done >= self.lines {
+    /// Emit one block unless the layout has already had all it asked for
+    fn take(&mut self, block: &[u8], out: &mut [u16]) {
+        if self.done >= self.ordering.blocks() {
             return;
         }
-        let row = self.done * self.pixels * self.channels;
-        for (channel, plane) in line
-            .chunks_exact(self.pixels * self.bytes_per_sample)
-            .enumerate()
-        {
-            for (x, sample) in plane.chunks_exact(self.bytes_per_sample).enumerate() {
-                out[row + x * self.channels + channel] = match sample {
-                    [b] => u16::from(*b),
-                    [hi, lo] => u16::from_be_bytes([*hi, *lo]),
-                    _ => unreachable!("the width is checked in new"),
-                };
-            }
-        }
+        self.ordering.emit(self.done, block, out);
         self.done += 1;
     }
 }
