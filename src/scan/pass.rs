@@ -24,6 +24,10 @@ pub struct Pass {
     pub cooperation: Option<CooperativeAction>,
     /// Whether every block the layout promised arrived
     pub complete: bool,
+    /// Image rows and columns. The orderings transpose each other, so this is
+    /// not the layout's pixels and lines in that order
+    pub rows: usize,
+    pub cols: usize,
 }
 
 /// Build a decoder for a scan pass
@@ -78,9 +82,12 @@ pub fn take(
         "pass"
     );
 
+    let (rows, cols) = decoder.shape();
     Ok(Pass {
         layout: started.layout,
         cooperation: started.cooperation,
         complete: decoder.complete(),
+        rows,
+        cols,
     })
 }
