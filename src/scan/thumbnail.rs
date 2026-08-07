@@ -63,7 +63,15 @@ pub fn scan(
     let windows = windows(session.capabilities())?;
     // A descriptor built from nothing carries no exposure, and equal exposures
     // are not neutral. Nikon Scan thumbnails at the unit's own white balance
-    let windows = expose::seed_white_balance(session, &windows)?;
+    let mut windows = expose::seed_white_balance(session, &windows)?;
+
+    if session.capabilities().identity.product.starts_with("LS-5") ||
+       session.capabilities().identity.product.starts_with("LS-4") {
+        // set mandatory thumbnailing flags
+        for window in &mut windows {
+            window.flags = crate::protocol::window::Flags::AVERAGING | crate::protocol::window::Flags::POSITIVE;
+        }
+    }
     pass::take(session, &windows, THUMBNAIL_TIMEOUT, curves, samples)
 }
 

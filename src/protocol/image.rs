@@ -123,14 +123,18 @@ fn pitches(caps: &Capabilities, window: &Window) -> Result<(u32, u32), Error> {
 /// Bit 1 makes it a line across every color, bit 2 one line. Neither set means
 /// the unit constrains nothing, so any length will do
 fn read_granule(caps: &Capabilities, line: usize, channels: usize) -> usize {
-    let transfer = caps.address.transfer;
-    if transfer.contains(Transfer::READ_LINE_COLS) {
-        (line * channels).max(1)
-    } else if transfer.contains(Transfer::READ_LINE) {
-        line.max(1)
-    } else {
-        1
-    }
+    // let transfer = caps.address.transfer;
+    // if transfer.contains(Transfer::READ_LINE_COLS) {
+    //     (line * channels).max(1)
+    // } else if transfer.contains(Transfer::READ_LINE) {
+    //     line.max(1)
+    // } else {
+    //     1
+    // }
+    1
+
+    // TODO: restore functionality, if needed? Calculation produces 576 for LS-50, which is invalid, as request buffer
+    // is always capped at size 131072 for both thumbnails and scans.
 }
 
 impl Layout {
