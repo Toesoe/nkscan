@@ -71,6 +71,17 @@ impl UsbTransport {
 
     pub fn open(info: DeviceInfo) -> io::Result<Self> {
         let device = info.open().wait()?;
+        // Unlike other platforms, macOS only sets a configuration itself for
+        // composite-class devices, so a vendor-class scanner opens unconfigured
+        // there. Windows and Linux always report an active configuration, which
+        // is what keeps `set_configuration` (unsupported on Windows) out of
+        // reach of the platforms that cannot take it
+        if device.active_configuration().is_err() {
+            device
+                .set_configuration(1)
+                .wait()
+                .map_err(io::Error::other)?;
+        }
         // From the spec, the interface is 0
         let interface = device.claim_interface(0).wait()?;
         // Endpoint addresses from LS5K spec table 1-1-6-2-4
