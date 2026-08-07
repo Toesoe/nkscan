@@ -748,11 +748,29 @@ image. Two constraints come with it: the map is **not linear**, so it has to be
 applied before multi-sample averaging rather than after, and all four channels
 return identical bytes, so the curves are read once per session.
 
-Worth noting this is probably not an extra at all. `E1h` byte 5 bit 3 is "CCD Data
-Created by Driver", it is set on **both** documented units, and it pairs with
-cooperative ASCQ `07h`. If that bit means what it appears to, correcting the lines
-is an obligation rather than a nicety, and one the LS-5000 family shares. Confirm
-by seeing whether SCAN actually raises `09h-80h-07h`.
+**It is an obligation, not an extra.** `E1h` byte 5 bit 3 is "CCD Data Created by
+Driver", set on **both** documented units. The unit asks for it on every real
+scan pass: in `another_normal_scan_of_one_frame` the cooperative record comes
+back type `07h` before the prescan, before the second pass and before the
+4000 dpi scan, three times in one frame.
+
+The request is easy to miss, because it does not always reach the sense. Pairing
+each SCAN with the record read after it:
+
+| SCAN sense | record type | payload head |
+|---|---|---|
+| `09h-80h-01h-04h` (thumbnail) | `00h` | all zero |
+| GOOD | `07h` | `07 09 80 07 00` |
+| `09h-80h-02h-01h` (averaging) | `02h` | `02 09 80 02 01` |
+| `09h-80h-04h-01h` (multi-line) | `07h` | `07 09 80 07 00` |
+
+Byte 0 is the type and bytes 1-4 repeat the whole sense tuple, so the record is
+self-describing. `09h-80h-07h-00h` appears there while the SCSI status of the
+SCAN in front of it is GOOD. That is the strongest reason to dispatch on the
+record rather than the sense: for CCD data the sense may say nothing at all.
+
+The thumbnail request is the other way round. Its record comes back type `00h`
+with every field zero, so there the sense is the only signal.
 
 ### Behaviour worth knowing
 
