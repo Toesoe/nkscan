@@ -74,8 +74,8 @@ impl Session {
         let chunk = self.chunk_size(layout)?;
         Ok(Chunks {
             session: self,
-            buf: vec![0u8; chunk],
             layout: layout.clone(),
+            chunk,
             remaining: layout.total_bytes(),
             spent: false,
         })
@@ -112,29 +112,38 @@ fn short(fault: &Fault) -> Option<u32> {
     sense.ili.then_some(sense.information).flatten()
 }
 
-/// Borrowed chunks of image data, in the order the unit sends them
+/// Image data read off the unit a chunk at a time, into buffers the caller
+/// provides
 ///
-/// Not an [`Iterator`]: each chunk borrows the reader's own buffer, so the next
-/// call invalidates the last
+/// Not an [`Iterator`]: each chunk lands in a buffer the caller owns and can
+/// reuse, so a pool of them can shuttle whole chunks between threads without a
+/// copy. Reading into [`fill`](Chunks::fill) rather than owning a buffer is
+/// what lets the transport hand each chunk over whole.
 pub struct Chunks<'a> {
     session: &'a mut Session,
-    buf: Vec<u8>,
     layout: Layout,
+    /// Bytes in one chunk, bounded by what the transport can carry
+    chunk: usize,
     remaining: u64,
     spent: bool,
 }
 
 impl Chunks<'_> {
-    /// The next chunk, or `None` once the image is spent
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Option<Result<&[u8], Error>> {
+    /// Fill `buf` with the next chunk, answering how much arrived, or `None`
+    /// once the image is spent
+    ///
+    /// `buf` is sized to the chunk (or what is left of it) and truncated to
+    /// what actually arrived, so one buffer can be reused for every chunk
+    /// without reallocating
+    pub fn fill(&mut self, buf: &mut Vec<u8>) -> Option<Result<usize, Error>> {
         if self.spent || self.remaining == 0 {
             return None;
         }
 
-        let want = self.buf.len().min(self.remaining as usize);
+        let want = self.chunk.min(self.remaining as usize);
+        buf.resize(want, 0);
         let layout = &self.layout;
-        match self.session.read_image(layout, &mut self.buf[..want]) {
+        match self.session.read_image(layout, &mut buf[..want]) {
             Err(e) => {
                 self.spent = true;
                 Some(Err(e))
@@ -149,9 +158,15 @@ impl Chunks<'_> {
                 if got < want {
                     self.spent = true;
                 }
-                Some(Ok(&self.buf[..got]))
+                buf.truncate(got);
+                Some(Ok(got))
             }
         }
+    }
+
+    /// Bytes one chunk holds, which is what the transport can carry at once
+    pub fn capacity(&self) -> usize {
+        self.chunk
     }
 
     /// Bytes the layout still expects

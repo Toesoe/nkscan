@@ -1,32 +1,30 @@
-//! REMOVE LATER: scan one frame and write it out
+//! REMOVE LATER: measure a strip and scan every frame on it
 //!
-//! Takes the descriptors the unit already holds, puts a window on the chosen
-//! frame, meters it, scans it and writes the result as 16-bit Netpbm. Colour
-//! planes go together and anything else, infrared being the one that turns up,
-//! gets a file of its own.
+//! Takes the whole-strip thumbnail, works out where the frames are and tells the
+//! unit (2-11-6), then focuses, meters and scans each of them in turn at full
+//! resolution off the three-line CCD. Every pass is written as 16-bit Netpbm:
+//! color planes go together and anything else, infrared being the one that turns
+//! up, gets a file of its own.
 //!
 //! ```text
-//! cargo run --example scan                 # meter and scan frame 1
-//! cargo run --example scan -- mono         # one channel rather than colour
-//! cargo run --example scan -- ir           # add the infrared channel
-//! cargo run --example scan -- multiline    # the three-line CCD mode
-//! cargo run --example scan -- samples=2    # read each line twice and average
-//! cargo run --example scan -- dpi=4000     # full resolution
-//! cargo run --example scan -- frame=1      # which frame of the tiled table
-//! cargo run --example scan -- len=6696     # 6x4.5 frames rather than 6x6
-//! cargo run --example scan -- lockwb       # keep the channels in proportion
-//! cargo run --example scan -- noae nofocus # skip metering and focus
-//! cargo run --example scan -- thumb        # measure the strip and stop
-//! cargo run --example scan -- keep frame=2 # scan against what thumb measured
-//! cargo run --example scan -- diagnose     # read a pending fault and stop
-//! cargo run --example scan -- eject        # give the film back and stop
+//! cargo run --release --example scan                  # measure, then scan every frame
+//! cargo run --release --example scan -- thumb         # measure the strip and stop
+//! cargo run --release --example scan -- keep          # scan against the table already held
+//! cargo run --release --example scan -- frame=2       # only the second frame
+//! cargo run --release --example scan -- dpi=666       # quicker than full resolution
+//! cargo run --release --example scan -- len=6696      # 6x4.5 frames rather than 6x6
+//! cargo run --release --example scan -- mono          # one channel rather than color
+//! cargo run --release --example scan -- ir            # add the infrared channel
+//! cargo run --release --example scan -- singleline    # one line at a time, not the three-line CCD
+//! cargo run --release --example scan -- samples=2     # read each line twice and average
+//! cargo run --release --example scan -- lockwb        # keep the channels in proportion
+//! cargo run --release --example scan -- noae nofocus  # skip metering and focus
+//! cargo run --release --example scan -- diagnose      # read a pending fault and stop
+//! cargo run --release --example scan -- eject         # give the film back and stop
 //! ```
 //!
-//! This moves the stage: the window origin comes from the frame's front edge.
-//! Those edges are nominal until a thumbnail has measured them (2-11-6), so the
-//! preamble tiles `len` along the opening the adapter publishes. `thumb` takes
-//! that pass and replaces the tiled table with a measured one; `keep` is what
-//! scans against it afterwards rather than tiling over it again.
+//! This moves the stage. `len` is the film format, which nothing advertises, and
+//! is both what the frames are measured against and how tall a window gets.
 
 use std::{
     fs::File,
@@ -42,7 +40,8 @@ use nkscan::{
             address::Axis,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        data::Boundary,
+        curves::Curves,
+        data::{Boundary, Rect},
         window::{Channel, Composition, Flags, Window},
     },
     scan::{
@@ -55,14 +54,27 @@ use nkscan::{
     session::Session,
 };
 
-/// What the scan is written as
-const DUMP: &str = "scan";
+/// A full-resolution 6x6 frame is half a gigabyte read a chunk at a time,
+/// behind minutes of stage travel
+const SCAN_TIMEOUT: Duration = Duration::from_secs(1800);
 
-/// A full-resolution pass is minutes of stage travel
-const SCAN_TIMEOUT: Duration = Duration::from_secs(600);
-
-/// Where the thumbnail pass goes
+/// Where the whole-strip pass goes
 const THUMB: &str = "thumb";
+
+/// What the flags asked for, so scanning a frame takes one argument
+struct Settings {
+    /// SCAN order, which is also the order the stream interleaves them
+    ids: Vec<u8>,
+    dpi: u16,
+    /// Frame extent along the feed, and so how tall a window is
+    format: u32,
+    /// Times each line is read for us to average
+    readings: u8,
+    interleaving: ColorInterleaving,
+    focus: bool,
+    meter: bool,
+    lock_white_balance: bool,
+}
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -75,13 +87,6 @@ fn main() -> anyhow::Result<()> {
         args.iter()
             .find_map(|a| a.strip_prefix(&format!("{name}="))?.parse::<u32>().ok())
     };
-    // SCAN order, which is also the order the stream interleaves them. The
-    // captures lead with infrared
-    let mut ids: Vec<u8> = if has("mono") { vec![1] } else { vec![1, 2, 3] };
-    if has("ir") {
-        ids.insert(0, Channel::Infrared.id());
-    }
-    let ids = &ids[..];
 
     let devices = device::list();
     let device = Selector::Only.resolve(&devices)?;
@@ -104,194 +109,246 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // The setup the captures run once before the first pass. len=N is the film
-    // format, which nothing advertises
-    let format = arg("len").unwrap_or(8964);
-    // A measured table is the one the stage should step against, and tiling
-    // over it would throw the measurement away
-    let table = match has("keep") {
-        true => Boundary::default(),
-        false => framing::table(session.capabilities(), format)?,
+    // The captures lead with infrared, and a set has to be given in SCAN order
+    let mut ids: Vec<u8> = if has("mono") { vec![1] } else { vec![1, 2, 3] };
+    if has("ir") {
+        ids.insert(0, Channel::Infrared.id());
+    }
+    let settings = Settings {
+        ids,
+        // Full resolution unless something quicker was asked for. Off the ladder
+        // the unit rounds and says so with 01h-37h rather than refusing
+        dpi: arg("dpi").unwrap_or(u32::from(session.capabilities().address.x_axis.optical_dpi))
+            as u16,
+        format: arg("len").unwrap_or(8964),
+        readings: arg("samples").unwrap_or(1).max(1) as u8,
+        // The three-line CCD reads its rows at once, so the stage travels a
+        // third as far. One line at a time is the "super fine" path, and the
+        // only one the CCD correction has nothing to do in
+        interleaving: match has("singleline") {
+            true => ColorInterleaving::LINE_WITHOUT_DISTANCE,
+            false => ColorInterleaving::MULTILINE_SIMULTANEOUS,
+        },
+        focus: !has("nofocus"),
+        meter: !has("noae"),
+        lock_white_balance: has("lockwb"),
     };
+
+    // The setup the captures run once before the first pass. `keep` leaves the
+    // table alone, since tiling over a measured one throws the measurement away
     let started = Instant::now();
-    preamble::run(&mut session, &table)?;
+    let tiled = match has("keep") {
+        true => Boundary::default(),
+        false => framing::table(session.capabilities(), settings.format)?,
+    };
+    preamble::run(&mut session, &tiled)?;
     println!("preamble in {:?}", started.elapsed());
 
-    // The captures open with the whole-strip pass before any frame placement:
-    // it is what finds where the frames are. Run it first so the stage does not
-    // go out to a frame and then all the way back to the strip start
+    // Where the frames are. The captures open with the whole-strip pass before
+    // any frame placement, so the stage does not go out to a frame and back
+    let table = match has("keep") {
+        true => session.boundaries()?,
+        false => measure(&mut session, settings.format)?,
+    };
+    println!("{} frame(s) on the strip", table.frames.len());
+    for (n, frame) in table.frames.iter().enumerate() {
+        println!("  frame {}: y {} to {}", n + 1, frame.top, frame.bottom);
+    }
     if has("thumb") {
-        let began = Instant::now();
-        println!(
-            "thumbnail available={} framing {:?} ready={} host builds={}",
-            thumbnail::available(session.capabilities()),
-            Framing::choose(session.capabilities()),
-            Framing::choose(session.capabilities()).ready(),
-            thumbnail::host_builds(session.capabilities())
-        );
-        let curves = session.ccd_curves(0);
-        let mut samples = Vec::new();
-        match thumbnail::scan(&mut session, curves.as_ref(), &mut samples) {
-            Ok(t) => {
-                println!(
-                    "thumbnail {} x {} in {:?}, complete={}, owes {:?}",
-                    t.layout.pixels,
-                    t.layout.lines,
-                    began.elapsed(),
-                    t.complete,
-                    t.cooperation
-                );
-                // Decoded on the way in, so this is an image rather than a
-                // stream needing the decode example
-                netpbm(THUMB, &samples, &t)?;
-
-                // 2-11-6: the host is what works the frames out of this pass
-                let measured =
-                    thumbnail::frames(session.capabilities(), &t, &samples, format, None)?;
-                println!("measured: {measured:?}");
-                session.set_boundaries(&measured)?;
-
-                // Bar every edge the table claims, so it can be looked at
-                // against the picture it was measured from
-                let pitch = t.layout.line_pitch.max(1);
-                let origin = session.capabilities().address.y_axis.address_range.start;
-                let rows: Vec<usize> = measured
-                    .frames
-                    .iter()
-                    .flat_map(|f| [f.top, f.bottom])
-                    .map(|y| (y.saturating_sub(origin) / pitch) as usize)
-                    .collect();
-                mark(&mut samples, &t, &rows);
-                netpbm(&format!("{THUMB}.frames"), &samples, &t)?;
-            }
-            Err(e) => println!("thumbnail refused: {e}"),
-        }
-        session.refresh()?;
-        println!("frames now: {:?}", session.capabilities().frames);
         return Ok(());
     }
 
-    // 2-11-6: where the unit thinks each frame is, which the preamble has just
-    // told it
-    let boundary = session.boundaries()?;
-    println!("boundaries: {boundary:?}");
-
-    // The lowest resolution this unit offers, over the frame the window lands on
-    let caps = session.capabilities();
-    // dpi=N scans at something other than the cheapest resolution. Off the
-    // ladder the unit rounds and says so with 01h-37h rather than refusing
-    let dpi = arg("dpi").unwrap_or(u32::from(caps.address.x_axis.dpi_range.start)) as u16;
-    let (origin, size) = place(caps, &boundary, arg("frame").or(Some(1)));
-    println!(
-        "placing {size:?} at {origin:?}, center y={}",
-        origin.1 + size.1 / 2
-    );
-
-    let held = session.windows()?;
-    let mut windows = Vec::new();
-    for id in ids {
-        let mut w = held
-            .iter()
-            .find(|w| w.id == *id)
-            .unwrap_or_else(|| panic!("no window {id}"))
-            .clone();
-        // Three things Nikon Scan's preview descriptor does that ours does not,
-        // each on its own flag so they can be bisected
-        // A scan is square; the metering pass halves Y for itself
-        w.resolution = (dpi, dpi);
-        w.origin = origin;
-        w.size = size;
-        // The unit keeps whatever the last run left in these, so say what we
-        // want rather than inheriting a previous experiment
-        w.scanning_kind = ScanKind::IMAGE;
-        w.scanning_mode = ScanMode::HIGH_SPEED;
-        // A set has to agree on these, and the unit holds a different set per
-        // window, so every one of them gets said rather than inherited
-        w.flags = Flags::POSITIVE;
-        // samples=N reads each line N times for the host to average. Byte 40
-        // carries one less than the count, and byte 43 has to say so too
-        w.multiple_reading = arg("samples").unwrap_or(1).max(1) as u8 - 1;
-        if w.multiple_reading != 0 {
-            w.scanning_mode |= ScanMode::MULTI_READING;
-        }
-        w.color_interleaving = match has("multiline") {
-            true => ColorInterleaving::MULTILINE_SIMULTANEOUS,
-            false => ColorInterleaving::LINE_WITHOUT_DISTANCE,
-        };
-        // 2-10-6 has one code for a one-plane output and one for three
-        // 2-10-6 counts the visible planes, so infrared does not sway it
-        w.composition = match ids.iter().filter(|&&i| Channel::from(i).is_color()).count() {
-            1 => Composition::MultilevelBW,
-            _ => Composition::MultilevelRGB,
-        };
-        windows.push(w);
-    }
-    println!("{:#?}", windows[0]);
-    let show = |what: &str, windows: &[Window]| {
-        let e: Vec<_> = windows.iter().map(|w| (w.id, w.exposure)).collect();
-        println!("{what}: {e:?}");
-    };
-    show("exposures as held", &windows);
-
-    // Before metering, which is the order in the captures: autofocus, then the
-    // preview passes that decide the exposures. So AE measures a focused frame
-    // Before metering, which is the order in the captures: autofocus, then the
-    // passes that decide the exposures. So AE measures a focused frame
-    if !has("nofocus") {
-        let started = Instant::now();
-        let focused = Focus::default().apply(&mut session, &windows)?;
-        println!("focus: {focused:?} in {:?}", started.elapsed());
-    }
-
-    if !has("noae") {
-        let exposure = Exposure::choose(session.capabilities(), has("lockwb"))?;
-        println!("metering: {exposure:?}");
-        let started = Instant::now();
-        windows = expose::expose(&mut session, &windows, exposure)?;
-        println!("metered in {:?}", started.elapsed());
-        show("exposures metered", &windows);
-    }
-
-    let started = Instant::now();
+    // One buffer and one set of curves for the strip: a full-resolution frame is
+    // half a gigabyte, and there is no reason to hold two
     let curves = session.ccd_curves(0);
     let mut samples = Vec::new();
-    let taken = pass::take(
-        &mut session,
-        &windows,
-        SCAN_TIMEOUT,
-        curves.as_ref(),
-        &mut samples,
-    )?;
-    println!(
-        "{} x {} at {} dpi, {:?}, complete={}, owes {:?}, in {:?}",
-        taken.layout.pixels,
-        taken.layout.lines,
-        taken.layout.dpi,
-        taken.layout.interleaving,
-        taken.complete,
-        taken.cooperation,
-        started.elapsed()
-    );
+    let only = arg("frame");
 
-    netpbm(DUMP, &samples, &taken)?;
+    for (n, frame) in table.frames.iter().enumerate() {
+        let number = n as u32 + 1;
+        if only.is_some_and(|pick| pick != number) {
+            continue;
+        }
+
+        let started = Instant::now();
+        let taken = scan(
+            &mut session,
+            frame,
+            &settings,
+            curves.as_ref(),
+            &mut samples,
+        )?;
+        println!(
+            "frame {number}: {} x {} at {} dpi, complete={}, owes {:?}, in {:?}",
+            taken.cols,
+            taken.rows,
+            taken.layout.dpi,
+            taken.complete,
+            taken.cooperation,
+            started.elapsed()
+        );
+        netpbm(&format!("frame{number}"), &samples, &taken)?;
+    }
     Ok(())
 }
 
-/// Paint the named rows solid, so a frame table can be looked at against the
-/// thumbnail it was measured from
-fn mark(samples: &mut [u16], pass: &Pass, rows: &[usize]) {
-    let stride = pass.cols * pass.layout.channels.len();
-    for y in rows {
-        if let Some(row) = samples.get_mut(y * stride..(y + 1) * stride) {
-            row.fill(u16::MAX);
+/// Take the whole-strip pass and tell the unit what it says, 2-11-6
+///
+/// Writes the thumbnail, and a second copy with a bar on every edge the table
+/// claims, so the measurement can be looked at against the picture it came from
+fn measure(session: &mut Session, format: u32) -> anyhow::Result<Boundary> {
+    println!("framing {:?}", Framing::choose(session.capabilities()));
+    let started = Instant::now();
+    let curves = session.ccd_curves(0);
+    let mut samples = Vec::new();
+    let taken = thumbnail::scan(session, curves.as_ref(), &mut samples)?;
+    println!(
+        "thumbnail {} x {} in {:?}, complete={}",
+        taken.cols,
+        taken.rows,
+        started.elapsed(),
+        taken.complete
+    );
+    netpbm(THUMB, &samples, &taken)?;
+
+    let measured = thumbnail::frames(session.capabilities(), &taken, &samples, format, None)?;
+    session.set_boundaries(&measured)?;
+
+    let pitch = taken.layout.line_pitch.max(1);
+    let origin = session.capabilities().address.y_axis.address_range.start;
+    let columns: Vec<usize> = measured
+        .frames
+        .iter()
+        .flat_map(|frame| [frame.top, frame.bottom])
+        .map(|y| (y.saturating_sub(origin) / pitch) as usize)
+        .collect();
+    mark(&mut samples, &taken, &columns);
+    netpbm(&format!("{THUMB}.frames"), &samples, &taken)?;
+    Ok(measured)
+}
+
+/// Focus on one frame, meter it and scan it
+fn scan(
+    session: &mut Session,
+    frame: &Rect,
+    settings: &Settings,
+    curves: Option<&Curves>,
+    samples: &mut Vec<u16>,
+) -> anyhow::Result<Pass> {
+    let mut windows = descriptors(session, frame, settings)?;
+
+    // Focus before metering, which is the order in the captures, so the
+    // exposures are measured off a focused frame
+    if settings.focus {
+        let started = Instant::now();
+        let focused = Focus::default().apply(session, &windows)?;
+        println!("focus: {focused:?} in {:?}", started.elapsed());
+    }
+
+    if settings.meter {
+        let exposure = Exposure::choose(session.capabilities(), settings.lock_white_balance)?;
+        let started = Instant::now();
+        windows = expose::expose(session, &windows, exposure)?;
+        let held: Vec<_> = windows.iter().map(|w| (w.id, w.exposure)).collect();
+        println!("metered {held:?} in {:?}", started.elapsed());
+    }
+
+    Ok(pass::take(
+        session,
+        &windows,
+        SCAN_TIMEOUT,
+        curves,
+        samples,
+    )?)
+}
+
+/// The descriptors that scan one frame, from the ones the unit already holds
+///
+/// The unit keeps whatever the last run left in these, so everything a set has
+/// to agree on gets said rather than inherited
+fn descriptors(
+    session: &mut Session,
+    frame: &Rect,
+    settings: &Settings,
+) -> anyhow::Result<Vec<Window>> {
+    let (origin, size) = area(session.capabilities(), frame, settings.format);
+    let held = session.windows()?;
+    // 2-10-6 has one code for a one-plane output and one for three, and counts
+    // the visible planes, so infrared does not sway it
+    let composition = match settings
+        .ids
+        .iter()
+        .filter(|id| Channel::from(**id).is_color())
+        .count()
+    {
+        1 => Composition::MultilevelBW,
+        _ => Composition::MultilevelRGB,
+    };
+
+    settings
+        .ids
+        .iter()
+        .map(|id| {
+            let mut w = held
+                .iter()
+                .find(|w| w.id == *id)
+                .ok_or_else(|| anyhow::anyhow!("this unit holds no window {id}"))?
+                .clone();
+            // A scan is square; the metering pass halves Y for itself
+            w.resolution = (settings.dpi, settings.dpi);
+            w.origin = origin;
+            w.size = size;
+            w.scanning_kind = ScanKind::IMAGE;
+            w.scanning_mode = ScanMode::HIGH_SPEED;
+            w.flags = Flags::POSITIVE;
+            w.composition = composition;
+            w.color_interleaving = settings.interleaving;
+            // Byte 40 carries one less than the reading count, and byte 43 has
+            // to say so too
+            w.multiple_reading = settings.readings - 1;
+            if w.multiple_reading != 0 {
+                w.scanning_mode |= ScanMode::MULTI_READING;
+            }
+            Ok(w)
+        })
+        .collect()
+}
+
+/// The window that scans one frame
+///
+/// The unit serves film from where the table says a frame starts, so the frame's
+/// own front edge is the origin and the stage goes there and stays. Height is the
+/// film format rather than the rectangle's: a unit that has measured nothing
+/// answers `DataType::Boundary` with one rectangle covering the whole sensor, and
+/// a window that long would take the stage past its boundary.
+fn area(caps: &Capabilities, frame: &Rect, format: u32) -> ((u32, u32), (u32, u32)) {
+    let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
+    let clamp = |v: u32, axis: &Axis| v.clamp(axis.address_range.start, axis.address_range.last);
+    (
+        (clamp(frame.left, x), clamp(frame.top, y)),
+        (
+            frame.right.saturating_sub(frame.left).min(x.boundary),
+            format.min(y.boundary),
+        ),
+    )
+}
+
+/// Paint the named columns solid, so a frame table can be looked at against
+/// the thumbnail it was measured from
+fn mark(samples: &mut [u16], pass: &Pass, columns: &[usize]) {
+    let channels = pass.layout.channels.len();
+    for &x in columns {
+        if x >= pass.cols {
+            continue;
+        }
+        for y in 0..pass.rows {
+            let at = (y * pass.cols + x) * channels;
+            samples[at..at + channels].fill(u16::MAX);
         }
     }
 }
 
 /// Write decoded samples where they can be looked at, 16-bit Netpbm
-///
-/// A row at a time: the whole point of decoding as the stream arrives is not to
-/// hold a second copy of the image
 fn netpbm(stem: &str, samples: &[u16], pass: &Pass) -> anyhow::Result<()> {
     let ids = &pass.layout.channels;
     let color: Vec<usize> = (0..ids.len())
@@ -338,44 +395,4 @@ fn plane(stem: &str, samples: &[u16], pass: &Pass, channels: &[usize]) -> anyhow
     file.flush()?;
     println!("wrote {dest}");
     Ok(())
-}
-
-/// Where Nikon Scan put the window in the reference capture, and the frame's
-/// front edge a scan is supposed to sit at: frame 2 of the 6x9 strip
-/// (`docs/CAPTURES.md`), origin `(518, 12720)`, size `(8964, 8964)`.
-///
-/// Until this unit has measured a strip it answers `DataType::Boundary` with one rectangle
-/// covering the whole sensor, so "read the boundary" is not enough to know
-/// where the frames are; the measured geometry from `frame=` wins when the
-/// unit has it, and this is what a scan falls back to.
-const NIKON_ORIGIN: (u32, u32) = (518, 12720);
-const NIKON_SIZE: (u32, u32) = (8964, 8964);
-
-/// Put a window at the front edge of the chosen measured frame, or at the
-/// window Nikon Scan itself used when nothing is measured.
-///
-/// The unit's rectangles are in window-origin coordinates, so the
-/// frame's front edge is its own top-left corner and its size is the whole
-/// rectangle, so the stage goes to the frame and stays there. No frame is
-/// measured until the host has done the boundary write-back 2-11-6 asks for,
-/// so without `frame=` the Nikon Scan geometry stands in.
-fn place(caps: &Capabilities, boundary: &Boundary, pick: Option<u32>) -> ((u32, u32), (u32, u32)) {
-    let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
-
-    // A frame the unit has measured: its front edge is the origin, its extent
-    // is the window, since the capture's window is the whole frame
-    if let Some(frame) = pick.and_then(|n| boundary.frames.get(n as usize)) {
-        let origin = (frame.left, frame.top);
-        let size = (frame.right - frame.left, frame.bottom - frame.top);
-        let clamp =
-            |v: u32, axis: &Axis| v.clamp(axis.address_range.start, axis.address_range.last);
-        return ((clamp(origin.0, x), clamp(origin.1, y)), size);
-    }
-
-    // Nothing measured, and the unit's one rectangle is the whole sensor:
-    // reproduce the window Nikon Scan itself used for this holder
-    (
-        (NIKON_ORIGIN.0, NIKON_ORIGIN.1),
-        (NIKON_SIZE.0, NIKON_SIZE.1),
-    )
 }

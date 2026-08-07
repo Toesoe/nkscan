@@ -5,8 +5,10 @@
 //! whatever part of a line the last chunk left and writes complete lines only.
 //!
 //! Output is one sample per channel per pixel, channels in the order `Layout`
-//! lists them, so a caller can wrap it as `(lines, pixels, channels)` without
-//! copying.
+//! lists them, so a caller can wrap it as `(rows, cols, channels)` without
+//! copying. Whatever the interleaving, the geometry is the same: the sensor bar
+//! is the image's rows and the stage's feed positions are its columns, with the
+//! bar read out backwards.
 
 use crate::{
     error::Error,
@@ -79,91 +81,12 @@ impl<'a> Image<'a> {
 
 /// How a stream is scrambled, and where one block of it belongs
 ///
-/// Orderings differ in the size of a block and in where its samples land. They
-/// do not differ in how bytes arrive, so [`Decoder`] owns that part.
-enum Ordering<'a> {
-    /// 2-11-3-1 format 1, one wire line per output line
-    ///
-    /// Every sample comes off a single CCD row, so there is no inter-line
-    /// mismatch here and nothing for the CCD curves to correct
-    Lines(Lines),
-    /// Every CCD row read at once, 2-11-3 and 2-11-5-3
-    Transposed(Transposed<'a>),
-}
-
-impl Ordering<'_> {
-    /// Bytes one [`emit`](Self::emit) consumes
-    fn block_bytes(&self) -> usize {
-        match self {
-            Self::Lines(l) => l.pixels * l.channels * l.bytes_per_sample,
-            Self::Transposed(t) => t.gap * t.stage * t.bytes_per_sample,
-        }
-    }
-
-    /// Blocks the layout promises
-    fn blocks(&self) -> usize {
-        match self {
-            Self::Lines(l) => l.lines,
-            Self::Transposed(t) => t.cols / (t.gap * t.ccd_lines),
-        }
-    }
-
-    /// Rows and columns of the image, which the two orderings transpose
-    fn shape(&self) -> (usize, usize) {
-        match self {
-            Self::Lines(l) => (l.lines, l.pixels),
-            Self::Transposed(t) => (t.rows, t.cols),
-        }
-    }
-
-    /// Samples the output holds
-    fn samples(&self) -> usize {
-        let (rows, cols) = self.shape();
-        rows * cols
-            * match self {
-                Self::Lines(l) => l.channels,
-                Self::Transposed(t) => t.slots.len(),
-            }
-    }
-
-    /// Put block `n` where it belongs
-    fn emit(&self, n: usize, block: &[u8], out: &mut [u16]) {
-        match self {
-            Self::Lines(l) => l.emit(n, block, out),
-            Self::Transposed(t) => t.emit(n, block, out),
-        }
-    }
-}
-
-/// 2-11-3-1 format 1: a line holds each channel's row end to end, and the
-/// output wants them interleaved per pixel
-struct Lines {
-    pixels: usize,
-    lines: usize,
-    channels: usize,
-    bytes_per_sample: usize,
-}
-
-impl Lines {
-    fn emit(&self, n: usize, line: &[u8], out: &mut [u16]) {
-        let row = n * self.pixels * self.channels;
-        for (channel, plane) in line
-            .chunks_exact(self.pixels * self.bytes_per_sample)
-            .enumerate()
-        {
-            for (x, sample) in plane.chunks_exact(self.bytes_per_sample).enumerate() {
-                out[row + x * self.channels + channel] = sample_at(sample);
-            }
-        }
-    }
-}
-
-/// Every CCD row read at once
-///
 /// The sensor bar is the image's vertical axis and reads out backwards. The
 /// stage advances one column per position and the CCD's rows sit `gap` columns
 /// apart, so `gap` stage positions fill a contiguous run of `gap * ccd_lines`
-/// columns: `[row 0 x gap][row 1 x gap][row 2 x gap]`.
+/// columns: `[row 0 x gap][row 1 x gap][row 2 x gap]`. A single-line pass is
+/// the same readout with one CCD row, where `gap` is 1 and a block is one line
+/// of the feed, so there is only one ordering and nothing to dispatch on.
 struct Transposed<'a> {
     /// Output rows, which is the sensor bar
     rows: usize,
@@ -244,6 +167,26 @@ impl Slot {
 }
 
 impl Transposed<'_> {
+    /// Bytes one [`emit`](Self::emit) consumes
+    fn block_bytes(&self) -> usize {
+        self.gap * self.stage * self.bytes_per_sample
+    }
+
+    /// Blocks the layout promises
+    fn blocks(&self) -> usize {
+        self.cols / (self.gap * self.ccd_lines)
+    }
+
+    /// Rows and columns of the image: sensor pixels down, feed positions across
+    fn shape(&self) -> (usize, usize) {
+        (self.rows, self.cols)
+    }
+
+    /// Samples the output holds
+    fn samples(&self) -> usize {
+        self.rows * self.cols * self.slots.len()
+    }
+
     fn emit(&self, n: usize, block: &[u8], out: &mut [u16]) {
         let first = n * self.gap * self.ccd_lines;
         for col in 0..self.gap * self.ccd_lines {
@@ -295,7 +238,7 @@ fn sample_at(sample: &[u8]) -> u16 {
 ///
 /// A chunk can end anywhere, so partial blocks are held until the rest arrives
 pub struct Decoder<'a> {
-    ordering: Ordering<'a>,
+    ordering: Transposed<'a>,
     /// A block the last chunk ended part-way through
     carry: Vec<u8>,
     /// Blocks emitted so far
@@ -305,13 +248,13 @@ pub struct Decoder<'a> {
 impl<'a> Decoder<'a> {
     /// A decoder for a stream shaped like `layout`
     ///
-    /// Only [`LINE_WITHOUT_DISTANCE`](ColorInterleaving::LINE_WITHOUT_DISTANCE)
-    /// so far. The three-line ordering puts the sensor bar on the output's Y
-    /// axis and reads it out backwards, tiles stage positions against CCD lines
-    /// in blocks of the line gap, and gives each channel and multi-sample repeat
-    /// its own readout slot. It is another [`Ordering`], and the one the CCD
-    /// correction belongs in; `FrameTranspose` on the pre-rewrite `main` is a
-    /// working implementation of the geometry.
+    /// Both supported interleavings are the same readout: the sensor bar sits
+    /// on the output's Y axis and reads out backwards, stage positions tile
+    /// against CCD rows in blocks of the line gap, and each channel and
+    /// multi-sample repeat gets its own readout slot. The three-line mode reads
+    /// every CCD row at once; [`LINE_WITHOUT_DISTANCE`](ColorInterleaving::LINE_WITHOUT_DISTANCE)
+    /// is the same with one row, where the gap is 1 and a block is one line of
+    /// the feed.
     pub fn new(layout: &Layout) -> Result<Self, Error> {
         if !matches!(layout.bytes_per_sample, 1 | 2) {
             return Err(bad(format!(
@@ -322,59 +265,63 @@ impl<'a> Decoder<'a> {
         let bytes_per_sample = usize::from(layout.bytes_per_sample);
         let (rows, cols) = (layout.pixels as usize, layout.lines as usize);
 
-        let ordering = if layout
+        if !layout
             .interleaving
-            .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
+            .intersects(ColorInterleaving::MULTILINE_SIMULTANEOUS | ColorInterleaving::LINE_WITHOUT_DISTANCE)
         {
-            let ccd_lines = usize::from(layout.ccd_lines).max(1);
-            let gap = match ccd_lines {
-                1 => 1,
-                _ => layout.registration_gap as usize,
-            };
-            let strip = gap * ccd_lines;
-            if gap == 0 || !cols.is_multiple_of(strip) {
-                return Err(bad(format!(
-                    "{cols} columns is not a whole number of {strip}-column blocks"
-                )));
-            }
-            let readout = rows * ccd_lines;
-            Ordering::Transposed(Transposed {
-                rows,
-                cols,
-                ccd_lines,
-                gap,
-                slots: Slot::every(
-                    &layout.channels,
-                    usize::from(layout.readings_per_line).max(1),
-                ),
-                readout,
-                stage: layout.readouts() as usize * readout,
-                bytes_per_sample,
-                curves: None,
-            })
-        } else if layout
-            .interleaving
-            .contains(ColorInterleaving::LINE_WITHOUT_DISTANCE)
-        {
-            // Repeats have no place to sit in a format that is one line per
-            // line, and no capture has ever paired the two
-            if layout.readings_per_line > 1 {
-                return Err(bad(format!(
-                    "{} readings a line is not an ordering this decodes yet",
-                    layout.readings_per_line
-                )));
-            }
-            Ordering::Lines(Lines {
-                pixels: rows,
-                lines: cols,
-                channels: layout.channels.len(),
-                bytes_per_sample,
-            })
-        } else {
             return Err(bad(format!(
                 "{:?} is not an ordering this decodes yet",
                 layout.interleaving
             )));
+        }
+
+        // 2-11-3-1 format 1 is the same readout with one CCD row: `gap` 1 and a
+        // block of one line of the feed. Repeats have no place to sit in it,
+        // and no capture has ever paired the two
+        if layout
+            .interleaving
+            .contains(ColorInterleaving::LINE_WITHOUT_DISTANCE)
+            && layout.readings_per_line > 1
+        {
+            return Err(bad(format!(
+                "{} readings a line is not an ordering this decodes yet",
+                layout.readings_per_line
+            )));
+        }
+
+        let ccd_lines = if layout
+            .interleaving
+            .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
+        {
+            usize::from(layout.ccd_lines).max(1)
+        } else {
+            // A single line, whatever the unit advertises for the three-line mode
+            1
+        };
+        let gap = match ccd_lines {
+            1 => 1,
+            _ => layout.registration_gap as usize,
+        };
+        let strip = gap * ccd_lines;
+        if gap == 0 || !cols.is_multiple_of(strip) {
+            return Err(bad(format!(
+                "{cols} columns is not a whole number of {strip}-column blocks"
+            )));
+        }
+        let readout = rows * ccd_lines;
+        let ordering = Transposed {
+            rows,
+            cols,
+            ccd_lines,
+            gap,
+            slots: Slot::every(
+                &layout.channels,
+                usize::from(layout.readings_per_line).max(1),
+            ),
+            readout,
+            stage: layout.readouts() as usize * readout,
+            bytes_per_sample,
+            curves: None,
         };
 
         Ok(Self {
@@ -386,20 +333,17 @@ impl<'a> Decoder<'a> {
 
     /// Correct the CCD's rows against each other as the stream is unscrambled
     ///
-    /// Only the three-line ordering has rows to correct. A single-line pass
-    /// reads every sample off one row, so this is dropped there rather than
-    /// applied to no effect.
+    /// Only the three-line mode has rows to correct. A single-line pass reads
+    /// every sample off one row, so there is no inter-line mismatch and a
+    /// correction would only distort it.
     pub fn correcting(mut self, curves: &'a Curves) -> Self {
-        if let Ordering::Transposed(t) = &mut self.ordering {
-            t.curves = Some(curves);
+        if self.ordering.ccd_lines > 1 {
+            self.ordering.curves = Some(curves);
         }
         self
     }
 
-    /// Rows and columns of the image
-    ///
-    /// The two orderings transpose each other: a line format puts the feed down
-    /// the image, and the three-line readout puts the sensor bar there
+    /// Rows and columns of the image: the sensor bar down, the feed across
     pub fn shape(&self) -> (usize, usize) {
         self.ordering.shape()
     }
@@ -493,7 +437,8 @@ mod tests {
     }
 
     /// The wire puts a whole channel down before the next; the output
-    /// interleaves them per pixel
+    /// interleaves them per pixel, sensor pixels down the image with the bar
+    /// read out backwards
     #[test]
     fn a_line_of_planes_comes_out_interleaved() {
         let l = layout(4, 3, vec![1, 2, 3]);
@@ -502,14 +447,34 @@ mod tests {
         d.push(&stream(4, 3, 3), &mut out).unwrap();
 
         assert!(d.complete());
-        for y in 0..3usize {
-            for x in 0..4usize {
+        assert_eq!(d.shape(), (4, 3));
+        for s in 0..4usize {
+            for f in 0..3usize {
                 for c in 0..3usize {
-                    let got = out[(y * 4 + x) * 3 + c];
-                    assert_eq!(got, (y * 1000 + x * 10 + c) as u16, "{y},{x},{c}");
+                    let got = out[((4 - 1 - s) * 3 + f) * 3 + c];
+                    assert_eq!(got, (f * 1000 + s * 10 + c) as u16, "{s},{f},{c}");
                 }
             }
         }
+    }
+
+    /// A single-line pass is the three-line readout with one CCD row, so the
+    /// same wire bytes come out the same image whichever interleaving names them
+    #[test]
+    fn single_line_and_three_line_read_one_geometry() {
+        let single = layout(4, 3, vec![1, 2, 3]);
+        let mut three = single.clone();
+        three.interleaving = ColorInterleaving::MULTILINE_SIMULTANEOUS;
+        three.ccd_lines = 1;
+        three.registration_gap = 0;
+
+        let raw = stream(4, 3, 3);
+        let mut a = vec![0u16; Decoder::new(&single).unwrap().samples()];
+        let mut b = vec![0u16; Decoder::new(&three).unwrap().samples()];
+        Decoder::new(&single).unwrap().push(&raw, &mut a).unwrap();
+        Decoder::new(&three).unwrap().push(&raw, &mut b).unwrap();
+
+        assert_eq!(a, b);
     }
 
     /// The transport splits where it likes, including mid-sample
@@ -532,7 +497,7 @@ mod tests {
         }
     }
 
-    /// A short read leaves the tail of the image as it found it
+    /// A short read leaves what did not arrive where it was
     #[test]
     fn a_short_stream_writes_only_what_arrived() {
         let l = layout(4, 3, vec![1, 2, 3]);
@@ -543,7 +508,24 @@ mod tests {
 
         assert!(!d.complete());
         assert_eq!(d.decoded(), 1);
-        assert_eq!(&out[4 * 3..], [0u16; 4 * 3 * 2]);
+        // One block is one feed position read into the whole sensor bar, so
+        // column 0 carries the first wire line and nothing else has moved
+        for (y, s) in [(0usize, 3usize), (1, 2), (2, 1), (3, 0)] {
+            let at = (y * 3) * 3;
+            assert_eq!(
+                &out[at..at + 3],
+                &[(s * 10) as u16, (s * 10 + 1) as u16, (s * 10 + 2) as u16],
+                "row {y}"
+            );
+        }
+        // The other feed positions have not arrived, so their columns are blank
+        for y in 0..4usize {
+            for x in 1..3usize {
+                for c in 0..3usize {
+                    assert_eq!(out[(y * 3 + x) * 3 + c], 0, "row {y} col {x} ch {c}");
+                }
+            }
+        }
     }
 
     /// The unit pads rather than truncating, so anything past the last line

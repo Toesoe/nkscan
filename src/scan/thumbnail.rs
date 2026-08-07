@@ -88,8 +88,8 @@ pub fn frames(
     framing::reachable(caps, length)?;
     let image = Image::new(&pass.layout, samples)?;
 
-    // A thumbnail row is one line pitch of film, and the pass starts where the
-    // Y axis does, so a row is an address
+    // A thumbnail column is one line pitch of film, and the pass starts where
+    // the Y axis does, so a column is an address
     let pitch = pass.layout.line_pitch.max(1);
     let origin = caps.address.y_axis.address_range.start;
     let end = caps.address.y_axis.address_range.last;
@@ -102,7 +102,7 @@ pub fn frames(
     let frames: Vec<Rect> = found
         .frames
         .iter()
-        .map(|frame| origin + frame.row as u32 * pitch)
+        .map(|frame| origin + frame.col as u32 * pitch)
         .filter(|top| top + length <= end)
         .map(|top| Rect {
             top,
