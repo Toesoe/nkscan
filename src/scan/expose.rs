@@ -11,7 +11,7 @@ use crate::{
             Capabilities,
             set_window::{AnalogControl, ScanKind, ScanMode},
         },
-        decode::{Decoder, Image},
+        decode::Image,
         window::{Flags, Window},
     },
     session::Session,
@@ -120,7 +120,7 @@ pub fn expose(
             let mut n = 0;
             loop {
                 let taken = pass::take(session, &windows, PASS_TIMEOUT)?;
-                let mut decoder = Decoder::new(&taken.layout)?;
+                let mut decoder = pass::decoder(session, &taken.layout)?;
                 samples.resize(decoder.samples(), 0);
                 decoder.push(&taken.data, &mut samples)?;
                 let layout = layout.insert(taken.layout);
