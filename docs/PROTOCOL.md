@@ -1182,6 +1182,45 @@ a frame-kind SET WINDOW drives to runs backwards as the frame gets longer --
 home stop, and only a power cycle recovers it. `scan::framing::table` refuses
 those rather than sending them.
 
+**`C1h` byte 74 does not cap the table.** §2-2-2-4 calls it "Maximum Image count
+(maximum number of frames that can be scanned)" and byte 75 "the number of frames
+of the medium that is currently set". Neither behaves that way: across one
+`full_session_cold_start` capture the two read `0, 0, 0, 1, 0, 0, 0` in step with
+each other, while that same session writes four-rectangle tables and scans from
+them. Size a table against byte 74 and a three-frame strip comes back holding one
+frame. The only real limit is the record's own one-byte count.
+
+## Measuring the table off a thumbnail
+
+`FRAME_RECTS` with no lengths means the host measures. The film between two
+frames carries no picture, so a thumbnail collapsed across the sensor is a square
+wave down the feed. `scan::boundaries` finds a frame as a **pair** of edges the
+film format apart, scoring the weaker of the two, so the strongest edges in the
+pass are also the ones it throws away: the cut end of the film, the empty gate
+past it, and the slit of light between the holder's leading mask and the film,
+which is one edge each and part of no frame.
+
+Nothing has to say which way the film reads. A strip scored the wrong way round
+looks for frames where the film between them is; on an FH-869S slide strip the
+right reading beats the wrong one about five to one, so both are tried and the
+stronger kept.
+
+Measured on a three-frame 6x6 strip, thumbnail 186 x 721 at 83 dpi, one row being
+48 dots of Y:
+
+| | frame 1 | frame 2 | frame 3 |
+|---|---|---|---|
+| top | 2640 | 12624 | 22560 |
+| visible edge | 2736 | 12720 | 22656 |
+
+Every top lands two rows ahead of where the picture starts, so a frame table
+opens in the gap rather than clipping the first line of the image. The wind comes
+out at 9936 dots, 63.1 mm.
+
+Heights are the format, not the measurement: Nikon Scan's own measured tables
+move the tops around and leave every rectangle at the frame length, and the
+captures' `88h` writes never carry a height that is not the format.
+
 ## The control byte is not 0
 
 Both specs give the last CDB byte as "Control byte [0]" everywhere. Nikon Scan

@@ -61,6 +61,12 @@ impl<'a> Image<'a> {
         })
     }
 
+    /// One row, channels interleaved in the order `channels` lists them
+    pub fn row(&self, y: usize) -> &'a [u16] {
+        let stride = self.cols * self.channels.len();
+        &self.samples[y * stride..(y + 1) * stride]
+    }
+
     /// Every sample of one channel
     pub fn plane(&self, channel: usize) -> impl Iterator<Item = u16> + use<'a> {
         self.samples

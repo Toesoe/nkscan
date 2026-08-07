@@ -17,7 +17,8 @@ pub enum Framing {
     /// `Frames` already carries every frame. A masked adapter knows its own geometry
     Published,
     /// `Frames` carries rectangles with no length.
-    /// 2-11-6: after a thumbnail of strip film the host works the boundaries out and sends them as `DataType::Boundary`
+    /// 2-11-6: after a thumbnail of strip film the host works the boundaries out and sends them as `DataType::Boundary`.
+    /// `thumbnail::frames` is what works them out
     Thumbnail,
     /// No rectangles at all. 135 film seeks by counting perforations: read `DataType::Perforation` and write `DataType::Boundary2` back
     Perforation,
@@ -57,10 +58,26 @@ impl Framing {
 
     /// Whether this is a mechanism we have implemented
     ///
-    /// [`Thumbnail`](Self::Thumbnail) takes the pass but not yet the boundary
-    /// finding, and [`Perforation`](Self::Perforation) is not written at all
+    /// [`Perforation`](Self::Perforation) is not written at all
     pub fn ready(self) -> bool {
-        matches!(self, Self::Published | Self::Caller)
+        matches!(self, Self::Published | Self::Thumbnail | Self::Caller)
+    }
+}
+
+/// Refuse a frame the stage cannot step to
+///
+/// Past `Address`'s Y boundary the stage target comes out behind the home stop,
+/// and the mechanism grinds there until a power cycle
+pub(crate) fn reachable(caps: &Capabilities, extent: u32) -> Result<(), Error> {
+    let limit = caps.address.y_axis.boundary;
+    match extent > limit {
+        true => Err(Error::Unsupported {
+            op: "frame table",
+            reason: format!(
+                "a frame of {extent} is past the {limit} boundary and would stall the stage"
+            ),
+        }),
+        false => Ok(()),
     }
 }
 
@@ -73,7 +90,6 @@ pub fn table(caps: &Capabilities, length: u32) -> Result<Boundary, Error> {
     let Some(published) = caps.frames.as_ref() else {
         return Ok(Boundary::default());
     };
-    let limit = caps.address.y_axis.boundary;
     let axis_end = caps.address.y_axis.address_range.last;
     let mut frames = Vec::new();
 
@@ -81,17 +97,7 @@ pub fn table(caps: &Capabilities, length: u32) -> Result<Boundary, Error> {
         // A published length is the adapter's own geometry. Without one, the
         // caller's format is what gets tiled
         let extent = image.length.unwrap_or(length);
-
-        // Past the boundary the stage target comes out behind the home stop,
-        // and the mechanism grinds there until a power cycle
-        if extent > limit {
-            return Err(Error::Unsupported {
-                op: "frame table",
-                reason: format!(
-                    "a frame of {extent} is past the {limit} boundary and would stall the stage"
-                ),
-            });
-        }
+        reachable(caps, extent)?;
 
         // Where this image's area ends: the next one begins, or the axis does
         let stop = published

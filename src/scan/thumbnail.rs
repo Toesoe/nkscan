@@ -8,7 +8,8 @@
 //! the unit hands us the pass and expects us to make sense of it.
 
 use super::{
-    expose,
+    boundaries::{self, Polarity},
+    expose, framing,
     pass::{self, Pass},
 };
 use crate::protocol::curves::Curves;
@@ -20,11 +21,14 @@ use crate::{
             other::HostCooperation,
             set_window::{ColorComponents, ColorInterleaving, ScanKind, ScanMode},
         },
+        data::{Boundary, Rect},
+        decode::Image,
         window::{Channel, Composition, LENGTH, Window, deepest_depth},
     },
     session::Session,
 };
 use std::time::Duration;
+use tracing::*;
 
 /// Everything loaded, at the lowest resolution there is, so give it room
 const THUMBNAIL_TIMEOUT: Duration = Duration::from_secs(600);
@@ -67,9 +71,71 @@ pub fn scan(
     pass::take(session, &windows, THUMBNAIL_TIMEOUT, curves, samples)
 }
 
+/// The frame table a thumbnail measures, 2-11-6
+///
+/// `length` is the frame's extent along the feed, the film format, which
+/// nothing advertises. Every rectangle comes out that long: the captures'
+/// measured tables move the tops about and leave the heights at the format.
+///
+/// `polarity` of `None` is worked out from the strip.
+pub fn frames(
+    caps: &Capabilities,
+    pass: &Pass,
+    samples: &[u16],
+    length: u32,
+    polarity: Option<Polarity>,
+) -> Result<Boundary, Error> {
+    framing::reachable(caps, length)?;
+    let image = Image::new(&pass.layout, samples)?;
+
+    // A thumbnail row is one line pitch of film, and the pass starts where the
+    // Y axis does, so a row is an address
+    let pitch = pass.layout.line_pitch.max(1);
+    let origin = caps.address.y_axis.address_range.start;
+    let end = caps.address.y_axis.address_range.last;
+    let (left, width) = opening(caps);
+
+    let found = boundaries::detect(&image, (length / pitch) as usize, polarity);
+    // Nothing caps the count here. `Address` byte 74 calls itself the maximum
+    // and does not behave like one: it reads 0 through most of a Nikon Scan
+    // session that writes four-rectangle tables
+    let frames: Vec<Rect> = found
+        .frames
+        .iter()
+        .map(|frame| origin + frame.row as u32 * pitch)
+        .filter(|top| top + length <= end)
+        .map(|top| Rect {
+            top,
+            left,
+            bottom: top + length,
+            right: left + width,
+        })
+        .collect();
+
+    info!(
+        frames = frames.len(),
+        polarity = ?found.polarity,
+        pitch = found.pitch as u32 * pitch,
+        "measured the loaded strip"
+    );
+    Ok(Boundary { frames })
+}
+
+/// Where the adapter's opening sits on the sensor, and how wide it is
+///
+/// The first published image is the opening: a frame narrower than that is a
+/// crop, and cropping is not what a pass over the whole strip is for
+fn opening(caps: &Capabilities) -> (u32, u32) {
+    let x = &caps.address.x_axis;
+    match caps.frames.as_ref().and_then(|f| f.images.first()) {
+        Some(opening) => (opening.left, opening.width),
+        None => (x.address_range.start, x.boundary),
+    }
+}
+
 /// Windows over everything the adapter can reach, one per channel
 fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
-    let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
+    let y = &caps.address.y_axis;
     let unsupported = |reason: String| Error::Unsupported {
         op: "thumbnail window",
         reason,
@@ -97,10 +163,7 @@ fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         _ => Composition::MultilevelRGB,
     };
 
-    let (left, width) = match caps.frames.as_ref().and_then(|f| f.images.first()) {
-        Some(opening) => (opening.left, opening.width),
-        None => (x.address_range.start, x.boundary),
-    };
+    let (left, width) = opening(caps);
 
     Ok(channels
         .iter()

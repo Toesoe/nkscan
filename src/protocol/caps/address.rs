@@ -42,8 +42,15 @@ pub struct Address {
     /// Valid resolutions for the thumbnail scanning. Bytes 70-73
     pub thumbnail_resolution: RangeInclusive<u16>,
     /// Maximum number of frames that can be scanned. Byte 74
+    ///
+    /// Not a maximum: it reads 0 through most of a Nikon Scan session that
+    /// writes four-rectangle tables, and 1 elsewhere in the same session. Do
+    /// not size a frame table against it
     pub max_frames: u8,
     /// The number of frames that are currently set. Byte 75
+    ///
+    /// Moves with byte 74 rather than with the table, so it is no more a count
+    /// of the loaded frames than that one is a maximum
     pub loaded_frames: u8,
     /// Range of valid focus addresses. Bytes 76-79
     pub focus_range: RangeInclusive<u16>,

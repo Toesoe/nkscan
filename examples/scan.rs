@@ -16,14 +16,17 @@
 //! cargo run --example scan -- len=6696     # 6x4.5 frames rather than 6x6
 //! cargo run --example scan -- lockwb       # keep the channels in proportion
 //! cargo run --example scan -- noae nofocus # skip metering and focus
-//! cargo run --example scan -- thumb        # the thumbnail pass alone
+//! cargo run --example scan -- thumb        # measure the strip and stop
+//! cargo run --example scan -- keep frame=2 # scan against what thumb measured
 //! cargo run --example scan -- diagnose     # read a pending fault and stop
 //! cargo run --example scan -- eject        # give the film back and stop
 //! ```
 //!
 //! This moves the stage: the window origin comes from the frame's front edge.
 //! Those edges are nominal until a thumbnail has measured them (2-11-6), so the
-//! preamble tiles `len` along the opening the adapter publishes.
+//! preamble tiles `len` along the opening the adapter publishes. `thumb` takes
+//! that pass and replaces the tiled table with a measured one; `keep` is what
+//! scans against it afterwards rather than tiling over it again.
 
 use std::{
     fs::File,
@@ -104,7 +107,12 @@ fn main() -> anyhow::Result<()> {
     // The setup the captures run once before the first pass. len=N is the film
     // format, which nothing advertises
     let format = arg("len").unwrap_or(8964);
-    let table = framing::table(session.capabilities(), format)?;
+    // A measured table is the one the stage should step against, and tiling
+    // over it would throw the measurement away
+    let table = match has("keep") {
+        true => Boundary::default(),
+        false => framing::table(session.capabilities(), format)?,
+    };
     let started = Instant::now();
     preamble::run(&mut session, &table)?;
     println!("preamble in {:?}", started.elapsed());
@@ -136,6 +144,25 @@ fn main() -> anyhow::Result<()> {
                 // Decoded on the way in, so this is an image rather than a
                 // stream needing the decode example
                 netpbm(THUMB, &samples, &t)?;
+
+                // 2-11-6: the host is what works the frames out of this pass
+                let measured =
+                    thumbnail::frames(session.capabilities(), &t, &samples, format, None)?;
+                println!("measured: {measured:?}");
+                session.set_boundaries(&measured)?;
+
+                // Bar every edge the table claims, so it can be looked at
+                // against the picture it was measured from
+                let pitch = t.layout.line_pitch.max(1);
+                let origin = session.capabilities().address.y_axis.address_range.start;
+                let rows: Vec<usize> = measured
+                    .frames
+                    .iter()
+                    .flat_map(|f| [f.top, f.bottom])
+                    .map(|y| (y.saturating_sub(origin) / pitch) as usize)
+                    .collect();
+                mark(&mut samples, &t, &rows);
+                netpbm(&format!("{THUMB}.frames"), &samples, &t)?;
             }
             Err(e) => println!("thumbnail refused: {e}"),
         }
@@ -250,6 +277,17 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Paint the named rows solid, so a frame table can be looked at against the
+/// thumbnail it was measured from
+fn mark(samples: &mut [u16], pass: &Pass, rows: &[usize]) {
+    let stride = pass.cols * pass.layout.channels.len();
+    for y in rows {
+        if let Some(row) = samples.get_mut(y * stride..(y + 1) * stride) {
+            row.fill(u16::MAX);
+        }
+    }
+}
+
 /// Write decoded samples where they can be looked at, 16-bit Netpbm
 ///
 /// A row at a time: the whole point of decoding as the stream arrives is not to
@@ -308,7 +346,7 @@ fn plane(stem: &str, samples: &[u16], pass: &Pass, channels: &[usize]) -> anyhow
 ///
 /// Until this unit has measured a strip it answers `DataType::Boundary` with one rectangle
 /// covering the whole sensor, so "read the boundary" is not enough to know
-/// where the frames are; the measured geometry from `--frame` wins when the
+/// where the frames are; the measured geometry from `frame=` wins when the
 /// unit has it, and this is what a scan falls back to.
 const NIKON_ORIGIN: (u32, u32) = (518, 12720);
 const NIKON_SIZE: (u32, u32) = (8964, 8964);
@@ -320,7 +358,7 @@ const NIKON_SIZE: (u32, u32) = (8964, 8964);
 /// frame's front edge is its own top-left corner and its size is the whole
 /// rectangle, so the stage goes to the frame and stays there. No frame is
 /// measured until the host has done the boundary write-back 2-11-6 asks for,
-/// so without `--frame` the Nikon Scan geometry stands in.
+/// so without `frame=` the Nikon Scan geometry stands in.
 fn place(caps: &Capabilities, boundary: &Boundary, pick: Option<u32>) -> ((u32, u32), (u32, u32)) {
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
 
