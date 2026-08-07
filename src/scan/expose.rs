@@ -11,6 +11,7 @@ use crate::{
             Capabilities,
             set_window::{AnalogControl, ScanKind, ScanMode},
         },
+        decode::{Decoder, Image},
         window::{Flags, Window},
     },
     session::Session,
@@ -113,20 +114,26 @@ pub fn expose(
             // One proportional step lands a few percent under, so keep going
             // until a pass comes back on target rather than counting passes
             let mut windows = prescan_windows(session.capabilities(), &seeded);
-            let mut taken;
+            // Every pass has the same shape, so one buffer serves all of them
+            let mut samples = Vec::new();
+            let mut layout = None;
             let mut n = 0;
             loop {
-                taken = pass::take(session, &windows, PASS_TIMEOUT)?;
+                let taken = pass::take(session, &windows, PASS_TIMEOUT)?;
+                let mut decoder = Decoder::new(&taken.layout)?;
+                samples.resize(decoder.samples(), 0);
+                decoder.push(&taken.data, &mut samples)?;
+                let layout = layout.insert(taken.layout);
+                let image = Image::new(layout, &samples)?;
                 n += 1;
 
-                let settled = metering.settled(&taken.layout, &taken.data)?;
+                let settled = metering.settled(&image);
                 debug!(pass = n, settled, "metering pass");
                 if settled {
                     break;
                 }
 
-                let next =
-                    metering.apply(session.capabilities(), &taken.layout, &taken.data, &windows)?;
+                let next = metering.apply(session.capabilities(), &image, &windows)?;
                 for (w, exposure) in windows.iter_mut().zip(next) {
                     w.exposure = exposure;
                 }
@@ -135,10 +142,12 @@ pub fn expose(
                     break;
                 }
             }
+
             // `DataType::Setup` holds what the unit made of the same pass. Ours
             // is a percentile and its is a min and a max, so the two will not
             // agree exactly
-            let measured = metering.measure(&taken.layout, &taken.data)?;
+            let layout = layout.expect("the loop runs at least once");
+            let measured = metering.measure(&Image::new(&layout, &samples)?);
             for (n, (window, level)) in windows.iter().zip(&measured).enumerate() {
                 let unit = session.setup(window.id).ok();
                 let image = unit.as_ref().and_then(|s| s.images.first());
