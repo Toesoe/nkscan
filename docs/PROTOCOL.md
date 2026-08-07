@@ -1163,6 +1163,25 @@ a frame-kind SET WINDOW drives to runs backwards as the frame gets longer --
 home stop, and only a power cycle recovers it. `scan::framing::table` refuses
 those rather than sending them.
 
+## The control byte is not 0
+
+Both specs give the last CDB byte as "Control byte [0]" everywhere. Nikon Scan
+sets bit 7 on four commands: INQUIRY with EVPD, SET WINDOW, GET WINDOW and READ.
+Bit 7 is vendor specific in SCSI, and the pre-rewrite driver called it
+`VENDOR_CONTROL`.
+
+It is load-bearing for at least one command. A SET WINDOW for the **infrared
+window** is answered `05h-24h-00h-00h`, invalid field in CDB, with the control
+byte at 0. The descriptor is not the problem: ours was byte for byte identical
+to the one Nikon Scan sends for the same window, differing only in the frame
+position and the exposure. Setting the control byte to `80h` makes the same
+descriptor go through.
+
+Everything else we send works either way, which is why this went unnoticed until
+the first scan that asked for window 9. The symptom before that was a debug line
+in the preamble saying the infrared window "would not go back", which looked like
+the power-on descriptor exceeding the holder aperture and was not.
+
 ## Sense codes the specs do not list
 
 **`01h-61h-02h` is OUT OF FOCUS.** Neither spec has an ASC 61h anywhere; this is

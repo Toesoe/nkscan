@@ -3,6 +3,14 @@
 //! Payloads live elsewhere: the SET WINDOW descriptor in `window.rs`, READ and
 //! SEND data records and the SET PARAMETER block both in `data.rs`
 
+/// The control byte both specs give as 0
+///
+/// Bit 7 is vendor specific in SCSI, and Nikon Scan sets it on INQUIRY with
+/// EVPD, SET WINDOW, GET WINDOW and READ. It is not decoration: a SET WINDOW
+/// for the infrared window is refused with `05h-24h`, invalid field in CDB,
+/// until it is set.
+const VENDOR: u8 = 0x80;
+
 /// INQUIRY, 2-2
 ///
 /// EVPD 0 asks for the standard INQUIRY data
@@ -395,6 +403,6 @@ impl SetWindow {
 
     pub fn cdb(&self) -> [u8; 10] {
         let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
-        [0x24, 0, 0, 0, 0, 0, hi, mid, lo, 0]
+        [0x24, 0, 0, 0, 0, 0, hi, mid, lo, VENDOR]
     }
 }
