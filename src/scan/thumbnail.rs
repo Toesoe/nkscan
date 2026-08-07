@@ -11,6 +11,7 @@ use super::{
     expose,
     pass::{self, Pass},
 };
+use crate::protocol::curves::Curves;
 use crate::{
     error::Error,
     protocol::{
@@ -47,7 +48,11 @@ pub fn host_builds(caps: &Capabilities) -> bool {
 }
 
 /// Scan everything loaded
-pub fn scan(session: &mut Session) -> Result<Pass, Error> {
+pub fn scan(
+    session: &mut Session,
+    curves: Option<&Curves>,
+    samples: &mut Vec<u16>,
+) -> Result<Pass, Error> {
     if !available(session.capabilities()) {
         return Err(Error::Unsupported {
             op: "thumbnail",
@@ -59,7 +64,7 @@ pub fn scan(session: &mut Session) -> Result<Pass, Error> {
     // A descriptor built from nothing carries no exposure, and equal exposures
     // are not neutral. Nikon Scan thumbnails at the unit's own white balance
     let windows = expose::seed_white_balance(session, &windows)?;
-    pass::take(session, &windows, THUMBNAIL_TIMEOUT)
+    pass::take(session, &windows, THUMBNAIL_TIMEOUT, curves, samples)
 }
 
 /// Windows over everything the adapter can reach, one per channel

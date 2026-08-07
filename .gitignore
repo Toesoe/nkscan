@@ -14,5 +14,7 @@ scan.raw
 ours.log
 *.log
 thumb.raw
+thumb.ppm
+thumb.pgm
 *.ppm
 *.pgm

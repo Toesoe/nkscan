@@ -121,10 +121,13 @@ pub fn expose(
             let mut layout = None;
             let mut n = 0;
             loop {
-                let taken = pass::take(session, &windows, PASS_TIMEOUT)?;
-                let mut decoder = pass::decoder(&taken.layout, curves.as_ref())?;
-                samples.resize(decoder.samples(), 0);
-                decoder.push(&taken.data, &mut samples)?;
+                let taken = pass::take(
+                    session,
+                    &windows,
+                    PASS_TIMEOUT,
+                    curves.as_ref(),
+                    &mut samples,
+                )?;
                 let layout = layout.insert(taken.layout);
                 let image = Image::new(layout, &samples)?;
                 n += 1;

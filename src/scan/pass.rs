@@ -1,7 +1,6 @@
-//! Taking one pass over the film
+//! Taking one scan pass over the film
 //!
-//! Every kind of pass, thumbnail, prescan and scan alike, is the same four
-//! commands. Only the descriptors and the time budget differ.
+//! Every kind of pass, thumbnail, prescan and scan alike, is the same four commands.
 
 use crate::{
     error::Error,
@@ -14,15 +13,17 @@ use crate::{
 use std::time::Duration;
 use tracing::*;
 
-/// A finished pass and the bytes it produced
-#[derive(Debug)]
+/// A finished scan pass
+///
+/// The samples are the caller's buffer, so this struct carries only what describes them
+#[derive(Debug, Clone)]
 pub struct Pass {
     /// The stream's shape, as far as 2-10's formula describes it
     pub layout: Layout,
     /// What the unit asked the host to do with the data, if anything
     pub cooperation: Option<CooperativeAction>,
-    /// The bytes, however many arrived
-    pub data: Vec<u8>,
+    /// Whether every block the layout promised arrived
+    pub complete: bool,
 }
 
 /// A decoder for a pass off this unit
@@ -64,18 +65,40 @@ pub fn start(
     Ok(started)
 }
 
-/// [`start`] the pass and read it out
-pub fn take(session: &mut Session, windows: &[Window], timeout: Duration) -> Result<Pass, Error> {
+/// [`start`] the pass and unscramble it into `samples` as it arrives
+///
+/// Every pass goes through this, thumbnail and prescan and scan alike: what
+/// they need is in the layout, so none of them is a special case. The stream is
+/// decoded a chunk at a time and never held whole, which at full resolution is
+/// half a gigabyte that never gets allocated.
+///
+/// `samples` is resized to what the layout describes and is the caller's, so it
+/// can be the buffer an image ends up in rather than one more copy.
+pub fn take(
+    session: &mut Session,
+    windows: &[Window],
+    timeout: Duration,
+    curves: Option<&Curves>,
+    samples: &mut Vec<u16>,
+) -> Result<Pass, Error> {
     let started = start(session, windows, timeout)?;
+    let mut decoder = decoder(&started.layout, curves)?;
+    samples.clear();
+    samples.resize(decoder.samples(), 0);
 
-    let mut data = vec![0u8; started.layout.total_bytes() as usize];
-    let got = session.read_image(&started.layout, &mut data)?;
-    data.truncate(got);
-    debug!(bytes = got, expected = started.layout.total_bytes(), "pass");
+    let mut chunks = session.image_chunks(&started.layout)?;
+    while let Some(chunk) = chunks.next() {
+        decoder.push(chunk?, samples)?;
+    }
+    debug!(
+        blocks = decoder.decoded(),
+        complete = decoder.complete(),
+        "pass"
+    );
 
     Ok(Pass {
         layout: started.layout,
         cooperation: started.cooperation,
-        data,
+        complete: decoder.complete(),
     })
 }

@@ -23,7 +23,7 @@
 //! cargo run --example scan -- rgb samples=2 # read each line twice and average
 //! cargo run --example scan -- rgb ir        # add the infrared channel
 //! cargo run --example scan -- rgb dpi=4000 # full resolution rather than the cheapest
-//! cargo run --example scan -- thumb only     # the thumbnail pass alone, to thumb.raw
+//! cargo run --example scan -- thumb only    # the thumbnail pass alone, decoded
 //! cargo run --example scan -- noread        # leave the image unread
 //! cargo run --example scan -- eject         # give the film back and stop
 //! ```
@@ -62,7 +62,7 @@ use nkscan::{
 const DUMP: &str = "scan.raw";
 
 /// Where the thumbnail pass goes
-const THUMB: &str = "thumb.raw";
+const THUMB: &str = "thumb";
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -131,24 +131,27 @@ fn main() -> anyhow::Result<()> {
             Framing::choose(session.capabilities()).ready(),
             thumbnail::host_builds(session.capabilities())
         );
-        match thumbnail::scan(&mut session) {
+        let curves = session.ccd_curves(0);
+        let mut samples = Vec::new();
+        match thumbnail::scan(&mut session, curves.as_ref(), &mut samples) {
             Ok(t) => {
                 println!(
-                    "thumbnail {} x {} in {:?}, {} of an expected {} bytes, owes {:?}",
+                    "thumbnail {} x {} in {:?}, complete={}, owes {:?}",
                     t.layout.pixels,
                     t.layout.lines,
                     began.elapsed(),
-                    t.data.len(),
-                    t.layout.total_bytes(),
+                    t.complete,
                     t.cooperation
                 );
-                File::create(THUMB)?.write_all(&t.data)?;
-                println!(
-                    "written to {THUMB}: cargo run --release --example decode -- {THUMB} {} {} {}",
-                    t.layout.pixels,
-                    t.layout.lines,
-                    t.layout.channels.len()
-                );
+                // Decoded on the way in, so this is an image rather than a
+                // stream needing the decode example
+                netpbm(
+                    THUMB,
+                    &samples,
+                    t.layout.pixels as usize,
+                    t.layout.lines as usize,
+                    t.layout.channels.len(),
+                )?;
             }
             Err(e) => println!("thumbnail refused: {e}"),
         }
@@ -329,6 +332,38 @@ fn main() -> anyhow::Result<()> {
         started.elapsed()
     );
 
+    Ok(())
+}
+
+/// Write decoded samples where they can be looked at, 16-bit Netpbm
+///
+/// A row at a time: the whole point of decoding as the stream arrives is not to
+/// hold a second copy of the image
+fn netpbm(
+    stem: &str,
+    samples: &[u16],
+    cols: usize,
+    rows: usize,
+    channels: usize,
+) -> anyhow::Result<()> {
+    let (magic, ext) = match channels {
+        1 => ("P5", "pgm"),
+        3 => ("P6", "ppm"),
+        n => anyhow::bail!("{n} channels has no Netpbm form"),
+    };
+    let dest = format!("{stem}.{ext}");
+    let mut file = std::io::BufWriter::new(File::create(&dest)?);
+    write!(file, "{magic}\n{cols} {rows}\n65535\n")?;
+    let mut row = Vec::with_capacity(cols * channels * 2);
+    for y in 0..rows {
+        row.clear();
+        for v in &samples[y * cols * channels..(y + 1) * cols * channels] {
+            row.extend_from_slice(&v.to_be_bytes());
+        }
+        file.write_all(&row)?;
+    }
+    file.flush()?;
+    println!("wrote {dest}");
     Ok(())
 }
 
