@@ -250,12 +250,16 @@ impl Transposed {
                 let at = (y * self.cols + x) * self.slots.len();
 
                 for (c, slot) in self.slots.iter().enumerate() {
+                    // Integers throughout. A nibble caps the readings at 16, so
+                    // the sum cannot leave a u32, and rounding to nearest keeps
+                    // the average off a systematic bias toward zero
                     let mut sum = 0u32;
                     for r in 0..slot.readings {
                         let off = (sample + slot.nth(r) * self.readout) * self.bytes_per_sample;
                         sum += u32::from(sample_at(&block[off..off + self.bytes_per_sample]));
                     }
-                    out[at + c] = (sum / slot.readings as u32) as u16;
+                    let n = slot.readings as u32;
+                    out[at + c] = ((sum + n / 2) / n) as u16;
                 }
             }
         }

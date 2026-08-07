@@ -20,6 +20,7 @@
 //! cargo run --example scan -- rgb notable   # put the whole-sensor table back
 //! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
+//! cargo run --example scan -- rgb samples=2 # read each line twice and average
 //! cargo run --example scan -- thumb only     # the thumbnail pass alone, to thumb.raw
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
@@ -189,7 +190,12 @@ fn main() -> anyhow::Result<()> {
         // want rather than inheriting a previous experiment
         w.scanning_kind = ScanKind::IMAGE;
         w.scanning_mode = ScanMode::HIGH_SPEED;
-        w.multiple_reading = 0;
+        // samples=N reads each line N times for the host to average. Byte 40
+        // carries one less than the count, and byte 43 has to say so too
+        w.multiple_reading = arg("samples").unwrap_or(1).max(1) as u8 - 1;
+        if w.multiple_reading != 0 {
+            w.scanning_mode |= ScanMode::MULTI_READING;
+        }
         w.color_interleaving = match has("multiline") {
             true => ColorInterleaving::MULTILINE_SIMULTANEOUS,
             false => ColorInterleaving::LINE_WITHOUT_DISTANCE,

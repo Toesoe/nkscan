@@ -626,6 +626,19 @@ impl Window {
                     "this unit reads each line once".into(),
                 ));
             }
+            // Byte 43 carries the mode bit in every capture that sets byte 40,
+            // so a count on its own is half a request
+            if !self.scanning_mode.contains(ScanMode::MULTI_READING) {
+                return Err(bad(
+                    "multiple reading",
+                    format!(
+                        "{} readings needs {:?} in the scanning mode, which is {:?}",
+                        self.multiple_reading + 1,
+                        ScanMode::MULTI_READING,
+                        self.scanning_mode
+                    ),
+                ));
+            }
         }
         Ok(())
     }
