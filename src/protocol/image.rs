@@ -12,7 +12,7 @@ use crate::{
             set_window::{ColorInterleaving, ScanKind},
         },
         data::width_code,
-        window::{Window, validate_set},
+        window::{Channel, Window, validate_set},
     },
 };
 
@@ -48,8 +48,8 @@ pub struct Layout {
     /// Lines on the CCD, which is how many arrive at once under
     /// [`MULTILINE_SIMULTANEOUS`](ColorInterleaving::MULTILINE_SIMULTANEOUS)
     pub ccd_lines: u8,
-    /// Line Gap Count over the pitch, per 2-11-5-3: how far apart the CCD's
-    /// lines land, in output lines
+    /// Line Gap Count over the line pitch, per 2-11-5-3: how far apart the
+    /// CCD's lines land, in output lines
     pub registration_gap: u32,
     granule: usize,
 }
@@ -185,7 +185,10 @@ impl Layout {
             // Byte 40's high nibble is one less than the number of reads
             readings_per_line: first.multiple_reading.saturating_add(1),
             ccd_lines: caps.address.lines,
-            registration_gap: u32::from(caps.address.line_gap) / pitch,
+            // The lines sit this far apart along the feed, so the gap is in
+            // output lines and divides by the line pitch. The two pitches are
+            // equal at 4000 dpi and differ in a preview, which halves only Y
+            registration_gap: u32::from(caps.address.line_gap) / line_pitch,
             granule,
         })
     }
@@ -214,7 +217,26 @@ impl Layout {
     /// CCD lines need re-registering carries extra lines at the seams. Prefer
     /// the unit's numbers where it gives them
     pub fn total_bytes(&self) -> u64 {
-        self.bytes_per_line() * u64::from(self.lines) * u64::from(self.readings_per_line)
+        u64::from(self.pixels)
+            * u64::from(self.lines)
+            * u64::from(self.bytes_per_sample)
+            * u64::from(self.readouts())
+    }
+
+    /// Readouts the unit emits per line
+    ///
+    /// One per color channel per reading, plus one each for the channels that
+    /// are not repeated. 2-10 byte 40 repeats the visible triple, and the
+    /// captures show infrared captured once whatever the count stands at, so
+    /// multiplying every channel by it overstates a multi-sampled pass
+    pub fn readouts(&self) -> u32 {
+        let repeated = self
+            .channels
+            .iter()
+            .filter(|id| Channel::from(**id).is_color())
+            .count() as u32;
+        let once = self.channels.len() as u32 - repeated;
+        repeated * u32::from(self.readings_per_line) + once
     }
 }
 
@@ -441,6 +463,17 @@ mod tests {
         assert_eq!(gap(4000), 12);
         assert_eq!(gap(2000), 6);
         assert_eq!(gap(1333), 4);
+
+        // A preview halves the feed and leaves the sensor alone, so the two
+        // pitches differ and only the feed one places the CCD's lines. At
+        // 666x333 they land in adjacent output lines rather than two apart
+        let mut preview = rgb(666, (10000, 13860));
+        for w in &mut preview {
+            w.resolution = (666, 333);
+        }
+        let preview = Layout::new(&caps(0x01, 12, 3), &preview, 4000).unwrap();
+        assert_eq!((preview.pitch, preview.line_pitch), (6, 12));
+        assert_eq!(preview.registration_gap, 1);
     }
 
     #[test]
@@ -458,5 +491,61 @@ mod tests {
     #[test]
     fn an_empty_window_set_has_no_layout() {
         assert!(Layout::new(&caps(0x01, 12, 3), &[], 4000).is_err());
+    }
+}
+
+#[cfg(test)]
+mod readouts {
+    use super::*;
+
+    /// The 666x333 prescan of a 6x9 frame with infrared, as the captures
+    /// deliver it: 1494 sensor pixels by 1098 stage positions
+    fn prescan(readings: u8) -> Layout {
+        Layout {
+            pixels: 1494,
+            lines: 1098,
+            pitch: 6,
+            line_pitch: 12,
+            dpi: 666,
+            bytes_per_sample: 2,
+            bits_per_sample: 16,
+            channels: vec![9, 1, 2, 3],
+            interleaving: ColorInterleaving::MULTILINE_SIMULTANEOUS,
+            readings_per_line: readings,
+            ccd_lines: 3,
+            registration_gap: 1,
+            granule: 1,
+        }
+    }
+
+    /// Byte counts summed off the wire in `singleline_ccd` and
+    /// `16x_multisample`. Infrared is captured once whatever the repeat count,
+    /// so multiplying every channel by it overstates the pass
+    #[test]
+    fn a_pass_is_as_long_as_the_captures_measured() {
+        assert_eq!(prescan(1).total_bytes(), 13_123_296);
+        assert_eq!(prescan(16).total_bytes(), 160_760_376);
+
+        // The 6x4.5 prescan from 8x_multisampling, same shape and fewer lines
+        let short = Layout {
+            lines: 558,
+            ..prescan(1)
+        };
+        assert_eq!(short.total_bytes(), 6_669_216);
+    }
+
+    /// Three visible channels repeat, infrared does not
+    #[test]
+    fn only_the_color_channels_repeat() {
+        assert_eq!(prescan(1).readouts(), 4);
+        assert_eq!(prescan(16).readouts(), 49);
+        assert_eq!(
+            Layout {
+                channels: vec![1, 2, 3],
+                ..prescan(16)
+            }
+            .readouts(),
+            48
+        );
     }
 }
