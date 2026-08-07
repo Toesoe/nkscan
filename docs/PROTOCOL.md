@@ -767,11 +767,30 @@ the correction generalizes: the stripe period is 36 at 4000 dpi and scales with
 the decimation, so what a decoder needs is the row-to-line mapping, not a
 different curve set.
 
+**The 30 are ten curves repeated three times, and the repeat carries almost
+nothing.** Read off a real LS-9000 and compared at level 32767:
+
+| grouping | spread within a group | spread between groups |
+|---|---|---|
+| blocks of 10 (0-9, 10-19, 20-29) | 267 | **13** |
+| index mod 3 | 268 | **2** |
+| index mod 10 | **17** | 263 |
+
+Curves `i`, `i+10` and `i+20` agree to 17 counts, so the layout is
+`repeat * 10 + type`. The ten types differ by 263 counts at mid scale, 0.8%. The
+three repeats differ by 13, 0.04%.
+
+Whichever the three-fold dimension is, this unit has next to no mismatch across
+it, and a de-banding correction built from these curves would be a near no-op
+here. Measuring the image agrees: binning columns by position within a 36-column
+block shows less structure at period 36 (stdev 30.7) than at period 35 (37.6) or
+37 (35.5), so there is no period-36 signal above image content at all. The fork's
+author evidently had a unit where there is, which is exactly what per-unit curves
+read off the device are for.
+
 Two things left to establish: whether a coarse pass really decimates rather than
 averages, and what the 10 types are, since 10 divides neither the three lines nor
-the four-step DPI ladder. Both want a flat patch scanned at 4000 and at 2000 in
-three-line mode, with the stripe period measured in each. That needs the decoder
-first.
+the four-step DPI ladder.
 
 This is what a fork of this project uses to de-band a three-line scan. The rows of
 photosites do not share a transfer curve, so a flat patch comes off the bar with a

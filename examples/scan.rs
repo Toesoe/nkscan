@@ -22,6 +22,7 @@
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
 //! cargo run --example scan -- rgb samples=2 # read each line twice and average
 //! cargo run --example scan -- rgb ir        # add the infrared channel
+//! cargo run --example scan -- rgb dpi=4000 # full resolution rather than the cheapest
 //! cargo run --example scan -- thumb only     # the thumbnail pass alone, to thumb.raw
 //! cargo run --example scan -- noread        # leave the image unread
 //! cargo run --example scan -- eject         # give the film back and stop
@@ -165,7 +166,9 @@ fn main() -> anyhow::Result<()> {
 
     // The lowest resolution this unit offers, over the frame the window lands on
     let caps = session.capabilities();
-    let dpi = caps.address.x_axis.dpi_range.start;
+    // dpi=N scans at something other than the cheapest resolution. Off the
+    // ladder the unit rounds and says so with 01h-37h rather than refusing
+    let dpi = arg("dpi").unwrap_or(u32::from(caps.address.x_axis.dpi_range.start)) as u16;
     let aperture = (
         caps.frames
             .as_ref()
