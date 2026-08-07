@@ -276,6 +276,7 @@ impl Transposed<'_> {
 }
 
 /// One big-endian sample, whichever width 2-11-3 gave it
+#[inline]
 fn sample_at(sample: &[u8]) -> u16 {
     match sample {
         [b] => u16::from(*b),
