@@ -6,6 +6,7 @@
 
 pub mod caps;
 pub mod cdbs;
+pub mod curves;
 pub mod data;
 pub mod decode;
 pub mod image;

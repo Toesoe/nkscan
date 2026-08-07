@@ -10,7 +10,9 @@
 
 use crate::{
     error::Error,
-    protocol::{caps::set_window::ColorInterleaving, image::Layout, window::Channel},
+    protocol::{
+        caps::set_window::ColorInterleaving, curves::Curves, image::Layout, window::Channel,
+    },
 };
 
 /// A stream we cannot make an image of
@@ -171,6 +173,8 @@ struct Transposed {
     /// Samples in one stage position
     stage: usize,
     bytes_per_sample: usize,
+    /// The rows' remap onto each other, where the unit gave us one
+    curves: Option<Curves>,
 }
 
 /// Where one output channel sits in a stage position
@@ -239,8 +243,6 @@ impl Transposed {
             // A block lays its stage positions out under each CCD row in turn
             let (position, line) = (col % self.gap, col / self.gap);
             let x = first + col;
-            // TODO: `line` is the CCD row this column came from, which is what
-            // the response curves correct against
             let base = position * self.stage + line;
 
             for p in 0..self.rows {
@@ -256,7 +258,13 @@ impl Transposed {
                     let mut sum = 0u32;
                     for r in 0..slot.readings {
                         let off = (sample + slot.nth(r) * self.readout) * self.bytes_per_sample;
-                        sum += u32::from(sample_at(&block[off..off + self.bytes_per_sample]));
+                        let raw = sample_at(&block[off..off + self.bytes_per_sample]);
+                        // Before the average, not after: the remap is not
+                        // linear, so the two orders disagree
+                        sum += u32::from(match &self.curves {
+                            Some(curves) => curves.correct(line, raw),
+                            None => raw,
+                        });
                     }
                     let n = slot.readings as u32;
                     out[at + c] = ((sum + n / 2) / n) as u16;
@@ -334,6 +342,7 @@ impl Decoder {
                 readout,
                 stage: layout.readouts() as usize * readout,
                 bytes_per_sample,
+                curves: None,
             })
         } else if layout
             .interleaving
@@ -365,6 +374,18 @@ impl Decoder {
             ordering,
             done: 0,
         })
+    }
+
+    /// Correct the CCD's rows against each other as the stream is unscrambled
+    ///
+    /// Only the three-line ordering has rows to correct. A single-line pass
+    /// reads every sample off one row, so this is dropped there rather than
+    /// applied to no effect.
+    pub fn correcting(mut self, curves: Curves) -> Self {
+        if let Ordering::Transposed(t) = &mut self.ordering {
+            t.curves = Some(curves);
+        }
+        self
     }
 
     /// Rows and columns of the image

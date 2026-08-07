@@ -20,7 +20,11 @@
 use std::{fs, io::Write, path::PathBuf};
 
 use nkscan::protocol::{
-    caps::set_window::ColorInterleaving, decode::Decoder, image::Layout, window::Channel,
+    caps::{Page, ccd::CcdMeasurement, set_window::ColorInterleaving},
+    curves::Curves,
+    decode::Decoder,
+    image::Layout,
+    window::Channel,
 };
 
 /// What a display expects, near enough for judging an image by eye
@@ -63,6 +67,26 @@ fn main() -> anyhow::Result<()> {
         ..Layout::single_line(pixels, lines, ids.clone())
     };
     let mut decoder = Decoder::new(&layout)?;
+    // `curves=<file>` is a DataType::CcdData reply saved by examples/ccd.rs, so
+    // a dump can be decoded with and without the correction and the two compared
+    if let Some(file) = args.iter().find_map(|a| a.strip_prefix("curves=")) {
+        let raw = fs::read(file)?;
+        let words: Vec<u16> = raw
+            .chunks_exact(2)
+            .map(|w| u16::from_be_bytes([w[0], w[1]]))
+            .collect();
+        let page = CcdMeasurement::try_from(&Page::new(
+            CcdMeasurement::PAGE_CODE,
+            fs::read(format!("{file}.page"))?,
+        )?)?;
+        match Curves::parse(&page, &words, layout.ccd_lines as usize, 0) {
+            Some(c) => {
+                println!("correcting {} CCD rows", c.rows());
+                decoder = decoder.correcting(c);
+            }
+            None => println!("the curves do not fit the page, decoding uncorrected"),
+        }
+    }
     // Multi-sampling makes the wire longer than the image: the readings are
     // averaged away rather than kept
     println!(
