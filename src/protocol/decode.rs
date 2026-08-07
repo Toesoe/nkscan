@@ -224,7 +224,7 @@ mod tests {
     /// A 1494 x 1494 three-channel 16-bit stream, which is what a 666 dpi
     /// single-line pass over a 6x6 frame produces
     fn layout(pixels: u32, lines: u32, channels: Vec<u8>) -> Layout {
-        Layout::fixture(pixels, lines, channels)
+        Layout::single_line(pixels, lines, channels)
     }
 
     /// Channel `c` of pixel `x` on line `y` carries a value that says so
