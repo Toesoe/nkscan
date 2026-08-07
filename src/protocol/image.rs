@@ -48,8 +48,7 @@ pub struct Layout {
     /// Lines on the CCD, which is how many arrive at once under
     /// [`MULTILINE_SIMULTANEOUS`](ColorInterleaving::MULTILINE_SIMULTANEOUS)
     pub ccd_lines: u8,
-    /// Line Gap Count over the line pitch, per 2-11-5-3: how far apart the
-    /// CCD's lines land, in output lines
+    /// How far apart the CCD's lines land, in output lines. 2-11-5-3
     pub registration_gap: u32,
     granule: usize,
 }
@@ -57,9 +56,8 @@ pub struct Layout {
 impl Layout {
     /// Describe a single-line 16-bit stream directly
     ///
-    /// [`new`](Self::new) derives a layout from what a unit advertises, which is
-    /// what a scan wants. This is for bytes that are already off the unit and no
-    /// longer have one to ask.
+    /// [`new`](Self::new) builds one from a scanner's capabilities. This builds
+    /// one from bare dimensions, for decoding a file with no scanner attached.
     pub fn single_line(pixels: u32, lines: u32, channels: Vec<u8>) -> Self {
         Self {
             pixels,
@@ -185,9 +183,8 @@ impl Layout {
             // Byte 40's high nibble is one less than the number of reads
             readings_per_line: first.multiple_reading.saturating_add(1),
             ccd_lines: caps.address.lines,
-            // The lines sit this far apart along the feed, so the gap is in
-            // output lines and divides by the line pitch. The two pitches are
-            // equal at 4000 dpi and differ in a preview, which halves only Y
+            // The gap is along the feed, so it divides by the feed's pitch. The
+            // two pitches are equal except in a preview, which halves only Y
             registration_gap: u32::from(caps.address.line_gap) / line_pitch,
             granule,
         })
@@ -225,10 +222,8 @@ impl Layout {
 
     /// Readouts the unit emits per line
     ///
-    /// One per color channel per reading, plus one each for the channels that
-    /// are not repeated. 2-10 byte 40 repeats the visible triple, and the
-    /// captures show infrared captured once whatever the count stands at, so
-    /// multiplying every channel by it overstates a multi-sampled pass
+    /// Multi-sampling repeats the color channels only. Infrared is read once
+    /// however many repeats are set, so channels times readings overstates it
     pub fn readouts(&self) -> u32 {
         let repeated = self
             .channels
@@ -464,9 +459,8 @@ mod tests {
         assert_eq!(gap(2000), 6);
         assert_eq!(gap(1333), 4);
 
-        // A preview halves the feed and leaves the sensor alone, so the two
-        // pitches differ and only the feed one places the CCD's lines. At
-        // 666x333 they land in adjacent output lines rather than two apart
+        // At 666x333 the feed pitch is 12 and the sensor pitch 6, so the CCD's
+        // lines land one output line apart rather than two
         let mut preview = rgb(666, (10000, 13860));
         for w in &mut preview {
             w.resolution = (666, 333);
