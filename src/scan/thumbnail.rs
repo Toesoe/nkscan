@@ -7,7 +7,10 @@
 //! `Features` puts thumbnail in the host cooperation bits on both families, so
 //! the unit hands us the pass and expects us to make sense of it.
 
-use super::pass::{self, Pass};
+use super::{
+    expose,
+    pass::{self, Pass},
+};
 use crate::{
     error::Error,
     protocol::{
@@ -53,6 +56,9 @@ pub fn scan(session: &mut Session) -> Result<Pass, Error> {
     }
 
     let windows = windows(session.capabilities())?;
+    // A descriptor built from nothing carries no exposure, and equal exposures
+    // are not neutral. Nikon Scan thumbnails at the unit's own white balance
+    let windows = expose::seed_white_balance(session, &windows)?;
     pass::take(session, &windows, THUMBNAIL_TIMEOUT)
 }
 

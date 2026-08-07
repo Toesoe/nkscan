@@ -168,9 +168,12 @@ pub fn expose(
 
 /// The same windows with the unit's start-up white balance in them
 ///
+/// Any pass wants this, not just a metered one: the channels do not read neutral
+/// at equal exposures, so a descriptor left at 0 comes back with a cast.
+///
 /// Only the visible channels: 2-11-3's qualifier has no infrared, so an IR
 /// window keeps the exposure it came with.
-fn seed_white_balance(session: &mut Session, windows: &[Window]) -> Result<Vec<Window>, Error> {
+pub fn seed_white_balance(session: &mut Session, windows: &[Window]) -> Result<Vec<Window>, Error> {
     let wb = session.white_balance()?;
     Ok(windows
         .iter()
