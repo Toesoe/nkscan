@@ -1,36 +1,29 @@
-//! REMOVE LATER: does a minimal scan owe the host anything?
+//! REMOVE LATER: scan one frame and write it out
 //!
-//! Takes the descriptors the unit already holds, sets a window at the chosen
-//! frame's front edge, and starts a scan. Single line, no multisampling,
-//! 16 bit, none of the four triggers 2-11-5 lists, so in theory it should
-//! raise no cooperative request at all.
+//! Takes the descriptors the unit already holds, puts a window on the chosen
+//! frame, meters it, scans it and writes the result as 16-bit Netpbm. Colour
+//! planes go together and anything else, infrared being the one that turns up,
+//! gets a file of its own.
 //!
 //! ```text
-//! cargo run --example scan                  # red only
-//! cargo run --example scan -- rgb           # three channels, dumped to scan.raw
-//! cargo run --example scan -- rgb lockwb    # keep the channels in proportion
-//! cargo run --example scan -- rgb noae      # skip metering
-//! cargo run --example scan -- rgb nofocus   # skip autofocus
-//! cargo run --example scan -- diagnose      # read a pending fault and stop
-//! cargo run --example scan -- rgb afy=600   # autofocus at a raw sub-scan address
-//! cargo run --example scan -- rgb aftop     # focus the window origin, not its middle
-//! cargo run --example scan -- rgb aty=11976 # put the window at a given Y
-//! cargo run --example scan -- rgb frame=1   # the second of the unit's frames
-//! cargo run --example scan -- rgb len=6696  # 6x4.5 frames rather than 6x6
-//! cargo run --example scan -- rgb notable   # put the whole-sensor table back
-//! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
-//! cargo run --example scan -- rgb multiline # the three-line CCD mode
-//! cargo run --example scan -- rgb samples=2 # read each line twice and average
-//! cargo run --example scan -- rgb ir        # add the infrared channel
-//! cargo run --example scan -- rgb dpi=4000 # full resolution rather than the cheapest
-//! cargo run --example scan -- thumb only    # the thumbnail pass alone, decoded
-//! cargo run --example scan -- noread        # leave the image unread
-//! cargo run --example scan -- eject         # give the film back and stop
+//! cargo run --example scan                 # meter and scan frame 1
+//! cargo run --example scan -- mono         # one channel rather than colour
+//! cargo run --example scan -- ir           # add the infrared channel
+//! cargo run --example scan -- multiline    # the three-line CCD mode
+//! cargo run --example scan -- samples=2    # read each line twice and average
+//! cargo run --example scan -- dpi=4000     # full resolution
+//! cargo run --example scan -- frame=1      # which frame of the tiled table
+//! cargo run --example scan -- len=6696     # 6x4.5 frames rather than 6x6
+//! cargo run --example scan -- lockwb       # keep the channels in proportion
+//! cargo run --example scan -- noae nofocus # skip metering and focus
+//! cargo run --example scan -- thumb        # the thumbnail pass alone
+//! cargo run --example scan -- diagnose     # read a pending fault and stop
+//! cargo run --example scan -- eject        # give the film back and stop
 //! ```
 //!
 //! This moves the stage: the window origin comes from the frame's front edge.
 //! Those edges are nominal until a thumbnail has measured them (2-11-6), so the
-//! preamble tiles `len` along the opening the holder publishes.
+//! preamble tiles `len` along the opening the adapter publishes.
 
 use std::{
     fs::File,
@@ -46,20 +39,24 @@ use nkscan::{
             address::Axis,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        data::{Boundary, Rect},
+        data::Boundary,
         window::{Channel, Composition, Flags, Window},
     },
     scan::{
         expose::{self, Exposure},
         focus::Focus,
         framing::{self, Framing},
+        pass::{self, Pass},
         preamble, thumbnail,
     },
     session::Session,
 };
 
-/// Where the raw stream goes, as a fixture to write a decoder against
-const DUMP: &str = "scan.raw";
+/// What the scan is written as
+const DUMP: &str = "scan";
+
+/// A full-resolution pass is minutes of stage travel
+const SCAN_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Where the thumbnail pass goes
 const THUMB: &str = "thumb";
@@ -77,7 +74,7 @@ fn main() -> anyhow::Result<()> {
     };
     // SCAN order, which is also the order the stream interleaves them. The
     // captures lead with infrared
-    let mut ids: Vec<u8> = if has("rgb") { vec![1, 2, 3] } else { vec![1] };
+    let mut ids: Vec<u8> = if has("mono") { vec![1] } else { vec![1, 2, 3] };
     if has("ir") {
         ids.insert(0, Channel::Infrared.id());
     }
@@ -107,17 +104,10 @@ fn main() -> anyhow::Result<()> {
     // The setup the captures run once before the first pass. len=N is the film
     // format, which nothing advertises
     let format = arg("len").unwrap_or(8964);
-    // A table outlives a session, so showing what one is worth means writing the
-    // whole-sensor rectangle back rather than declining to write anything
-    let table = match has("notable") {
-        true => whole_sensor(session.capabilities()),
-        false => framing::table(session.capabilities(), format)?,
-    };
-    if !has("nopreamble") {
-        let started = Instant::now();
-        preamble::run(&mut session, &table)?;
-        println!("preamble in {:?}", started.elapsed());
-    }
+    let table = framing::table(session.capabilities(), format)?;
+    let started = Instant::now();
+    preamble::run(&mut session, &table)?;
+    println!("preamble in {:?}", started.elapsed());
 
     // The captures open with the whole-strip pass before any frame placement:
     // it is what finds where the frames are. Run it first so the stage does not
@@ -145,21 +135,13 @@ fn main() -> anyhow::Result<()> {
                 );
                 // Decoded on the way in, so this is an image rather than a
                 // stream needing the decode example
-                netpbm(
-                    THUMB,
-                    &samples,
-                    t.layout.pixels as usize,
-                    t.layout.lines as usize,
-                    t.layout.channels.len(),
-                )?;
+                netpbm(THUMB, &samples, &t)?;
             }
             Err(e) => println!("thumbnail refused: {e}"),
         }
         session.refresh()?;
         println!("frames now: {:?}", session.capabilities().frames);
-        if has("only") {
-            return Ok(());
-        }
+        return Ok(());
     }
 
     // 2-11-6: where the unit thinks each frame is, which the preamble has just
@@ -172,19 +154,7 @@ fn main() -> anyhow::Result<()> {
     // dpi=N scans at something other than the cheapest resolution. Off the
     // ladder the unit rounds and says so with 01h-37h rather than refusing
     let dpi = arg("dpi").unwrap_or(u32::from(caps.address.x_axis.dpi_range.start)) as u16;
-    let aperture = (
-        caps.frames
-            .as_ref()
-            .and_then(|f| f.images.first())
-            .map_or(0, |f| f.left),
-        caps.address.x_axis.boundary,
-    );
-    let (mut origin, size) = place(caps, &boundary, arg("frame").or(Some(1)));
-    // aty=N puts the window where we want it, so the scan can be moved onto
-    // film autofocus will actually accept
-    if let Some(y) = arg("aty") {
-        origin.1 = y;
-    }
+    let (origin, size) = place(caps, &boundary, arg("frame").or(Some(1)));
     println!(
         "placing {size:?} at {origin:?}, center y={}",
         origin.1 + size.1 / 2
@@ -204,10 +174,6 @@ fn main() -> anyhow::Result<()> {
         w.resolution = (dpi, dpi);
         w.origin = origin;
         w.size = size;
-        if has("aperture") {
-            w.origin.0 = aperture.0;
-            w.size.0 = aperture.1;
-        }
         // The unit keeps whatever the last run left in these, so say what we
         // want rather than inheriting a previous experiment
         w.scanning_kind = ScanKind::IMAGE;
@@ -242,28 +208,12 @@ fn main() -> anyhow::Result<()> {
 
     // Before metering, which is the order in the captures: autofocus, then the
     // preview passes that decide the exposures. So AE measures a focused frame
+    // Before metering, which is the order in the captures: autofocus, then the
+    // passes that decide the exposures. So AE measures a focused frame
     if !has("nofocus") {
         let started = Instant::now();
-        // afy=N drives the sub-scanning address straight, to find out which
-        // coordinate space AF actually wants. 2-15 calls it an address on the
-        // medium, while Address says SET WINDOW addresses are mechanism positions
-        let focused = match arg("afy") {
-            Some(y) => {
-                println!("autofocus at raw y={y}");
-                match session.autofocus(5000, y, None) {
-                    Ok(()) => "Yes".to_string(),
-                    Err(e) => format!("{e}"),
-                }
-            }
-            // Focusing at the window origin leaves the stage where the scan
-            // begins, so the SET WINDOW after it has nothing to move
-            None => {
-                let at = if has("aftop") { (0.5, 0.0) } else { (0.5, 0.5) };
-                let focus = Focus::Auto { at, color: None };
-                format!("{:?}", focus.apply(&mut session, &windows)?)
-            }
-        };
-        println!("focus: {focused} in {:?}", started.elapsed());
+        let focused = Focus::default().apply(&mut session, &windows)?;
+        println!("focus: {focused:?} in {:?}", started.elapsed());
     }
 
     if !has("noae") {
@@ -276,62 +226,27 @@ fn main() -> anyhow::Result<()> {
     }
 
     let started = Instant::now();
-    for w in &windows {
-        session.set_window(w)?;
-    }
-    println!("set {} window(s) in {:?}", windows.len(), started.elapsed());
-
-    let started = Instant::now();
-    let layout = match session.scan(&windows) {
-        Ok(begun) => {
-            println!(
-                "scan started in {:?}, owes {:?}",
-                started.elapsed(),
-                begun.cooperation
-            );
-            begun.layout
-        }
-        Err(e) => {
-            println!("scan refused after {:?}: {e}", started.elapsed());
-            return Ok(());
-        }
-    };
-
-    let started = Instant::now();
-    session.test_unit_ready(Duration::from_secs(180))?;
-    println!("scan finished in {:?}", started.elapsed());
-
-    // Leaving the image unread is what wedges the next session
-    if has("noread") {
-        println!("leaving the image unread");
-        return Ok(());
-    }
-
+    let curves = session.ccd_curves(0);
+    let mut samples = Vec::new();
+    let taken = pass::take(
+        &mut session,
+        &windows,
+        SCAN_TIMEOUT,
+        curves.as_ref(),
+        &mut samples,
+    )?;
     println!(
-        "expecting {} x {} at {} dpi, pitch {}, {:?} over {} bytes",
-        layout.pixels,
-        layout.lines,
-        layout.dpi,
-        layout.pitch,
-        layout.interleaving,
-        layout.total_bytes()
-    );
-
-    let started = Instant::now();
-    let mut out = File::create(DUMP)?;
-    let mut got = 0u64;
-    let mut chunks = session.image_chunks(&layout)?;
-    while let Some(chunk) = chunks.next() {
-        let chunk = chunk?;
-        out.write_all(chunk)?;
-        got += chunk.len() as u64;
-    }
-    println!(
-        "read {got} of {} bytes in {:?}, written to {DUMP}",
-        layout.total_bytes(),
+        "{} x {} at {} dpi, {:?}, complete={}, owes {:?}, in {:?}",
+        taken.layout.pixels,
+        taken.layout.lines,
+        taken.layout.dpi,
+        taken.layout.interleaving,
+        taken.complete,
+        taken.cooperation,
         started.elapsed()
     );
 
+    netpbm(DUMP, &samples, &taken)?;
     Ok(())
 }
 
@@ -339,45 +254,52 @@ fn main() -> anyhow::Result<()> {
 ///
 /// A row at a time: the whole point of decoding as the stream arrives is not to
 /// hold a second copy of the image
-fn netpbm(
-    stem: &str,
-    samples: &[u16],
-    cols: usize,
-    rows: usize,
-    channels: usize,
-) -> anyhow::Result<()> {
-    let (magic, ext) = match channels {
+fn netpbm(stem: &str, samples: &[u16], pass: &Pass) -> anyhow::Result<()> {
+    let ids = &pass.layout.channels;
+    let color: Vec<usize> = (0..ids.len())
+        .filter(|&c| Channel::from(ids[c]).is_color())
+        .collect();
+    plane(stem, samples, pass, &color)?;
+
+    // Infrared is not a color and has no place in an RGB file
+    for (c, id) in ids.iter().enumerate() {
+        if !Channel::from(*id).is_color() {
+            let name = format!(
+                "{stem}.{}",
+                format!("{:?}", Channel::from(*id)).to_lowercase()
+            );
+            plane(&name, samples, pass, &[c])?;
+        }
+    }
+    Ok(())
+}
+
+/// One file holding the named channels, written a row at a time so the image is
+/// never copied whole
+fn plane(stem: &str, samples: &[u16], pass: &Pass, channels: &[usize]) -> anyhow::Result<()> {
+    let (magic, ext) = match channels.len() {
         1 => ("P5", "pgm"),
         3 => ("P6", "ppm"),
         n => anyhow::bail!("{n} channels has no Netpbm form"),
     };
+    let (rows, cols, stride) = (pass.rows, pass.cols, pass.layout.channels.len());
     let dest = format!("{stem}.{ext}");
     let mut file = std::io::BufWriter::new(File::create(&dest)?);
     write!(file, "{magic}\n{cols} {rows}\n65535\n")?;
-    let mut row = Vec::with_capacity(cols * channels * 2);
+
+    let mut row = Vec::with_capacity(cols * channels.len() * 2);
     for y in 0..rows {
         row.clear();
-        for v in &samples[y * cols * channels..(y + 1) * cols * channels] {
-            row.extend_from_slice(&v.to_be_bytes());
+        for x in 0..cols {
+            for &c in channels {
+                row.extend_from_slice(&samples[(y * cols + x) * stride + c].to_be_bytes());
+            }
         }
         file.write_all(&row)?;
     }
     file.flush()?;
     println!("wrote {dest}");
     Ok(())
-}
-
-/// The one rectangle the unit answers `DataType::Boundary` with before any host has told it
-/// where the frames are, so `notable` can put the mechanism back in that state
-fn whole_sensor(caps: &Capabilities) -> Boundary {
-    Boundary {
-        frames: vec![Rect {
-            top: 0,
-            left: 0,
-            bottom: caps.address.y_axis.address_range.last,
-            right: caps.address.x_axis.address_range.last,
-        }],
-    }
 }
 
 /// Where Nikon Scan put the window in the reference capture, and the frame's
