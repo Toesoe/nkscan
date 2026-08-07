@@ -39,9 +39,9 @@ pub struct Session {
     divisor: u16,
     /// The frame table that windowing uses
     frames: Option<Boundary>,
-    /// The CCD's response curves, read once. The inner `None` is a unit that
-    /// has none, so it is not asked for twice
-    curves: Option<Option<Curves>>,
+    /// The CCD's response curves, so the tables are built once rather than per
+    /// pass. A unit with no curves costs nothing to ask again
+    curves: Option<Curves>,
     /// Whether we hold the unit, so [`Drop`] only releases what it took
     reserved: bool,
 }
