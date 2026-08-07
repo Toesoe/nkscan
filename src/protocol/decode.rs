@@ -18,11 +18,10 @@ fn bad(reason: String) -> Error {
     }
 }
 
-/// How a stream is scrambled, and how to put one block of it right
+/// How a stream is scrambled, and where one block of it belongs
 ///
-/// The orderings differ in the unit they scramble over and in where a sample
-/// lands, not in how bytes arrive, so [`Decoder`] owns the reassembly and each
-/// of these owns one [`emit`](Ordering::emit).
+/// Orderings differ in the size of a block and in where its samples land. They
+/// do not differ in how bytes arrive, so [`Decoder`] owns that part.
 enum Ordering {
     /// 2-11-3-1 format 1, one wire line per output line
     ///
@@ -95,11 +94,10 @@ fn sample_at(sample: &[u8]) -> u16 {
 
 /// Unscrambles a scan into a caller-owned buffer
 ///
-/// Bytes arrive in whatever lengths the transport allows, so this holds
-/// whatever part of a block the last chunk left and emits complete blocks only.
+/// A chunk can end anywhere, so partial blocks are held until the rest arrives
 pub struct Decoder {
     ordering: Ordering,
-    /// The part of a block the last chunk ended in the middle of
+    /// A block the last chunk ended part-way through
     carry: Vec<u8>,
     /// Blocks emitted so far
     done: usize,
@@ -206,7 +204,7 @@ impl Decoder {
         Ok(())
     }
 
-    /// Emit one block unless the layout has already had all it asked for
+    /// Emit one block, unless the layout has already had every block it wanted
     fn take(&mut self, block: &[u8], out: &mut [u16]) {
         if self.done >= self.ordering.blocks() {
             return;
