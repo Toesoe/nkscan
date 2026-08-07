@@ -5,7 +5,10 @@
 
 use crate::{
     error::Error,
-    protocol::{data::CooperativeAction, image::Layout, window::Window},
+    protocol::{
+        caps::set_window::ColorInterleaving, data::CooperativeAction, decode::Decoder,
+        image::Layout, window::Window,
+    },
     session::{Session, window::Started},
 };
 use std::time::Duration;
@@ -20,6 +23,26 @@ pub struct Pass {
     pub cooperation: Option<CooperativeAction>,
     /// The bytes, however many arrived
     pub data: Vec<u8>,
+}
+
+/// A decoder for a pass off this unit
+///
+/// Correcting the CCD's rows against each other wherever they were read at
+/// once, since a three-line pass has the mismatch whether or not anyone asked
+/// about it. A unit that publishes no curves, or publishes ones that do not
+/// match the page describing them, decodes uncorrected.
+pub fn decoder(session: &mut Session, layout: &Layout) -> Result<Decoder, Error> {
+    let decoder = Decoder::new(layout)?;
+    if !layout
+        .interleaving
+        .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
+    {
+        return Ok(decoder);
+    }
+    Ok(match session.ccd_curves(0) {
+        Some(curves) => decoder.correcting(curves),
+        None => decoder,
+    })
 }
 
 /// Stage the windows and start a pass, returning once the data is ready

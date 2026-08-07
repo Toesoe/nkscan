@@ -94,6 +94,14 @@ fn table(from: &[u16], onto: &[u16]) -> Vec<u16> {
             point += 1;
         }
 
+        // Below the first point the curves say nothing. Both start at the dark
+        // offset, so mapping into the first segment would lift everything under
+        // it onto that offset and crush the bottom of the range to one value
+        if sample < u32::from(from[0]) {
+            *slot = sample as u16;
+            continue;
+        }
+
         let (lo, hi) = (u32::from(from[point]), u32::from(from[point + 1]));
         let (a, b) = (u32::from(onto[point]), u32::from(onto[point + 1]));
         *slot = match hi.checked_sub(lo).filter(|span| *span != 0) {
@@ -186,6 +194,22 @@ mod tests {
         let mean_then_correct = c.correct(0, (a + b) / 2);
         let correct_then_mean = (u32::from(c.correct(0, a)) + u32::from(c.correct(0, b))) / 2;
         assert_ne!(u32::from(mean_then_correct), correct_then_mean);
+    }
+
+    /// Every curve starts at the sensor's dark offset, and nothing below it was
+    /// measured. Mapping into the first segment would put the whole of the
+    /// bottom of the range onto that offset
+    #[test]
+    fn samples_under_the_first_point_are_left_alone() {
+        let ccd = page(&[0, 30000, 60000], 1);
+        let high: &[u16] = &[90, 33000, 60000];
+        let middle: &[u16] = &[90, 30000, 60000];
+        let c = Curves::parse(&ccd, &words(&[high, middle, middle], 1, 0), 3, 0).unwrap();
+
+        for v in 0..90u16 {
+            assert_eq!(c.correct(0, v), v, "sample {v} under the dark offset");
+        }
+        assert_eq!(c.correct(0, 90), 90);
     }
 
     /// A reply that does not match the page it came with is not a table
