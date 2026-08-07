@@ -7,6 +7,7 @@
 //! ```text
 //! cargo run --release --example decode -- scan.raw 1494 1494 3
 //! cargo run --release --example decode -- scan.raw 1494 1494 3 ccd=3 gap=2
+//! cargo run --release --example decode -- scan.raw 1494 1494 3 ccd=3 gap=2 samples=2
 //! cargo run --release --example decode -- scan.raw 1494 1494 3 linear
 //! ```
 //!
@@ -37,6 +38,10 @@ fn main() -> anyhow::Result<()> {
         .iter()
         .find_map(|a| a.strip_prefix("ccd=")?.parse().ok());
     let layout = Layout {
+        readings_per_line: args
+            .iter()
+            .find_map(|a| a.strip_prefix("samples=")?.parse().ok())
+            .unwrap_or(1),
         ccd_lines: ccd.unwrap_or(1),
         registration_gap: args
             .iter()
@@ -49,10 +54,12 @@ fn main() -> anyhow::Result<()> {
         ..Layout::single_line(pixels, lines, (1..=channels as u8).collect())
     };
     let mut decoder = Decoder::new(&layout)?;
+    // Multi-sampling makes the wire longer than the image: the readings are
+    // averaged away rather than kept
     println!(
-        "{} bytes, expecting {} for {pixels} x {lines} x {channels}",
+        "{} bytes on the wire, expecting {}, for a {pixels} x {lines} x {channels} image",
         raw.len(),
-        decoder.samples() * 2
+        layout.total_bytes()
     );
 
     let mut out = vec![0u16; decoder.samples()];

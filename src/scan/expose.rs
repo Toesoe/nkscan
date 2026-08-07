@@ -215,11 +215,14 @@ fn prescan_windows(caps: &Capabilities, windows: &[Window]) -> Vec<Window> {
             // averaging bit. The captures pair 666x333 with byte 41 = 01h and
             // high speed every time
             w.resolution = (dpi, dpi / 2);
-            w.multiple_reading = 0;
             w.flags.remove(Flags::AVERAGING);
             if fast {
                 w.scanning_mode = ScanMode::HIGH_SPEED;
             }
+            // Nikon Scan meters off a single reading, and averaging costs a
+            // pass what it saves nothing on. Both bytes have to say so
+            w.multiple_reading = 0;
+            w.scanning_mode.remove(ScanMode::MULTI_READING);
             w
         })
         .collect()
