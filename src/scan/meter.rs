@@ -11,11 +11,7 @@
 
 use crate::{
     error::Error,
-    protocol::{
-        caps::{Capabilities, set_window::ColorInterleaving},
-        image::Layout,
-        window::Window,
-    },
+    protocol::{caps::Capabilities, decode::Image, window::Window},
 };
 
 /// How to meter a frame
@@ -54,22 +50,20 @@ impl Default for Metering {
 impl Metering {
     /// New exposures for `windows`, from a pass taken with the old ones
     ///
-    /// `raw` is what that pass produced and `layout` describes it. The result
-    /// lines up with `windows`. A channel the pass tells us nothing about keeps
-    /// the exposure it had.
+    /// The result lines up with `windows`. A channel the pass tells us nothing
+    /// about keeps the exposure it had.
     pub fn apply(
         &self,
         caps: &Capabilities,
-        layout: &Layout,
-        raw: &[u8],
+        image: &Image,
         windows: &[Window],
     ) -> Result<Vec<u32>, Error> {
-        if layout.channels.len() != windows.len() {
+        if image.channels.len() != windows.len() {
             return Err(Error::Unsupported {
                 op: "metering",
                 reason: format!(
                     "the pass carried {} channels and there are {} windows",
-                    layout.channels.len(),
+                    image.channels.len(),
                     windows.len()
                 ),
             });
@@ -78,12 +72,12 @@ impl Metering {
         // `SetWindowFunction` bytes 16-24. Anything outside it comes back as
         // common error 2
         let limit = &caps.set_window.exposure;
-        let ceiling = ceiling(layout.bits_per_sample);
+        let ceiling = ceiling(image.bits);
         let target = (f32::from(ceiling) * self.target.clamp(0.0, 1.0)) as u16;
 
         // What each channel asks to be scaled by, before the lock has a say
         let steps: Vec<Option<f64>> = self
-            .measure(layout, raw)?
+            .measure(image)
             .into_iter()
             .map(|level| level.and_then(|l| step(l, target, ceiling)))
             .collect();
@@ -128,25 +122,24 @@ impl Metering {
     /// A channel with nothing to measure counts as settled: there is no
     /// correction to make from a level of zero. A clipped one never does,
     /// since where it actually sits is unknown.
-    pub fn settled(&self, layout: &Layout, raw: &[u8]) -> Result<bool, Error> {
-        let ceiling = ceiling(layout.bits_per_sample);
+    pub fn settled(&self, image: &Image) -> bool {
+        let ceiling = ceiling(image.bits);
         let target = (f32::from(ceiling) * self.target.clamp(0.0, 1.0)) as u16;
 
-        Ok(self.measure(layout, raw)?.into_iter().all(|level| {
+        self.measure(image).into_iter().all(|level| {
             match level.and_then(|l| step(l, target, ceiling)) {
                 None => true,
                 Some(scale) => (scale - 1.0).abs() <= f64::from(self.tolerance),
             }
-        }))
+        })
     }
 
-    /// The high tail of each channel, in the order `layout` lists them
+    /// The high tail of each channel, in the order the image interleaves them
     ///
-    /// What the exposures get decided from, so it is worth being able to look
-    /// at on its own
-    pub fn measure(&self, layout: &Layout, raw: &[u8]) -> Result<Vec<Option<u16>>, Error> {
-        (0..layout.channels.len())
-            .map(|channel| tail(layout, raw, channel, self.percentile))
+    /// What the exposures get decided from, so it is worth looking at alone
+    pub fn measure(&self, image: &Image) -> Vec<Option<u16>> {
+        (0..image.channels.len())
+            .map(|channel| tail(image, channel, self.percentile))
             .collect()
     }
 }
@@ -171,55 +164,31 @@ fn step(level: u16, target: u16, ceiling: u16) -> Option<f64> {
     }
 }
 
-/// The `percentile` brightest sample of one channel of `raw`, or `None` if the
-/// pass carried no samples for it
-fn tail(
-    layout: &Layout,
-    raw: &[u8],
-    channel: usize,
-    percentile: f32,
-) -> Result<Option<u16>, Error> {
-    let mut samples = plane(layout, raw, channel)?;
-    if samples.is_empty() {
-        return Ok(None);
-    }
-    samples.sort_unstable();
-    let at = (samples.len() - 1) as f32 * percentile.clamp(0.0, 1.0);
-    Ok(samples.get(at as usize).copied())
-}
-
-/// Every sample of one channel, pulled out of the interleaved stream
+/// The `percentile` brightest sample of one channel, or `None` where the pass
+/// carried none for it
 ///
-/// 2-11-3-1 format 1. Each line holds every channel's row end to end, so one
-/// channel is a fixed slice repeated at the line stride.
-fn plane(layout: &Layout, raw: &[u8], channel: usize) -> Result<Vec<u16>, Error> {
-    if !layout
-        .interleaving
-        .contains(ColorInterleaving::LINE_WITHOUT_DISTANCE)
-    {
-        return Err(Error::Unsupported {
-            op: "metering",
-            reason: format!("{:?} is not a layout this reads yet", layout.interleaving),
-        });
+/// Counted rather than sorted, so a plane is read once and never copied
+fn tail(image: &Image, channel: usize, percentile: f32) -> Option<u16> {
+    let mut counts = vec![0u32; usize::from(u16::MAX) + 1];
+    let mut total = 0usize;
+    for sample in image.plane(channel) {
+        counts[usize::from(sample)] += 1;
+        total += 1;
+    }
+    if total == 0 {
+        return None;
     }
 
-    let width = layout.pixels as usize * usize::from(layout.bytes_per_sample);
-    let stride = layout.bytes_per_line() as usize;
-    let wide = layout.bytes_per_sample == 2;
-
-    let mut out = Vec::with_capacity(layout.pixels as usize * layout.lines as usize);
-    for line in raw.chunks_exact(stride) {
-        let row = &line[channel * width..(channel + 1) * width];
-        if wide {
-            out.extend(
-                row.chunks_exact(2)
-                    .map(|s| u16::from_be_bytes([s[0], s[1]])),
-            );
-        } else {
-            out.extend(row.iter().map(|&s| u16::from(s)));
+    // The same element a sort would put at this index
+    let at = ((total - 1) as f32 * percentile.clamp(0.0, 1.0)) as usize;
+    let mut seen = 0usize;
+    for (value, count) in counts.iter().enumerate() {
+        seen += *count as usize;
+        if seen > at {
+            return Some(value as u16);
         }
     }
-    Ok(out)
+    None
 }
 
 #[cfg(test)]
@@ -233,6 +202,8 @@ mod tests {
             other::Features,
             set_window::{ColorInterleaving, SetWindowFunction},
         },
+        decode::Decoder,
+        image::Layout,
         window::{Channel, Composition, LENGTH},
     };
 
@@ -272,13 +243,12 @@ mod tests {
         }
     }
 
+    fn image<'a>(layout: &'a Layout, samples: &'a [u16]) -> Image<'a> {
+        Image::new(layout, samples).unwrap()
+    }
+
     const PIXELS: u32 = 4;
     const LINES: u32 = 2;
-
-    /// Built through the real constructor so the set has to be legal
-    fn layout(windows: &[Window]) -> Layout {
-        Layout::new(&caps(), windows, 4000).unwrap()
-    }
 
     fn windows(ids: &[u8], exposure: u32) -> Vec<Window> {
         let visible = ids
@@ -303,17 +273,22 @@ mod tests {
             .collect()
     }
 
-    /// One line is every channel's row end to end
-    fn raw(levels: &[u16]) -> Vec<u8> {
-        let mut out = Vec::new();
+    /// A pass holding one flat level per channel, put through the real decoder
+    /// so metering is tested against what a scan actually hands it
+    fn decoded(windows: &[Window], levels: &[u16]) -> (Layout, Vec<u16>) {
+        let mut raw = Vec::new();
         for _ in 0..LINES {
             for &level in levels {
                 for _ in 0..PIXELS {
-                    out.extend_from_slice(&level.to_be_bytes());
+                    raw.extend_from_slice(&level.to_be_bytes());
                 }
             }
         }
-        out
+        let layout = Layout::new(&caps(), windows, 4000).unwrap();
+        let mut decoder = Decoder::new(&layout).unwrap();
+        let mut samples = vec![0u16; decoder.samples()];
+        decoder.push(&raw, &mut samples).unwrap();
+        (layout, samples)
     }
 
     /// Linear in integration time, so the step is just the ratio
@@ -325,9 +300,8 @@ mod tests {
         };
         let w = windows(&[1, 2, 3], 1000);
         // A third, a half and a quarter of full scale
-        let got = m
-            .apply(&caps(), &layout(&w), &raw(&[21845, 32767, 16383]), &w)
-            .unwrap();
+        let (l, s) = decoded(&w, &[21845, 32767, 16383]);
+        let got = m.apply(&caps(), &image(&l, &s), &w).unwrap();
         assert_eq!(got, vec![3000, 2000, 4000]);
     }
 
@@ -340,9 +314,8 @@ mod tests {
             ..Default::default()
         };
         let w = windows(&[1, 2, 3], 1000);
-        let got = m
-            .apply(&caps(), &layout(&w), &raw(&[21845, 32767, 16383]), &w)
-            .unwrap();
+        let (l, s) = decoded(&w, &[21845, 32767, 16383]);
+        let got = m.apply(&caps(), &image(&l, &s), &w).unwrap();
         // Green asked for 2x and wants it least, so nothing overshoots
         assert_eq!(got, vec![2000, 2000, 2000]);
     }
@@ -355,9 +328,8 @@ mod tests {
             ..Default::default()
         };
         let w = windows(&[1, 2, 3], 1000);
-        let got = m
-            .apply(&caps(), &layout(&w), &raw(&[65535, 32767, 32767]), &w)
-            .unwrap();
+        let (l, s) = decoded(&w, &[65535, 32767, 32767]);
+        let got = m.apply(&caps(), &image(&l, &s), &w).unwrap();
         assert_eq!(got, vec![500, 2000, 2000]);
     }
 
@@ -370,14 +342,8 @@ mod tests {
             ..Default::default()
         };
         let w = windows(&[1, 2, 3, Channel::Infrared.id()], 1000);
-        let got = m
-            .apply(
-                &caps(),
-                &layout(&w),
-                &raw(&[21845, 32767, 32767, 16383]),
-                &w,
-            )
-            .unwrap();
+        let (l, s) = decoded(&w, &[21845, 32767, 32767, 16383]);
+        let got = m.apply(&caps(), &image(&l, &s), &w).unwrap();
         // The visible three lock to green's 2x; infrared takes its own 4x
         assert_eq!(got, vec![2000, 2000, 2000, 4000]);
     }
@@ -390,15 +356,18 @@ mod tests {
             ..Default::default()
         };
         let w = windows(&[1, 2, 3], 1000);
-        let l = layout(&w);
+        let settled = |levels: &[u16]| {
+            let (l, s) = decoded(&w, levels);
+            m.settled(&image(&l, &s))
+        };
 
         // Full scale is the target, and 65535 is clipped rather than landed
-        assert!(m.settled(&l, &raw(&[65000, 65000, 65000])).unwrap());
-        assert!(!m.settled(&l, &raw(&[65535, 65000, 65000])).unwrap());
+        assert!(settled(&[65000, 65000, 65000]));
+        assert!(!settled(&[65535, 65000, 65000]));
         // Half of target is nowhere near it
-        assert!(!m.settled(&l, &raw(&[32767, 65000, 65000])).unwrap());
+        assert!(!settled(&[32767, 65000, 65000]));
         // Nothing to measure is nothing to correct
-        assert!(m.settled(&l, &raw(&[0, 65000, 65000])).unwrap());
+        assert!(settled(&[0, 65000, 65000]));
     }
 
     /// A dark channel gives us nothing to scale, so it keeps what it had
@@ -406,9 +375,8 @@ mod tests {
     fn a_dark_channel_keeps_what_it_had() {
         let m = Metering::default();
         let w = windows(&[1, 2, 3], 1000);
-        let got = m
-            .apply(&caps(), &layout(&w), &raw(&[0, 32767, 32767]), &w)
-            .unwrap();
+        let (l, s) = decoded(&w, &[0, 32767, 32767]);
+        let got = m.apply(&caps(), &image(&l, &s), &w).unwrap();
         assert_eq!(got[0], 1000);
     }
 }

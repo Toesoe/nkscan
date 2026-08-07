@@ -21,6 +21,53 @@ fn bad(reason: String) -> Error {
     }
 }
 
+/// A view of an unscrambled pass
+///
+/// Borrowed throughout. The samples are the buffer a [`Decoder`] filled, which
+/// the caller owns, so nothing here copies an image.
+#[derive(Debug, Clone, Copy)]
+pub struct Image<'a> {
+    /// One sample per channel per pixel, channels interleaved
+    pub samples: &'a [u16],
+    pub rows: usize,
+    pub cols: usize,
+    /// Channel identifiers, in the order `samples` interleaves them
+    pub channels: &'a [u8],
+    /// Valid bits in a sample, which can be fewer than 16
+    pub bits: u8,
+}
+
+impl<'a> Image<'a> {
+    /// Read a filled buffer as the image `layout` describes
+    pub fn new(layout: &'a Layout, samples: &'a [u16]) -> Result<Self, Error> {
+        let decoder = Decoder::new(layout)?;
+        if samples.len() < decoder.samples() {
+            return Err(bad(format!(
+                "{} samples is short of the {} this layout describes",
+                samples.len(),
+                decoder.samples()
+            )));
+        }
+        let (rows, cols) = decoder.shape();
+        Ok(Self {
+            samples,
+            rows,
+            cols,
+            channels: &layout.channels,
+            bits: layout.bits_per_sample,
+        })
+    }
+
+    /// Every sample of one channel
+    pub fn plane(&self, channel: usize) -> impl Iterator<Item = u16> + 'a {
+        self.samples
+            .iter()
+            .skip(channel)
+            .step_by(self.channels.len())
+            .copied()
+    }
+}
+
 /// How a stream is scrambled, and where one block of it belongs
 ///
 /// Orderings differ in the size of a block and in where its samples land. They

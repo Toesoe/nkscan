@@ -14,3 +14,5 @@ scan.raw
 ours.log
 *.log
 thumb.raw
+*.ppm
+*.pgm
