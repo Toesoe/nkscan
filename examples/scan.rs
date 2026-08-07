@@ -21,6 +21,7 @@
 //! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
 //! cargo run --example scan -- rgb samples=2 # read each line twice and average
+//! cargo run --example scan -- rgb ir        # add the infrared channel
 //! cargo run --example scan -- thumb only     # the thumbnail pass alone, to thumb.raw
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
@@ -44,7 +45,7 @@ use nkscan::{
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
         data::{Boundary, Rect},
-        window::{Composition, Window},
+        window::{Channel, Composition, Flags, Window},
     },
     scan::{
         expose::{self, Exposure},
@@ -72,7 +73,13 @@ fn main() -> anyhow::Result<()> {
         args.iter()
             .find_map(|a| a.strip_prefix(&format!("{name}="))?.parse::<u32>().ok())
     };
-    let ids: &[u8] = if has("rgb") { &[1, 2, 3] } else { &[1] };
+    // SCAN order, which is also the order the stream interleaves them. The
+    // captures lead with infrared
+    let mut ids: Vec<u8> = if has("rgb") { vec![1, 2, 3] } else { vec![1] };
+    if has("ir") {
+        ids.insert(0, Channel::Infrared.id());
+    }
+    let ids = &ids[..];
 
     let devices = device::list();
     let device = Selector::Only.resolve(&devices)?;
@@ -190,6 +197,9 @@ fn main() -> anyhow::Result<()> {
         // want rather than inheriting a previous experiment
         w.scanning_kind = ScanKind::IMAGE;
         w.scanning_mode = ScanMode::HIGH_SPEED;
+        // A set has to agree on these, and the unit holds a different set per
+        // window, so every one of them gets said rather than inherited
+        w.flags = Flags::POSITIVE;
         // samples=N reads each line N times for the host to average. Byte 40
         // carries one less than the count, and byte 43 has to say so too
         w.multiple_reading = arg("samples").unwrap_or(1).max(1) as u8 - 1;
@@ -201,10 +211,10 @@ fn main() -> anyhow::Result<()> {
             false => ColorInterleaving::LINE_WITHOUT_DISTANCE,
         };
         // 2-10-6 has one code for a one-plane output and one for three
-        w.composition = if ids.len() > 1 {
-            Composition::MultilevelRGB
-        } else {
-            Composition::MultilevelBW
+        // 2-10-6 counts the visible planes, so infrared does not sway it
+        w.composition = match ids.iter().filter(|&&i| Channel::from(i).is_color()).count() {
+            1 => Composition::MultilevelBW,
+            _ => Composition::MultilevelRGB,
         };
         windows.push(w);
     }
