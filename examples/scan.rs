@@ -24,6 +24,7 @@
 //! cargo run --example scan -- rgb ir        # add the infrared channel
 //! cargo run --example scan -- thumb only     # the thumbnail pass alone, to thumb.raw
 //! cargo run --example scan -- noread        # leave the image unread
+//! cargo run --example scan -- eject         # give the film back and stop
 //! ```
 //!
 //! This moves the stage: the window origin comes from the frame's front edge.
@@ -84,6 +85,14 @@ fn main() -> anyhow::Result<()> {
     let devices = device::list();
     let device = Selector::Only.resolve(&devices)?;
     let mut session = Session::open(device.open()?)?;
+
+    // 2-15-3: give the film back and stop
+    if has("eject") {
+        let started = Instant::now();
+        session.eject()?;
+        println!("ejected in {:?}", started.elapsed());
+        return Ok(());
+    }
 
     // 2-8: whatever a failed operation left behind, read once and gone
     if has("diagnose") {

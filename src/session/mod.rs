@@ -18,7 +18,7 @@ use crate::{
         cdbs::{
             Abort, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit, TestUnitReady,
         },
-        data::Boundary,
+        data::{Boundary, Op, Operation},
         mode,
         sense::{Activity, Change, Coop, Fault, Outcome, Refusal, interpret},
     },
@@ -146,6 +146,17 @@ impl Session {
         }
         // An operation activation command, so it answers before it acts
         self.test_unit_ready(MOVE_TIMEOUT)
+    }
+
+    /// Give back whatever is loaded
+    ///
+    /// 2-15-3 `Unload`, which takes no parameter. The captures send an
+    /// uninitialized one, so this sends zeros rather than copying that.
+    ///
+    /// An operation activation command, so the unit answers before the
+    /// mechanism has finished and [`execute`](Self::execute) waits it out
+    pub fn eject(&mut self) -> Result<(), Error> {
+        self.execute(Op::Unload, Operation::default(), MOVE_TIMEOUT)
     }
 
     /// What the scanner says it can do
