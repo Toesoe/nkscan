@@ -1,7 +1,7 @@
 //! Command descriptor blocks
 //!
 //! Payloads live elsewhere: the SET WINDOW descriptor in `window.rs`, READ and
-//! SEND data records in `data.rs`, the SET PARAMETER block in `execute.rs`
+//! SEND data records and the SET PARAMETER block both in `data.rs`
 
 /// INQUIRY, 2-2
 ///

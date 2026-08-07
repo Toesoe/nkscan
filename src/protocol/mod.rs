@@ -7,6 +7,7 @@
 pub mod caps;
 pub mod cdbs;
 pub mod data;
+pub mod decode;
 pub mod image;
 pub mod mode;
 pub mod sense;

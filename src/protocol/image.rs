@@ -54,6 +54,29 @@ pub struct Layout {
     granule: usize,
 }
 
+#[cfg(test)]
+impl Layout {
+    /// A single-line 16-bit layout, for tests about the stream rather than
+    /// about the capability parsing that normally produces one
+    pub(crate) fn fixture(pixels: u32, lines: u32, channels: Vec<u8>) -> Self {
+        Self {
+            pixels,
+            lines,
+            pitch: 1,
+            line_pitch: 1,
+            dpi: 4000,
+            bytes_per_sample: 2,
+            bits_per_sample: 16,
+            channels,
+            interleaving: ColorInterleaving::LINE_WITHOUT_DISTANCE,
+            readings_per_line: 1,
+            ccd_lines: 1,
+            registration_gap: 0,
+            granule: 1,
+        }
+    }
+}
+
 /// A stream shape the unit's own numbers do not describe
 fn bad(reason: String) -> Error {
     Error::Unsupported {
