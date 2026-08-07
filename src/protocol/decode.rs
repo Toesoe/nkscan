@@ -8,7 +8,10 @@
 //! lists them, so a caller can wrap it as `(lines, pixels, channels)` without
 //! copying.
 
-use crate::{error::Error, protocol::caps::set_window::ColorInterleaving, protocol::image::Layout};
+use crate::{
+    error::Error,
+    protocol::{caps::set_window::ColorInterleaving, image::Layout, window::Channel},
+};
 
 /// A stream we cannot make an image of
 fn bad(reason: String) -> Error {
@@ -28,6 +31,8 @@ enum Ordering {
     /// Every sample comes off a single CCD row, so there is no inter-line
     /// mismatch here and nothing for the CCD curves to correct
     Lines(Lines),
+    /// Every CCD row read at once, 2-11-3 and 2-11-5-3
+    Transposed(Transposed),
 }
 
 impl Ordering {
@@ -35,6 +40,7 @@ impl Ordering {
     fn block_bytes(&self) -> usize {
         match self {
             Self::Lines(l) => l.pixels * l.channels * l.bytes_per_sample,
+            Self::Transposed(t) => t.gap * t.stage * t.bytes_per_sample,
         }
     }
 
@@ -42,20 +48,33 @@ impl Ordering {
     fn blocks(&self) -> usize {
         match self {
             Self::Lines(l) => l.lines,
+            Self::Transposed(t) => t.cols / (t.gap * t.ccd_lines),
+        }
+    }
+
+    /// Rows and columns of the image, which the two orderings transpose
+    fn shape(&self) -> (usize, usize) {
+        match self {
+            Self::Lines(l) => (l.lines, l.pixels),
+            Self::Transposed(t) => (t.rows, t.cols),
         }
     }
 
     /// Samples the output holds
     fn samples(&self) -> usize {
-        match self {
-            Self::Lines(l) => l.lines * l.pixels * l.channels,
-        }
+        let (rows, cols) = self.shape();
+        rows * cols
+            * match self {
+                Self::Lines(l) => l.channels,
+                Self::Transposed(t) => t.slots.len(),
+            }
     }
 
     /// Put block `n` where it belongs
     fn emit(&self, n: usize, block: &[u8], out: &mut [u16]) {
         match self {
             Self::Lines(l) => l.emit(n, block, out),
+            Self::Transposed(t) => t.emit(n, block, out),
         }
     }
 }
@@ -78,6 +97,119 @@ impl Lines {
         {
             for (x, sample) in plane.chunks_exact(self.bytes_per_sample).enumerate() {
                 out[row + x * self.channels + channel] = sample_at(sample);
+            }
+        }
+    }
+}
+
+/// Every CCD row read at once
+///
+/// The sensor bar is the image's vertical axis and reads out backwards. The
+/// stage advances one column per position and the CCD's rows sit `gap` columns
+/// apart, so `gap` stage positions fill a contiguous run of `gap * ccd_lines`
+/// columns: `[row 0 x gap][row 1 x gap][row 2 x gap]`.
+struct Transposed {
+    /// Output rows, which is the sensor bar
+    rows: usize,
+    /// Output columns, which is stage positions times CCD rows
+    cols: usize,
+    /// CCD rows read at once
+    ccd_lines: usize,
+    /// Stage positions in one interleave block
+    gap: usize,
+    /// Where each output channel's samples sit, in the output's order
+    slots: Vec<Slot>,
+    /// Samples in one readout
+    readout: usize,
+    /// Samples in one stage position
+    stage: usize,
+    bytes_per_sample: usize,
+}
+
+/// Where one output channel sits in a stage position
+///
+/// A stage position emits the color channels, then the channels read once, then
+/// the color channels again for each further reading. So the first reading is
+/// not where the rest continue from, and the slots are not the SCAN order.
+#[derive(Debug, Clone, Copy)]
+struct Slot {
+    /// The first reading
+    first: usize,
+    /// The second, after which each further reading steps by `stride`
+    next: usize,
+    stride: usize,
+    /// Readings to average. 1 for a channel multi-sampling does not repeat
+    readings: usize,
+}
+
+impl Slot {
+    fn nth(&self, reading: usize) -> usize {
+        match reading {
+            0 => self.first,
+            r => self.next + (r - 1) * self.stride,
+        }
+    }
+
+    /// One per output channel, in the order the output interleaves them
+    fn every(channels: &[u8], readings: usize) -> Vec<Self> {
+        let colors = channels
+            .iter()
+            .filter(|id| Channel::from(**id).is_color())
+            .count();
+        let once = channels.len() - colors;
+
+        let (mut color, mut other) = (0, 0);
+        channels
+            .iter()
+            .map(|id| match Channel::from(*id).is_color() {
+                true => {
+                    color += 1;
+                    Slot {
+                        first: color - 1,
+                        next: colors + once + color - 1,
+                        stride: colors,
+                        readings,
+                    }
+                }
+                false => {
+                    other += 1;
+                    Slot {
+                        first: colors + other - 1,
+                        next: 0,
+                        stride: 0,
+                        readings: 1,
+                    }
+                }
+            })
+            .collect()
+    }
+}
+
+impl Transposed {
+    fn emit(&self, n: usize, block: &[u8], out: &mut [u16]) {
+        let first = n * self.gap * self.ccd_lines;
+        for col in 0..self.gap * self.ccd_lines {
+            // A block lays its stage positions out under each CCD row in turn
+            let (position, line) = (col % self.gap, col / self.gap);
+            let x = first + col;
+            // TODO: `line` is the CCD row this column came from, which is what
+            // the response curves correct against
+            let base = position * self.stage + line;
+
+            for p in 0..self.rows {
+                // The bar reads out opposite to increasing y
+                let y = self.rows - 1 - p;
+                let sample = base + p * self.ccd_lines;
+                let at = (y * self.cols + x) * self.slots.len();
+
+                for (c, slot) in self.slots.iter().enumerate() {
+                    let mut sum = 0u32;
+                    for r in 0..slot.readings {
+                        let off = (sample + slot.nth(r) * self.readout) * self.bytes_per_sample;
+                        sum += u32::from(sample_at(&block[off..off + self.bytes_per_sample]));
+                    }
+                    out[at + c] = (sum / slot.readings as u32) as u16;
+                }
             }
         }
     }
@@ -114,41 +246,82 @@ impl Decoder {
     /// correction belongs in; `FrameTranspose` on the pre-rewrite `main` is a
     /// working implementation of the geometry.
     pub fn new(layout: &Layout) -> Result<Self, Error> {
-        if !layout
-            .interleaving
-            .contains(ColorInterleaving::LINE_WITHOUT_DISTANCE)
-        {
-            return Err(bad(format!(
-                "{:?} is not an ordering this decodes yet",
-                layout.interleaving
-            )));
-        }
-        // Repeats have no place to sit in a format that is one line per line,
-        // and no capture has ever paired the two, so there is nothing to copy
-        if layout.readings_per_line > 1 {
-            return Err(bad(format!(
-                "{} readings a line is not an ordering this decodes yet",
-                layout.readings_per_line
-            )));
-        }
         if !matches!(layout.bytes_per_sample, 1 | 2) {
             return Err(bad(format!(
                 "{} bytes a sample is neither of the widths 2-11-3 defines",
                 layout.bytes_per_sample
             )));
         }
+        let bytes_per_sample = usize::from(layout.bytes_per_sample);
+        let (rows, cols) = (layout.pixels as usize, layout.lines as usize);
 
-        let ordering = Ordering::Lines(Lines {
-            pixels: layout.pixels as usize,
-            lines: layout.lines as usize,
-            channels: layout.channels.len(),
-            bytes_per_sample: usize::from(layout.bytes_per_sample),
-        });
+        let ordering = if layout
+            .interleaving
+            .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
+        {
+            let ccd_lines = usize::from(layout.ccd_lines).max(1);
+            let gap = match ccd_lines {
+                1 => 1,
+                _ => layout.registration_gap as usize,
+            };
+            let strip = gap * ccd_lines;
+            if gap == 0 || !cols.is_multiple_of(strip) {
+                return Err(bad(format!(
+                    "{cols} columns is not a whole number of {strip}-column blocks"
+                )));
+            }
+            let readout = rows * ccd_lines;
+            Ordering::Transposed(Transposed {
+                rows,
+                cols,
+                ccd_lines,
+                gap,
+                slots: Slot::every(
+                    &layout.channels,
+                    usize::from(layout.readings_per_line).max(1),
+                ),
+                readout,
+                stage: layout.readouts() as usize * readout,
+                bytes_per_sample,
+            })
+        } else if layout
+            .interleaving
+            .contains(ColorInterleaving::LINE_WITHOUT_DISTANCE)
+        {
+            // Repeats have no place to sit in a format that is one line per
+            // line, and no capture has ever paired the two
+            if layout.readings_per_line > 1 {
+                return Err(bad(format!(
+                    "{} readings a line is not an ordering this decodes yet",
+                    layout.readings_per_line
+                )));
+            }
+            Ordering::Lines(Lines {
+                pixels: rows,
+                lines: cols,
+                channels: layout.channels.len(),
+                bytes_per_sample,
+            })
+        } else {
+            return Err(bad(format!(
+                "{:?} is not an ordering this decodes yet",
+                layout.interleaving
+            )));
+        };
+
         Ok(Self {
             carry: Vec::with_capacity(ordering.block_bytes()),
             ordering,
             done: 0,
         })
+    }
+
+    /// Rows and columns of the image
+    ///
+    /// The two orderings transpose each other: a line format puts the feed down
+    /// the image, and the three-line readout puts the sensor bar there
+    pub fn shape(&self) -> (usize, usize) {
+        self.ordering.shape()
     }
 
     /// Samples the output buffer has to hold
@@ -347,5 +520,117 @@ mod tests {
         let l = layout(4, 3, vec![1, 2, 3]);
         let mut d = Decoder::new(&l).unwrap();
         assert!(d.push(&[], &mut [0u16; 4]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod transposed {
+    use super::*;
+
+    /// A three-line layout: `rows` sensor pixels by `stages` stage positions
+    fn layout(rows: u32, stages: u32, gap: u32, channels: Vec<u8>, readings: u8) -> Layout {
+        Layout {
+            pixels: rows,
+            lines: stages * 3,
+            pitch: 1,
+            line_pitch: 1,
+            dpi: 4000,
+            bytes_per_sample: 2,
+            bits_per_sample: 16,
+            channels,
+            interleaving: ColorInterleaving::MULTILINE_SIMULTANEOUS,
+            readings_per_line: readings,
+            ccd_lines: 3,
+            registration_gap: gap,
+            granule: 1,
+        }
+    }
+
+    /// Every sample says where it came from, so a misplaced one is legible
+    fn tag(stage: usize, slot: usize, pixel: usize, line: usize) -> u16 {
+        (stage * 1000 + slot * 100 + pixel * 10 + line) as u16
+    }
+
+    /// The wire order: stage positions, each holding its readouts, each holding
+    /// the sensor bar with the CCD's rows interleaved per pixel
+    fn stream(stages: usize, readouts: usize, rows: usize, lines: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        for stage in 0..stages {
+            for slot in 0..readouts {
+                for pixel in 0..rows {
+                    for line in 0..lines {
+                        out.extend_from_slice(&tag(stage, slot, pixel, line).to_be_bytes());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// One block of `gap` stage positions fills `gap * 3` columns as
+    /// `[row 0 x gap][row 1 x gap][row 2 x gap]`, and the bar reads out
+    /// backwards
+    #[test]
+    fn a_block_tiles_stage_positions_against_ccd_rows() {
+        let (rows, stages, gap) = (4usize, 2usize, 2u32);
+        let l = layout(rows as u32, stages as u32, gap, vec![1, 2, 3], 1);
+        let mut d = Decoder::new(&l).unwrap();
+        assert_eq!(d.shape(), (rows, stages * 3));
+
+        let mut out = vec![0u16; d.samples()];
+        d.push(&stream(stages, 3, rows, 3), &mut out).unwrap();
+        assert!(d.complete());
+
+        let (_, cols) = d.shape();
+        for stage in 0..stages {
+            for line in 0..3 {
+                let x = line * gap as usize + stage;
+                for pixel in 0..rows {
+                    let y = rows - 1 - pixel;
+                    for channel in 0..3 {
+                        assert_eq!(
+                            out[(y * cols + x) * 3 + channel],
+                            tag(stage, channel, pixel, line),
+                            "stage {stage} line {line} pixel {pixel} channel {channel}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Infrared sits after the first color triple and is not repeated, so a
+    /// repeated color averages its readings and infrared takes slot 3 alone
+    #[test]
+    fn multi_sampling_averages_the_colors_and_leaves_infrared_alone() {
+        let l = layout(2, 1, 1, vec![9, 1, 2, 3], 2);
+        let mut d = Decoder::new(&l).unwrap();
+        let mut out = vec![0u16; d.samples()];
+        // 3 colors x 2 readings + 1 infrared
+        d.push(&stream(1, 7, 2, 3), &mut out).unwrap();
+        assert!(d.complete());
+
+        let (_, cols) = d.shape();
+        for line in 0..3 {
+            for pixel in 0..2 {
+                let (y, x) = (2 - 1 - pixel, line);
+                let at = (y * cols + x) * 4;
+                // Channel order is the layout's: infrared first, from slot 3
+                assert_eq!(out[at], tag(0, 3, pixel, line));
+                for color in 0..3 {
+                    let first = tag(0, color, pixel, line);
+                    let second = tag(0, 4 + color, pixel, line);
+                    assert_eq!(out[at + 1 + color], (first + second) / 2);
+                }
+            }
+        }
+    }
+
+    /// Columns have to divide into whole interleave blocks
+    #[test]
+    fn a_ragged_column_count_is_refused() {
+        let mut l = layout(4, 2, 4, vec![1, 2, 3], 1);
+        l.lines = 7;
+        assert!(Decoder::new(&l).is_err());
     }
 }

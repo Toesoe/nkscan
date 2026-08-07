@@ -50,7 +50,9 @@ pub struct Layout {
     pub ccd_lines: u8,
     /// How far apart the CCD's lines land, in output lines. 2-11-5-3
     pub registration_gap: u32,
-    granule: usize,
+    /// The transfer length every READ has to be a whole number of. 1 means the
+    /// unit constrains nothing
+    pub granule: usize,
 }
 
 impl Layout {
@@ -188,12 +190,6 @@ impl Layout {
             registration_gap: u32::from(caps.address.line_gap) / line_pitch,
             granule,
         })
-    }
-
-    /// The transfer length every READ has to be a whole number of. 1 means the
-    /// unit constrains nothing
-    pub fn granule(&self) -> usize {
-        self.granule
     }
 
     /// The data type qualifier's low byte for this sample width, per 2-11-4
@@ -423,7 +419,7 @@ mod tests {
         let granule = |transfer| {
             Layout::new(&caps(transfer, 1, 2), &windows, 4000)
                 .unwrap()
-                .granule()
+                .granule
         };
 
         // Bit 0 is microcode downloading, not a constraint on READ

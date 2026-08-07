@@ -91,7 +91,7 @@ impl Session {
             chunk = chunk.min(usize::from(limit));
         }
 
-        let granule = layout.granule();
+        let granule = layout.granule;
         if granule > chunk {
             return Err(Error::Unsupported {
                 op: "image read",

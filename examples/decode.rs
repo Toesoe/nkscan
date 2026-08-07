@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! cargo run --release --example decode -- scan.raw 1494 1494 3
+//! cargo run --release --example decode -- scan.raw 1494 1494 3 ccd=3 gap=2
 //! cargo run --release --example decode -- scan.raw 1494 1494 3 linear
 //! ```
 //!
@@ -17,7 +18,7 @@
 
 use std::{fs, io::Write, path::PathBuf};
 
-use nkscan::protocol::{decode::Decoder, image::Layout};
+use nkscan::protocol::{caps::set_window::ColorInterleaving, decode::Decoder, image::Layout};
 
 /// What a display expects, near enough for judging an image by eye
 const DISPLAY_GAMMA: f32 = 2.2;
@@ -30,7 +31,23 @@ fn main() -> anyhow::Result<()> {
     let linear = args.iter().any(|a| a == "linear");
 
     let raw = fs::read(&path)?;
-    let layout = Layout::single_line(pixels, lines, (1..=channels as u8).collect());
+    // `ccd=N gap=N` decodes a pass the CCD's rows were all read into. Both come
+    // from the unit: `Address` bytes 86 and 85 over the feed pitch
+    let ccd = args
+        .iter()
+        .find_map(|a| a.strip_prefix("ccd=")?.parse().ok());
+    let layout = Layout {
+        ccd_lines: ccd.unwrap_or(1),
+        registration_gap: args
+            .iter()
+            .find_map(|a| a.strip_prefix("gap=")?.parse().ok())
+            .unwrap_or(1),
+        interleaving: match ccd {
+            Some(_) => ColorInterleaving::MULTILINE_SIMULTANEOUS,
+            None => ColorInterleaving::LINE_WITHOUT_DISTANCE,
+        },
+        ..Layout::single_line(pixels, lines, (1..=channels as u8).collect())
+    };
     let mut decoder = Decoder::new(&layout)?;
     println!(
         "{} bytes, expecting {} for {pixels} x {lines} x {channels}",
@@ -43,7 +60,12 @@ fn main() -> anyhow::Result<()> {
     for piece in raw.chunks(262_144) {
         decoder.push(piece, &mut out)?;
     }
-    println!("decoded {} of {lines} lines", decoder.decoded());
+    let (rows, cols) = decoder.shape();
+    println!(
+        "{rows} x {cols}, {} blocks, complete={}",
+        decoder.decoded(),
+        decoder.complete()
+    );
 
     if !linear {
         let g = 1.0 / DISPLAY_GAMMA;
@@ -61,7 +83,7 @@ fn main() -> anyhow::Result<()> {
     };
     let dest = path.with_extension(ext);
     let mut file = fs::File::create(&dest)?;
-    write!(file, "{magic}\n{pixels} {lines}\n65535\n")?;
+    write!(file, "{magic}\n{cols} {rows}\n65535\n")?;
     let mut bytes = Vec::with_capacity(out.len() * 2);
     for v in &out {
         bytes.extend_from_slice(&v.to_be_bytes());
