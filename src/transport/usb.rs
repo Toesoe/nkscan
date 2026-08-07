@@ -48,7 +48,7 @@ pub struct UsbTransport {
 /// Map a `nusb` transfer error into this crate's SCSI error
 fn transfer_err(e: TransferError, timeout: Duration) -> Error {
     let kind = match &e {
-        // we don't cancel, this this is always a timeout
+        // We never cancel transfers, so a cancelled one is always the timeout
         TransferError::Cancelled => return Error::Timeout(timeout),
         // Endpoint halted (broken pipe)
         TransferError::Stall => io::ErrorKind::BrokenPipe,

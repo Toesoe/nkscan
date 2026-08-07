@@ -1,6 +1,6 @@
 //! SCSI transport on Linux via the SCSI-Generic Userspace Module
 
-use super::{Completion, Data, Error, SENSE_REQUEST_LEN, Sense, Status, Transport};
+use super::{Completion, Data, Error, SENSE_REQUEST_LEN, Status, Transport, sense_from_fixed};
 use bitflags::bitflags;
 use nix::{ioctl_read_bad, ioctl_readwrite_bad, ioctl_write_ptr_bad};
 use std::{
@@ -16,7 +16,6 @@ use tracing::*;
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 enum Direction {
     /// SCSI Test Unit Ready, or similar commands where there is no data transfer associated with it
     None = -1,
@@ -24,10 +23,6 @@ enum Direction {
     ToDev = -2,
     /// READ, device to user memory
     FromDev = -3,
-    /// READ except during indirect io the user buffer is copied to the kernel buffers before transfer
-    ToFromDev = -4,
-    /// Unknown data direction (probably unused)
-    Unknown = -5,
 }
 
 bitflags! {
@@ -35,7 +30,7 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct Flags: u32 {
         const DIRECT_IO = 1;
-        const UNUSED_LUN_INHIBIT =2;
+        const UNUSED_LUN_INHIBIT = 2;
         const MMAP_IO = 4;
         /// For testing bus speed
         const NO_DXFER = 0x10000;
@@ -101,9 +96,7 @@ impl From<u16> for HostStatus {
 pub struct Info(u32);
 
 impl Info {
-    pub const OK: u32 = 0x0;
     pub const CHECK: u32 = 0x1;
-    pub const INDIRECT_IO: u32 = 0x0;
     pub const DIRECT_IO: u32 = 0x2;
     pub const MIXED_IO: u32 = 0x4;
 
@@ -118,6 +111,8 @@ impl Info {
 
 impl fmt::Debug for Info {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Bit 0 unset is OK, and bits 1-2 both unset is INDIRECT_IO: both are
+        // the zero value of their field
         let check = match self.check_status() {
             Self::CHECK => "CHECK",
             _ => "OK",
@@ -304,11 +299,11 @@ impl Transport for SgTransport {
         }
         let status = Status::from(hdr.status);
 
-        // Sometimes the sense buffer length sb_len_wr isn't always right(??) or the u8 could be corrupted by the kernel
-        // We'll clamp to the sb len to avoid a panic
+        // `sb_len_wr` is the kernel's count of sense bytes it wrote, bounded by
+        // `mx_sb_len`, but clamp it anyway so a corrupt count cannot index past
+        // the buffer
         let sn = (hdr.sb_len_wr as usize).min(sb.len());
 
-        // We have a sense buffer, but not enough??
         if sn > 0 && sn < 14 {
             warn!(sb = ?&sb[..sn], sb_len_wr = hdr.sb_len_wr, "short sense buffer");
         }
@@ -339,30 +334,23 @@ impl Transport for SgTransport {
                 raw = ?&sb[..sn],
                 "sense"
             );
-            Some(Sense {
-                key: sb[2] & 0xF,
-                ili: sb[2] & 0x20 != 0,
-                // The valid bit, byte 0 bit 7, says the information field means
-                // something
-                information: (sb[0] & 0x80 != 0)
-                    .then(|| u32::from_be_bytes([sb[3], sb[4], sb[5], sb[6]])),
-                asc: sb[12],
-                ascq: sb[13],
-                // Nikon's 4th tuple element, in SBP-2 quadlet 5's
-                // sense_key-dependent field, which `firewire-sbp2` repacks to
-                // bytes 15-17. Confirmed on an LS-9000: two unit attentions
-                // identical in key/ASC/ASCQ differed only here, and both
-                // 02h-3Ah-00h-01h and 02h-04h-01h-01h matched 2-1-2 exactly.
-                // Note SKSV (bit 7) is unset, so this is not SPC sense-key
-                // specific: Nikon is using the vendor half of the field.
-                tsc: Some(sb[15]),
-                raw: sb[..sn].to_vec(),
-            })
+            // Nikon's 4th tuple element, in SBP-2 quadlet 5's
+            // sense_key-dependent field, which `firewire-sbp2` repacks to
+            // bytes 15-17. Confirmed on an LS-9000: two unit attentions
+            // identical in key/ASC/ASCQ differed only here, and both
+            // 02h-3Ah-00h-01h and 02h-04h-01h-01h matched 2-1-2 exactly.
+            // Note SKSV (bit 7) is unset, so this is not SPC sense-key
+            // specific: Nikon is using the vendor half of the field. A
+            // minimal fixed-format buffer is 14 bytes and stops before
+            // this field, so only read it when the kernel wrote that far
+            let tsc = (sn >= 16).then_some(sb[15]);
+            Some(sense_from_fixed(&sb[..sn], tsc))
         } else {
             None
         };
 
-        // Compute the (potentially incorrect(??)) transfer length
+        // `resid` is `dxfer_len` minus what actually moved, and sg warns some
+        // adapters report it incorrectly, so only an underrun is trusted
         let transferred = data_len.saturating_sub(hdr.resid.max(0) as usize);
 
         Ok(Completion {

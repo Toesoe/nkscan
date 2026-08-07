@@ -1,6 +1,6 @@
 //! SCSI transport on Windows, via the scanner class driver scsiscan.sys, which will be any scanner that talks via scsi
 
-use super::{Completion, Data, Error, Sense, Status, Transport};
+use super::{Completion, Data, Error, Status, Transport, sense_from_fixed};
 use std::{io, os::windows::ffi::OsStrExt, path::Path, ptr, thread::sleep, time::Duration};
 use tracing::*;
 use windows_sys::Win32::{
@@ -205,20 +205,11 @@ impl Transport for ScsiScanDevice {
                     "autosense buffer is not fixed-format"
                 );
             }
-            Some(Sense {
-                key: sb[2] & 0x0F,
-                asc: sb[12],
-                ascq: sb[13],
-                ili: sb[2] & 0x20 != 0,
-                information: (sb[0] & 0x80 != 0)
-                    .then(|| u32::from_be_bytes([sb[3], sb[4], sb[5], sb[6]])),
-                // Same byte the sg path uses. Confirmed on an LS-9000: this
-                // driver reports 02h-04h-01h and 06h-28h-00h each carrying
-                // their documented 01h here, so both repack SBP-2 quadlet 5 to
-                // bytes 15-17 the same way
-                tsc: Some(sb[15]),
-                raw: sb.to_vec(),
-            })
+            // Same byte the sg path uses. Confirmed on an LS-9000: this
+            // driver reports 02h-04h-01h and 06h-28h-00h each carrying
+            // their documented 01h here, so both repack SBP-2 quadlet 5 to
+            // bytes 15-17 the same way
+            sense_from_fixed(sb, Some(sb[15]))
         } else {
             None
         };

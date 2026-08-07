@@ -96,6 +96,26 @@ impl fmt::Debug for Sense {
     }
 }
 
+/// Parse a fixed-format (70h/71h) sense buffer into [`Sense`]
+///
+/// The caller guarantees at least the 14 minimal bytes and passes the slice it
+/// is willing to trust as `raw` together with the `tsc` value it can justify,
+/// since the platforms differ on how far the driver wrote
+fn sense_from_fixed(buffer: &[u8], tsc: Option<u8>) -> Sense {
+    Sense {
+        key: buffer[2] & 0xF,
+        ili: buffer[2] & 0x20 != 0,
+        // The valid bit, byte 0 bit 7, says the information field means
+        // something
+        information: (buffer[0] & 0x80 != 0)
+            .then(|| u32::from_be_bytes([buffer[3], buffer[4], buffer[5], buffer[6]])),
+        asc: buffer[12],
+        ascq: buffer[13],
+        tsc,
+        raw: buffer.to_vec(),
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// The "high-level" SCSI status
 pub enum Status {
