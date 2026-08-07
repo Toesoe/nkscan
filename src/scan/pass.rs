@@ -26,16 +26,7 @@ pub struct Pass {
     pub complete: bool,
 }
 
-/// A decoder for a pass off this unit
-///
-/// Correcting the CCD's rows against each other wherever they were read at
-/// once, since a three-line pass has the mismatch whether or not anyone asked
-/// about it. `curves` comes from
-/// [`ccd_curves`](Session::ccd_curves), and `None` there, from a unit with no
-/// curves or a reply that does not match its page, decodes uncorrected.
-///
-/// Borrowed rather than owned so that a caller taking pass after pass builds
-/// the tables once.
+/// Build a decoder for a scan pass
 pub fn decoder<'a>(layout: &Layout, curves: Option<&'a Curves>) -> Result<Decoder<'a>, Error> {
     let decoder = Decoder::new(layout)?;
     match curves.filter(|_| {
@@ -48,10 +39,9 @@ pub fn decoder<'a>(layout: &Layout, curves: Option<&'a Curves>) -> Result<Decode
     }
 }
 
-/// Stage the windows and start a pass, returning once the data is ready
+/// Stage the windows and start a scan pass, returning once the data is ready
 ///
-/// The caller owes the unit a read: a scan whose data is never read locks out
-/// every command that follows.
+/// The caller owes the unit a read: a scan whose data is never read locks out every command that follows.
 pub fn start(
     session: &mut Session,
     windows: &[Window],
@@ -66,14 +56,6 @@ pub fn start(
 }
 
 /// [`start`] the pass and unscramble it into `samples` as it arrives
-///
-/// Every pass goes through this, thumbnail and prescan and scan alike: what
-/// they need is in the layout, so none of them is a special case. The stream is
-/// decoded a chunk at a time and never held whole, which at full resolution is
-/// half a gigabyte that never gets allocated.
-///
-/// `samples` is resized to what the layout describes and is the caller's, so it
-/// can be the buffer an image ends up in rather than one more copy.
 pub fn take(
     session: &mut Session,
     windows: &[Window],

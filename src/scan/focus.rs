@@ -71,9 +71,6 @@ impl Focus {
             Self::At(position) => session.focus_to(position).map(|()| Focused::Yes),
             Self::Auto { at, color } => {
                 let caps = session.capabilities();
-                // The captures put the window center here in the same
-                // coordinates the window origin uses: a window at top 10512
-                // length 6696 was focused at 13860, and one at 26160 at 29508.
                 // Not an offset from the frame, whatever 2-15 means by "medium"
                 let point = |axis: &Axis, origin: u32, size: u32, fraction: f32| {
                     let offset = (size as f32 * fraction.clamp(0.0, 1.0)) as u32;

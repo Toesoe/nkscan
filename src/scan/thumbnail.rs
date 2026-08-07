@@ -68,10 +68,6 @@ pub fn scan(
 }
 
 /// Windows over everything the adapter can reach, one per channel
-///
-/// In colour where the unit offers it. Nikon Scan thumbnails with windows 1, 2
-/// and 3, the pre-rewrite driver did the same, and boundary finding wants all
-/// three: a colour negative's mask leaves one plane a poor edge signal.
 fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
     let unsupported = |reason: String| Error::Unsupported {
@@ -101,9 +97,6 @@ fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         _ => Composition::MultilevelRGB,
     };
 
-    // The adapter publishes the opening it can actually see, which is inset from
-    // the sensor: starting at the axis instead loses as much off the far edge as
-    // it gains in holder on the near one
     let (left, width) = match caps.frames.as_ref().and_then(|f| f.images.first()) {
         Some(opening) => (opening.left, opening.width),
         None => (x.address_range.start, x.boundary),
