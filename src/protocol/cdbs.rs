@@ -203,6 +203,10 @@ impl GetWindow {
     }
 
     pub fn cdb(&self) -> [u8; 10] {
+        debug_assert!(
+            self.transfer_length <= 0xFF_FFFF,
+            "GET WINDOW length is 24 bits"
+        );
         let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
         [
             0x25,
@@ -264,6 +268,7 @@ impl Read {
     }
 
     pub fn cdb(&self) -> [u8; 10] {
+        debug_assert!(self.transfer_length <= 0xFF_FFFF, "READ length is 24 bits");
         let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
         let [dtq_hi, dtq_lo] = self.dtq.to_be_bytes();
         [0x28, 0, self.dtc, 0, dtq_hi, dtq_lo, hi, mid, lo, 0]
@@ -292,6 +297,7 @@ impl Send {
     }
 
     pub fn cdb(&self) -> [u8; 10] {
+        debug_assert!(self.transfer_length <= 0xFF_FFFF, "SEND length is 24 bits");
         let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
         let [dtq_hi, dtq_lo] = self.dtq.to_be_bytes();
         [0x2A, 0, self.dtc, 0, dtq_hi, dtq_lo, hi, mid, lo, 0]
@@ -344,6 +350,10 @@ impl SetParameter {
     }
 
     pub fn cdb(&self) -> [u8; 10] {
+        debug_assert!(
+            self.parameter_length <= 0xFF_FFFF,
+            "SET PARAMETER length is 24 bits"
+        );
         let [_, hi, mid, lo] = self.parameter_length.to_be_bytes();
         [0xE0, 0, self.operation, 0, 0, 0, hi, mid, lo, 0]
     }
@@ -372,6 +382,10 @@ impl GetParameter {
     }
 
     pub fn cdb(&self) -> [u8; 10] {
+        debug_assert!(
+            self.parameter_length <= 0xFF_FFFF,
+            "GET PARAMETER length is 24 bits"
+        );
         let [_, hi, mid, lo] = self.parameter_length.to_be_bytes();
         [0xE1, 0, self.operation, 0, 0, 0, hi, mid, lo, 0]
     }
@@ -402,6 +416,10 @@ impl SetWindow {
     }
 
     pub fn cdb(&self) -> [u8; 10] {
+        debug_assert!(
+            self.transfer_length <= 0xFF_FFFF,
+            "SET WINDOW length is 24 bits"
+        );
         let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
         [0x24, 0, 0, 0, 0, 0, hi, mid, lo, VENDOR]
     }

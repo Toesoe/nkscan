@@ -255,6 +255,13 @@ impl<'a> Decoder<'a> {
     /// every CCD row at once; [`LINE_WITHOUT_DISTANCE`](ColorInterleaving::LINE_WITHOUT_DISTANCE)
     /// is the same with one row, where the gap is 1 and a block is one line of
     /// the feed.
+    ///
+    /// Whatever the line count, a feed position hands back `readouts()`
+    /// exposures (2-11-5-2's reading count per line): the first reading's
+    /// colors, then the channels that are never repeated, then the colors again
+    /// for each further reading. So single-line multi-pass is a format-1 line
+    /// read as many times as the multiple-reading number asks, with the
+    /// once-read channels between the first and second of them.
     pub fn new(layout: &Layout) -> Result<Self, Error> {
         if !matches!(layout.bytes_per_sample, 1 | 2) {
             return Err(bad(format!(
@@ -265,10 +272,9 @@ impl<'a> Decoder<'a> {
         let bytes_per_sample = usize::from(layout.bytes_per_sample);
         let (rows, cols) = (layout.pixels as usize, layout.lines as usize);
 
-        if !layout
-            .interleaving
-            .intersects(ColorInterleaving::MULTILINE_SIMULTANEOUS | ColorInterleaving::LINE_WITHOUT_DISTANCE)
-        {
+        if !layout.interleaving.intersects(
+            ColorInterleaving::MULTILINE_SIMULTANEOUS | ColorInterleaving::LINE_WITHOUT_DISTANCE,
+        ) {
             return Err(bad(format!(
                 "{:?} is not an ordering this decodes yet",
                 layout.interleaving
@@ -276,18 +282,8 @@ impl<'a> Decoder<'a> {
         }
 
         // 2-11-3-1 format 1 is the same readout with one CCD row: `gap` 1 and a
-        // block of one line of the feed. Repeats have no place to sit in it,
-        // and no capture has ever paired the two
-        if layout
-            .interleaving
-            .contains(ColorInterleaving::LINE_WITHOUT_DISTANCE)
-            && layout.readings_per_line > 1
-        {
-            return Err(bad(format!(
-                "{} readings a line is not an ordering this decodes yet",
-                layout.readings_per_line
-            )));
-        }
+        // block of one line of the feed, so repeats sit exactly where they do
+        // in the three-line readout
 
         let ccd_lines = if layout
             .interleaving
@@ -702,5 +698,84 @@ mod transposed {
         let mut l = layout(4, 2, 4, vec![1, 2, 3], 1);
         l.lines = 7;
         assert!(Decoder::new(&l).is_err());
+    }
+
+    /// A single-line layout: one CCD row, `gap` 1, a block of one feed line
+    fn single(rows: u32, stages: u32, channels: Vec<u8>, readings: u8) -> Layout {
+        Layout {
+            pixels: rows,
+            lines: stages,
+            pitch: 1,
+            line_pitch: 1,
+            dpi: 4000,
+            bytes_per_sample: 2,
+            bits_per_sample: 16,
+            channels,
+            interleaving: ColorInterleaving::LINE_WITHOUT_DISTANCE,
+            readings_per_line: readings,
+            ccd_lines: 1,
+            registration_gap: 1,
+            granule: 1,
+        }
+    }
+
+    /// Single-line multi-pass is format 1 read as many times as the window
+    /// asked: per feed position the color channels for each reading, with the
+    /// once-read infrared between the first reading and the rest
+    #[test]
+    fn a_single_line_averages_multi_pass_and_leaves_infrared_alone() {
+        let (rows, stages, readings) = (2usize, 2usize, 4u8);
+        let l = single(rows as u32, stages as u32, vec![9, 1, 2, 3], readings);
+        // 3 colors x 4 readings + 1 infrared
+        let readouts = 13usize;
+        let mut d = Decoder::new(&l).unwrap();
+        let mut out = vec![0u16; d.samples()];
+        d.push(&stream(stages, readouts, rows, 1), &mut out)
+            .unwrap();
+        assert!(d.complete());
+
+        let (_, cols) = d.shape();
+        for stage in 0..stages {
+            for pixel in 0..rows {
+                let (y, x) = (rows - 1 - pixel, stage);
+                let at = (y * cols + x) * 4;
+                assert_eq!(
+                    out[at],
+                    tag(stage, 3, pixel, 0),
+                    "stage {stage} pixel {pixel} IR"
+                );
+                for color in 0..3 {
+                    let slots = [color, 4 + color, 7 + color, 10 + color];
+                    let reads: Vec<u16> = slots.iter().map(|&s| tag(stage, s, pixel, 0)).collect();
+                    let want = reads.iter().map(|&s| u32::from(s)).sum::<u32>() / 4;
+                    assert_eq!(
+                        out[at + 1 + color],
+                        want as u16,
+                        "stage {stage} pixel {pixel} color {color}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A single-line pass of a channel multi-sampling does not repeat is one
+    /// exposure per feed position, however many readings the window asked for
+    #[test]
+    fn a_single_line_reads_once_read_channels_once() {
+        let (rows, stages) = (2usize, 2usize);
+        let l = single(rows as u32, stages as u32, vec![9], 4);
+        let mut d = Decoder::new(&l).unwrap();
+        assert_eq!(d.shape(), (rows, stages));
+        let mut out = vec![0u16; d.samples()];
+        d.push(&stream(stages, 1, rows, 1), &mut out).unwrap();
+        assert!(d.complete());
+
+        let (_, cols) = d.shape();
+        for stage in 0..stages {
+            for pixel in 0..rows {
+                let (y, x) = (rows - 1 - pixel, stage);
+                assert_eq!(out[y * cols + x], tag(stage, 0, pixel, 0));
+            }
+        }
     }
 }

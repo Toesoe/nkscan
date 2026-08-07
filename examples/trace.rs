@@ -59,10 +59,17 @@ fn main() -> anyhow::Result<()> {
         let sense_len = bytes[at + 11] as usize;
         let data_len =
             u32::from_le_bytes(bytes[at + LEN_AT..at + LEN_AT + 4].try_into().unwrap()) as usize;
+        let data_end = at + LEN_AT + 4 + data_len;
+        if data_end + sense_len > bytes.len() {
+            anyhow::bail!(
+                "record at {at} claims {data_len} data and {sense_len} sense bytes, \
+                 past the end of the capture"
+            );
+        }
         let cdb = &bytes[at + CDB_AT..at + CDB_AT + cdb_len.min(16)];
-        let data = &bytes[at + LEN_AT + 4..at + LEN_AT + 4 + data_len];
+        let data = &bytes[at + LEN_AT + 4..data_end];
         records.push(Record { seq, cdb, data });
-        at += LEN_AT + 4 + data_len + sense_len;
+        at = data_end + sense_len;
     }
 
     let mut image_reads = 0u64;

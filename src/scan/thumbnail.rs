@@ -18,7 +18,6 @@ use crate::{
     protocol::{
         caps::{
             Capabilities,
-            other::HostCooperation,
             set_window::{ColorComponents, ColorInterleaving, ScanKind, ScanMode},
         },
         data::{Boundary, Rect},
@@ -40,15 +39,6 @@ const THUMBNAIL_TIMEOUT: Duration = Duration::from_secs(600);
 pub fn available(caps: &Capabilities) -> bool {
     caps.set_window.kind.contains(ScanKind::THUMBNAIL)
         && caps.address.thumbnail_resolution.start > 0
-}
-
-/// Whether the host has to build the thumbnail itself, `Features` byte 4 bit 0
-///
-/// Set on both families, so this is the normal case rather than an exception
-pub fn host_builds(caps: &Capabilities) -> bool {
-    caps.features
-        .cooperation
-        .contains(HostCooperation::THUMBNAIL)
 }
 
 /// Scan everything loaded

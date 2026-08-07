@@ -1001,6 +1001,13 @@ correlation is 0.9987 read as lines and 0.956-0.980 read as pixels. Only the
 line reading is both smooth and isotropic, which is what an image of one subject
 through three channels has to be.
 
+**Multi-pass returns format 1 once per reading.** With multiple reading set, a
+single-line feed position hands back `readouts()` exposures: the first reading's
+color planes, the once-read channels (infrared), then the colors again for each
+further reading (2-11-5-2's reading count per line). The decoder averages the
+repeats, so a single-line multi-pass stream is `readouts()` format-1 lines per
+feed position rather than one.
+
 **Which plane is which channel is still unsettled.** The id list was `01 02 03`
 and the planes correlate at 0.9987 with each other, so nothing in the data
 distinguishes them. Sending the list reversed, or scanning one channel alone and

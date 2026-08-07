@@ -215,10 +215,7 @@ fn starts(score: &[i64], length: usize) -> Vec<(usize, i64)> {
 /// a spacing a whole multiple too big, never too small, so of two middles the
 /// lower is the one to keep.
 fn pitch(columns: &[usize]) -> usize {
-    let mut gaps: Vec<usize> = columns
-        .windows(2)
-        .map(|pair| pair[1] - pair[0])
-        .collect();
+    let mut gaps: Vec<usize> = columns.windows(2).map(|pair| pair[1] - pair[0]).collect();
     gaps.sort_unstable();
     gaps.get(gaps.len().saturating_sub(1) / 2)
         .copied()
@@ -350,7 +347,11 @@ mod tests {
     #[test]
     fn a_frame_with_no_picture_in_it_still_gets_a_place() {
         let (samples, sensor, feed) = strip(4, 30, 120, 132, Polarity::Positive, Some(2));
-        let found = detect(&image(&samples, sensor, feed), 120, Some(Polarity::Positive));
+        let found = detect(
+            &image(&samples, sensor, feed),
+            120,
+            Some(Polarity::Positive),
+        );
 
         assert_eq!(found.frames.len(), 4);
         assert_eq!(
@@ -373,15 +374,18 @@ mod tests {
     /// edges in the pass and belong to no frame
     #[test]
     fn the_end_of_the_film_is_not_a_frame() {
-        let (mut samples, sensor, feed) =
-            strip(2, 30, 120, 132, Polarity::Positive, None);
+        let (mut samples, sensor, feed) = strip(2, 30, 120, 132, Polarity::Positive, None);
         let tail = 30 + 2 * 132;
         for y in 0..sensor {
             for s in &mut samples[(y * feed + tail) * 3..(y * feed + feed) * 3] {
                 *s = u16::MAX;
             }
         }
-        let found = detect(&image(&samples, sensor, feed), 120, Some(Polarity::Positive));
+        let found = detect(
+            &image(&samples, sensor, feed),
+            120,
+            Some(Polarity::Positive),
+        );
         assert_eq!(found.frames.len(), 2);
         assert!(found.frames.iter().all(|f| f.col < tail));
     }

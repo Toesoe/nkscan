@@ -49,16 +49,6 @@ cli = [
 ]
 python = ["dep:pyo3", "dep:numpy", "dep:pyo3-stub-gen"]
 
-[[bin]]
-name = "nkscan"
-path = "src/bin/nkscan/main.rs"
-required-features = ["cli"]
-
-[[bin]]
-name = "stub_gen"
-path = "src/bin/stub_gen.rs"
-required-features = ["python"]
-
 [lib]
 name = "nkscan"
 path = "src/lib.rs"

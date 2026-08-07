@@ -18,7 +18,7 @@ use crate::{
         cdbs::{
             Abort, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit, TestUnitReady,
         },
-        data::{Boundary, Op, Operation},
+        data::{Boundary, CooperativeAction, Op, Operation},
         mode,
         sense::{Activity, Change, Coop, Fault, Outcome, Refusal, interpret},
     },
@@ -46,6 +46,9 @@ pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long to wait before asking a busy unit again
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// A unit that keeps asking is not going to start, so cap the re-issues
+const MAX_COOPERATION: usize = 4;
 
 /// Long enough for a full-length stage move
 pub(crate) const MOVE_TIMEOUT: Duration = Duration::from_secs(180);
@@ -223,33 +226,69 @@ impl Session {
         Ok(())
     }
 
-    /// Issue a command, absorbing everything that means "not done yet", and hand
-    /// back the completion once it has actually terminated
+    /// Issue a command, absorbing everything that means "not done yet", and
+    /// hand back the completion once it has actually terminated
     ///
-    /// `timeout` budgets the whole command including re-issues, not one transfer
+    /// A cooperative request is not a blocker: the `DataType::Cooperation`
+    /// record is read and the command issued again, so this returns when it
+    /// has run. `timeout` budgets the whole command including re-issues, not
+    /// one transfer
     pub fn run(
         &mut self,
         cdb: &[u8],
         data: Data<'_>,
         timeout: Duration,
     ) -> Result<Completion, Error> {
-        let (completion, coop) = self.run_cooperative(cdb, data, timeout)?;
-        match coop {
-            None => Ok(completion),
-            Some(coop) => Err(Error::Unsupported {
-                op: "host cooperation",
-                reason: format!("{coop:?} is not implemented yet"),
-            }),
-        }
+        let (completion, _) = self.run_handshake(cdb, data, timeout)?;
+        Ok(completion)
     }
 
-    /// As [`run`](Self::run), but hands a cooperative request back rather than
-    /// refusing it
+    /// As [`run`](Self::run), but hands back the cooperation record the unit
+    /// asked for
     ///
     /// Only SCAN and READ raise one. 2-7: read the parameter with
     /// `DataType::Cooperation`, do the
-    /// work, and issue the command again
-    pub fn run_cooperative(
+    /// work, and issue the command again. SCAN uses this so its caller can
+    /// honor whatever the unit asks for once the data is in hand
+    pub(crate) fn run_handshake(
+        &mut self,
+        cdb: &[u8],
+        mut data: Data<'_>,
+        timeout: Duration,
+    ) -> Result<(Completion, Option<CooperativeAction>), Error> {
+        let mut cooperation = None;
+        for _ in 0..=MAX_COOPERATION {
+            // `Data::In` holds a `&mut [u8]` and so is not `Copy`. Reborrowing
+            // it here is what lets the same command go out more than once
+            let payload = match &mut data {
+                Data::None => Data::None,
+                Data::In(buf) => Data::In(buf),
+                Data::Out(buf) => Data::Out(buf),
+            };
+            let (completion, coop) = self.run_cooperative(cdb, payload, timeout)?;
+            let Some(coop) = coop else {
+                return Ok((completion, cooperation));
+            };
+
+            // Dispatch on the record rather than the sense: the two specs give
+            // the same job different 4th sense bytes
+            let record = self.cooperation()?;
+            debug!(?coop, ?record, "the unit wants something doing");
+            cooperation = Some(record);
+        }
+
+        Err(Error::Unsupported {
+            op: "host cooperation",
+            reason: format!("the unit kept asking after {MAX_COOPERATION} re-issues"),
+        })
+    }
+
+    /// One call at a command, absorbing the polling and state-change retries
+    /// that need no host action
+    ///
+    /// A cooperative request comes back on the `Option` rather than as an
+    /// error, for [`run_handshake`](Self::run_handshake) to service
+    fn run_cooperative(
         &mut self,
         cdb: &[u8],
         mut data: Data<'_>,

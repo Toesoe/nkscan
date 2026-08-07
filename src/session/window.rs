@@ -14,9 +14,6 @@ use crate::{
 };
 use tracing::*;
 
-/// A unit that asks forever is not going to start, so cap the re-issues
-const MAX_COOPERATION: usize = 4;
-
 impl Session {
     /// One GET WINDOW, exactly as asked: header plus descriptors, unparsed
     fn get_window_raw(&mut self, cmd: GetWindow) -> Result<Vec<u8>, Error> {
@@ -123,28 +120,17 @@ impl Session {
 
         let ids: Vec<u8> = windows.iter().map(|w| w.id).collect();
         let cmd = Scan::new(ids.len() as u8);
-        let mut cooperation = None;
 
-        for attempt in 0..=MAX_COOPERATION {
-            let (_, coop) = self.run_cooperative(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
-            let Some(coop) = coop else {
-                debug!(?ids, ?cooperation, "scanning");
-                return Ok(Started {
-                    layout,
-                    cooperation,
-                });
-            };
+        // 2-7: the unit answers, then asks what the host will owe the data.
+        // `run_handshake` reads the `DataType::Cooperation` record, sends SCAN
+        // again with nothing in between, and hands the record back so the
+        // caller can honor it once the image is read
+        let (_, cooperation) = self.run_handshake(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
+        debug!(?ids, ?cooperation, "scanning");
 
-            // Dispatch on the record rather than the sense: the two specs give
-            // the same job different 4th sense bytes
-            let record = self.cooperation()?;
-            debug!(?coop, ?record, attempt, "the unit wants something doing");
-            cooperation = Some(record);
-        }
-
-        Err(Error::Unsupported {
-            op: "host cooperation",
-            reason: format!("the unit kept asking after {MAX_COOPERATION} re-issues"),
+        Ok(Started {
+            layout,
+            cooperation,
         })
     }
 }
