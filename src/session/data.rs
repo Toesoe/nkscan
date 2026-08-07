@@ -6,6 +6,7 @@ use crate::{
     protocol::{
         caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
+        curves::Curves,
         data,
         sense::{self, Failure, Fault},
     },
@@ -180,6 +181,37 @@ impl Session {
         };
         data::Setup::from_bytes(&record)
             .ok_or_else(|| malformed(format!("Setup was {} bytes", record.len())))
+    }
+
+    /// The CCD's own response curves, for correcting its rows against each other
+    ///
+    /// `kind` picks one of the measurement types `CcdMeasurement` counts, whose
+    /// meaning nothing states; 0 is the only one anything has used.
+    ///
+    /// `None` rather than an error where the unit offers no curves or the reply
+    /// does not match the page describing it. An uncorrected scan is what this
+    /// produced before the correction existed, so it is not worth failing over.
+    pub fn ccd_curves(&mut self, kind: usize) -> Option<Curves> {
+        let ccd = self.caps.ccd.clone()?;
+        let rows = usize::from(self.caps.address.lines).max(1);
+        let (_, values) = self
+            .read_data(data::DataType::CcdData, 0)
+            .inspect_err(|e| debug!(%e, "no CCD curves to correct with"))
+            .ok()?;
+        let data::Values::Words(words) = values else {
+            debug!("CcdData did not come back as words");
+            return None;
+        };
+        let curves = Curves::parse(&ccd, &words, rows, kind);
+        if curves.is_none() {
+            warn!(
+                curves = ccd.curves(),
+                points = ccd.points.len(),
+                got = words.len(),
+                "the CCD curves do not match the page describing them, scanning uncorrected"
+            );
+        }
+        curves
     }
 
     /// Read the initiator cooperative action parameter a SCAN just asked for
