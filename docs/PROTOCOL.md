@@ -737,7 +737,41 @@ fully defined, not after.
 Reading `91h` returns **1140 bytes, 570 u16**: 30 curves of 19 points, with the
 header `91 00 00 00 04 74`. The 19 is not arbitrary: it is the same 19 as `E3h`'s
 transmittance ladder, so `E3h` gives the levels and `91h` gives what each CCD line
-reads at them. Ten curves belong to each of the three lines.
+reads at them.
+
+`E3h` off a real LS-9000 is `06 E3 00 2D 07 01 00 00 02 0A 13` then the ladder:
+
+| field | value |
+|---|---|
+| colors (byte 4) | `07h`, red green blue |
+| resolution (bytes 6,7) | **0** |
+| scans (byte 8) | 2 |
+| types (byte 9) | 10 |
+| points (byte 10) | 19 |
+
+3 x 10 is the 30. The ladder is clean fractions of full scale: 0, 0.2, 0.4, 0.6,
+0.8, 1, 2, 4, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95 percent, weighted to the
+dark end the way a transmittance target is.
+
+**Nothing in the page indexes by resolution.** The resolution field reads 0, and
+the only other axis is `types`, which nothing ties to a point on the DPI ladder.
+So the fork's reason for restricting the correction to 4000 dpi, that the other
+slots belong to the reduced resolutions, is not something `E3h` supports.
+
+What the correction actually needs is for each output sample to have come from
+one CCD line, which is a question about how a reduced-resolution pass is built.
+Single-line mode does not blend anything, it uses one row of the three, and a
+coarser pass appears to decimate the 4000 dpi rows rather than average them. If
+that holds, every row still belongs to exactly one line at every resolution and
+the correction generalizes: the stripe period is 36 at 4000 dpi and scales with
+the decimation, so what a decoder needs is the row-to-line mapping, not a
+different curve set.
+
+Two things left to establish: whether a coarse pass really decimates rather than
+averages, and what the 10 types are, since 10 divides neither the three lines nor
+the four-step DPI ladder. Both want a flat patch scanned at 4000 and at 2000 in
+three-line mode, with the stripe period measured in each. That needs the decoder
+first.
 
 This is what a fork of this project uses to de-band a three-line scan. The rows of
 photosites do not share a transfer curve, so a flat patch comes off the bar with a
