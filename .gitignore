@@ -13,3 +13,4 @@ scan.raw
 # CDB traces from examples/scan.rs
 ours.log
 *.log
+thumb.raw

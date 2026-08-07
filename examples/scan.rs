@@ -20,7 +20,7 @@
 //! cargo run --example scan -- rgb notable   # put the whole-sensor table back
 //! cargo run --example scan -- rgb aperture  # the holder opening, not the whole sensor
 //! cargo run --example scan -- rgb multiline # the three-line CCD mode
-//! cargo run --example scan -- rgb thumb     # run a thumbnail pass first
+//! cargo run --example scan -- thumb only     # the thumbnail pass alone, to thumb.raw
 //! cargo run --example scan -- noread        # leave the image unread
 //! ```
 //!
@@ -56,6 +56,9 @@ use nkscan::{
 
 /// Where the raw stream goes, as a fixture to write a decoder against
 const DUMP: &str = "scan.raw";
+
+/// Where the thumbnail pass goes
+const THUMB: &str = "thumb.raw";
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -111,17 +114,29 @@ fn main() -> anyhow::Result<()> {
             thumbnail::host_builds(session.capabilities())
         );
         match thumbnail::scan(&mut session) {
-            Ok(t) => println!(
-                "thumbnail {} bytes of an expected {} in {:?}, owes {:?}",
-                t.data.len(),
-                t.layout.total_bytes(),
-                began.elapsed(),
-                t.cooperation
-            ),
+            Ok(t) => {
+                println!(
+                    "thumbnail {} x {} in {:?}, {} of an expected {} bytes, owes {:?}",
+                    t.layout.pixels,
+                    t.layout.lines,
+                    began.elapsed(),
+                    t.data.len(),
+                    t.layout.total_bytes(),
+                    t.cooperation
+                );
+                File::create(THUMB)?.write_all(&t.data)?;
+                println!(
+                    "written to {THUMB}: cargo run --release --example decode -- {THUMB} {} {} 1",
+                    t.layout.pixels, t.layout.lines
+                );
+            }
             Err(e) => println!("thumbnail refused: {e}"),
         }
         session.refresh()?;
         println!("frames now: {:?}", session.capabilities().frames);
+        if has("only") {
+            return Ok(());
+        }
     }
 
     // 2-11-6: where the unit thinks each frame is, which the preamble has just
