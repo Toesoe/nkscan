@@ -14,7 +14,7 @@ use crate::{
         caps::{
             Capabilities,
             other::HostCooperation,
-            set_window::{ColorInterleaving, ScanKind, ScanMode},
+            set_window::{ColorComponents, ColorInterleaving, ScanKind, ScanMode},
         },
         window::{Channel, Composition, LENGTH, Window, deepest_depth},
     },
@@ -52,12 +52,16 @@ pub fn scan(session: &mut Session) -> Result<Pass, Error> {
         });
     }
 
-    let window = window(session.capabilities())?;
-    pass::take(session, std::slice::from_ref(&window), THUMBNAIL_TIMEOUT)
+    let windows = windows(session.capabilities())?;
+    pass::take(session, &windows, THUMBNAIL_TIMEOUT)
 }
 
-/// One window over everything the adapter can reach
-fn window(caps: &Capabilities) -> Result<Window, Error> {
+/// Windows over everything the adapter can reach, one per channel
+///
+/// In colour where the unit offers it. Nikon Scan thumbnails with windows 1, 2
+/// and 3, the pre-rewrite driver did the same, and boundary finding wants all
+/// three: a colour negative's mask leaves one plane a poor edge signal.
+fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
     let (x, y) = (&caps.address.x_axis, &caps.address.y_axis);
     let unsupported = |reason: String| Error::Unsupported {
         op: "thumbnail window",
@@ -76,22 +80,46 @@ fn window(caps: &Capabilities) -> Result<Window, Error> {
         )));
     }
 
-    let mut w = Window::try_from(&[0u8; LENGTH][..]).expect("a zeroed descriptor is long enough");
-    // 2-7 reads the default color on its own, which is the one plane 2-10-6's
-    // black and white composition carries
-    w.id = Channel::Default.id();
-    w.composition = Composition::MultilevelBW;
-    w.resolution = (
-        caps.address.thumbnail_resolution.start,
-        caps.address.thumbnail_resolution.start,
-    );
-    w.origin = (x.address_range.start, y.address_range.start);
-    w.size = (x.boundary, y.address_range.last);
-    w.bpp = bpp;
-    w.scanning_kind = ScanKind::THUMBNAIL;
-    w.scanning_mode = ScanMode::NORMAL_QUALITY;
-    w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
-    // 2-10 byte 45: the default, and what the unit reports back for a 0
-    w.ae_value = 255;
-    Ok(w)
+    // 2-10-6 has one code for a one-plane output and one for three
+    let channels: &[Channel] = match caps.set_window.components.contains(ColorComponents::RGB) {
+        true => &[Channel::Red, Channel::Green, Channel::Blue],
+        false => &[Channel::Default],
+    };
+    let composition = match channels.len() {
+        1 => Composition::MultilevelBW,
+        _ => Composition::MultilevelRGB,
+    };
+
+    // The adapter publishes the opening it can actually see, which is inset from
+    // the sensor: starting at the axis instead loses as much off the far edge as
+    // it gains in holder on the near one
+    let (left, width) = match caps.frames.as_ref().and_then(|f| f.images.first()) {
+        Some(opening) => (opening.left, opening.width),
+        None => (x.address_range.start, x.boundary),
+    };
+
+    Ok(channels
+        .iter()
+        .map(|channel| {
+            let mut w =
+                Window::try_from(&[0u8; LENGTH][..]).expect("a zeroed descriptor is long enough");
+            w.id = channel.id();
+            w.composition = composition;
+            w.resolution = (
+                caps.address.thumbnail_resolution.start,
+                caps.address.thumbnail_resolution.start,
+            );
+            // Y starts at the axis rather than the first frame, so the leading
+            // edge of the film is in the pass and can be found
+            w.origin = (left, y.address_range.start);
+            w.size = (width, y.address_range.last);
+            w.bpp = bpp;
+            w.scanning_kind = ScanKind::THUMBNAIL;
+            w.scanning_mode = ScanMode::NORMAL_QUALITY;
+            w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
+            // 2-10 byte 45: the default, and what the unit reports back for a 0
+            w.ae_value = 255;
+            w
+        })
+        .collect())
 }

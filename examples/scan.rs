@@ -126,8 +126,10 @@ fn main() -> anyhow::Result<()> {
                 );
                 File::create(THUMB)?.write_all(&t.data)?;
                 println!(
-                    "written to {THUMB}: cargo run --release --example decode -- {THUMB} {} {} 1",
-                    t.layout.pixels, t.layout.lines
+                    "written to {THUMB}: cargo run --release --example decode -- {THUMB} {} {} {}",
+                    t.layout.pixels,
+                    t.layout.lines,
+                    t.layout.channels.len()
                 );
             }
             Err(e) => println!("thumbnail refused: {e}"),
