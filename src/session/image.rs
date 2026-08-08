@@ -168,9 +168,4 @@ impl Chunks<'_> {
     pub fn capacity(&self) -> usize {
         self.chunk
     }
-
-    /// Bytes the layout still expects
-    pub fn remaining(&self) -> u64 {
-        self.remaining
-    }
 }

@@ -192,11 +192,6 @@ impl Session {
         &self.caps
     }
 
-    /// The measurement unit divisor in force, as [`set_units`](Self::set_units) left it
-    pub fn divisor(&self) -> u16 {
-        self.divisor
-    }
-
     /// Re-read what the scanner says it can do
     ///
     /// Needed after anything that changes the adapter or holder, since several

@@ -41,14 +41,6 @@ impl Inquiry {
         }
     }
 
-    /// Ask for fewer bytes than the default
-    pub fn with_allocation_length(self, allocation_length: u8) -> Self {
-        Self {
-            allocation_length,
-            ..self
-        }
-    }
-
     /// How large a buffer the data phase needs
     pub fn allocation_length(&self) -> usize {
         self.allocation_length as usize
