@@ -28,6 +28,21 @@ pub struct Pass {
     pub cols: usize,
 }
 
+/// How far along a pass is, reported once per chunk
+///
+/// `total` is the layout's own arithmetic and the cooperative modes can make it
+/// wrong, so a pass can finish short of it or run past. [`Pass::complete`] is
+/// what answers whether everything arrived
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Progress {
+    /// Bytes taken off the unit so far
+    pub bytes: u64,
+    /// Bytes the layout says the pass holds
+    pub total: u64,
+    /// Blocks the decoder has unscrambled
+    pub blocks: usize,
+}
+
 /// Build a decoder for a scan pass, applying CCD correction only for multi-line
 pub fn decoder<'a>(
     layout: &Layout,

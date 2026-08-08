@@ -62,7 +62,8 @@ impl Session {
                 Err(e) => return Err(e),
             }
         }
-        debug!(bytes = done, "read image");
+        // Once a chunk, so hundreds of megabytes of scan is thousands of lines
+        trace!(bytes = done, "read image");
         Ok(done)
     }
 
