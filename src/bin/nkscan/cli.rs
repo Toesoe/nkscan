@@ -15,56 +15,60 @@ pub enum Action {
     /// List available scanners
     List,
     /// Perform a scan. Defaults to batch scanning with sensible defaults.
-    Scan {
-        /// The scanner to connect to. Optional, will default to the first found.
-        device: Option<String>,
+    Scan(Scan),
+}
 
-        /// Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its infrared mask <basename>_<n>_IR.tiff
-        #[arg(long, default_value = "scan")]
-        basename: PathBuf,
+/// What to scan and how
+#[derive(clap::Args)]
+pub struct Scan {
+    /// The scanner to connect to. Optional, will default to the first found.
+    pub device: Option<String>,
 
-        /// Autoexpose per channel. Better dynamic range, but no longer "calibrated".
-        #[arg(long)]
-        unlock_wb: bool,
+    /// Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its infrared mask <basename>_<n>_IR.tiff
+    #[arg(long, default_value = "scan")]
+    pub basename: PathBuf,
 
-        /// Autoexpose the first frame and reuse that exposure across all frames.
-        #[arg(long)]
-        lock_ae: bool,
+    /// Autoexpose per channel. Better dynamic range, but no longer "calibrated".
+    #[arg(long)]
+    pub unlock_wb: bool,
 
-        /// Resolution. Defaults to scanner maximum.
-        #[arg(long)]
-        dpi: Option<u16>,
+    /// Autoexpose the first frame and reuse that exposure across all frames.
+    #[arg(long)]
+    pub lock_ae: bool,
 
-        /// Number of samples. Defaults to 1.
-        #[arg(long, default_value_t = 1)]
-        samples: u8,
+    /// Resolution. Defaults to scanner maximum.
+    #[arg(long)]
+    pub dpi: Option<u16>,
 
-        /// Singleline CCD mode. Only supported on multiline CCD scanners.
-        #[arg(long)]
-        superfine: bool,
+    /// Number of samples. Defaults to 1.
+    #[arg(long, default_value_t = 1)]
+    pub samples: u8,
 
-        /// Which frame(s) to scan, comma separated. Defaults to all detected.
-        /// Naming any stops after one holder rather than batching.
-        #[arg(long, value_delimiter = ',')]
-        frames: Vec<usize>,
+    /// Singleline CCD mode. Only supported on multiline CCD scanners.
+    #[arg(long)]
+    pub superfine: bool,
 
-        /// Include the IR pass
-        #[arg(long)]
-        ir: bool,
+    /// Which frame(s) to scan, comma separated. Defaults to all detected.
+    /// Naming any stops after one holder rather than batching.
+    #[arg(long, value_delimiter = ',')]
+    pub frames: Vec<usize>,
 
-        /// Don't eject at the end of the strip
-        #[arg(long)]
-        no_eject: bool,
+    /// Include the IR pass
+    #[arg(long)]
+    pub ir: bool,
 
-        /// Film format. One of: 135, 16, 645, 66, 67, 68, 69, or a custom frame
-        /// height in mm. Defaults to whatever the loaded holder fixes.
-        #[arg(long, value_parser = parse_format)]
-        format: Option<FilmFormat>,
+    /// Don't eject at the end of the strip
+    #[arg(long)]
+    pub no_eject: bool,
 
-        /// Film type, which picks the color profile the scans are tagged with
-        #[arg(long, value_enum, default_value_t = FilmType::Negative)]
-        film: FilmType,
-    },
+    /// Film format. One of: 135, 16, 645, 66, 67, 68, 69, or a custom frame
+    /// height in mm. Defaults to whatever the loaded holder fixes.
+    #[arg(long, value_parser = parse_format)]
+    pub format: Option<FilmFormat>,
+
+    /// Film type, which picks the color profile the scans are tagged with
+    #[arg(long, value_enum, default_value_t = FilmType::Negative)]
+    pub film: FilmType,
 }
 
 /// The film types Nikon profiled, as flag values
