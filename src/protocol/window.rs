@@ -472,10 +472,10 @@ impl Window {
             if size == 0 {
                 return Err(bad("window size", format!("{name} is empty")));
             }
-            // The boundary is the adapter's opening, not a limit. The unit's
-            // own power-on descriptors exceed it
+            // The boundary is the adapter's opening, not a hard limit. The
+            // thumbnail scans the whole strip past it, and the unit accepts it
             if size > axis.boundary {
-                warn!(
+                debug!(
                     %name, size, opening = axis.boundary,
                     "window reaches past the adapter's opening"
                 );
