@@ -11,17 +11,18 @@ use super::{
     boundaries::{self, Polarity},
     framing,
     pass::Pass,
+    window,
 };
 use crate::{
     error::Error,
     protocol::{
         caps::{
             Capabilities,
-            set_window::{ColorComponents, ColorInterleaving, ScanKind, ScanMode},
+            set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
         data::{Boundary, Rect},
         decode::Image,
-        window::{Channel, Composition, LENGTH, Window, deepest_depth},
+        window::Window,
     },
 };
 use tracing::*;
@@ -49,6 +50,9 @@ pub fn frames(
     length: u32,
     polarity: Option<Polarity>,
 ) -> Result<Boundary, Error> {
+    // The window that scans a frame has to be whole readout blocks and has to
+    // sit inside the frame the table gives, so the table carries the rounding
+    let length = window::whole_blocks(caps, length);
     framing::reachable(caps, length)?;
     let image = Image::new(&pass.layout, samples)?;
 
@@ -60,9 +64,6 @@ pub fn frames(
     let (left, width) = opening(caps);
 
     let found = boundaries::detect(&image, (length / pitch) as usize, polarity);
-    // Nothing caps the count here. `Address` byte 74 calls itself the maximum
-    // and does not behave like one: it reads 0 through most of a Nikon Scan
-    // session that writes four-rectangle tables
     let frames: Vec<Rect> = found
         .frames
         .iter()
@@ -105,9 +106,6 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         reason,
     };
 
-    let bpp = deepest_depth(caps.set_window.depth)
-        .ok_or_else(|| unsupported("this unit advertises no pixel depth".into()))?;
-
     // Line ordering owes the host nothing, where the three-line mode owes it
     // registration. Take it when offered rather than assuming it is
     let offered = caps.set_window.interleaving;
@@ -117,40 +115,20 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         )));
     }
 
-    // 2-10-6 has one code for a one-plane output and one for three
-    let channels: &[Channel] = match caps.set_window.components.contains(ColorComponents::RGB) {
-        true => &[Channel::Red, Channel::Green, Channel::Blue],
-        false => &[Channel::Default],
-    };
-    let composition = match channels.len() {
-        1 => Composition::MultilevelBW,
-        _ => Composition::MultilevelRGB,
-    };
-
     let (left, width) = opening(caps);
-
-    Ok(channels
-        .iter()
-        .map(|channel| {
-            let mut w =
-                Window::try_from(&[0u8; LENGTH][..]).expect("a zeroed descriptor is long enough");
-            w.id = channel.id();
-            w.composition = composition;
-            w.resolution = (
-                caps.address.thumbnail_resolution.start,
-                caps.address.thumbnail_resolution.start,
-            );
-            // Y starts at the axis rather than the first frame, so the leading
-            // edge of the film is in the pass and can be found
-            w.origin = (left, y.address_range.start);
-            w.size = (width, y.address_range.last);
-            w.bpp = bpp;
-            w.scanning_kind = ScanKind::THUMBNAIL;
-            w.scanning_mode = ScanMode::NORMAL_QUALITY;
-            w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
-            // 2-10 byte 45: the default, and what the unit reports back for a 0
-            w.ae_value = 255;
-            w
-        })
-        .collect())
+    let mut windows = window::blank(caps, &window::color_channels(caps))?;
+    for w in &mut windows {
+        w.resolution = (
+            caps.address.thumbnail_resolution.start,
+            caps.address.thumbnail_resolution.start,
+        );
+        // Y starts at the axis rather than the first frame, so the leading
+        // edge of the film is in the pass and can be found
+        w.origin = (left, y.address_range.start);
+        w.size = (width, y.address_range.last);
+        w.scanning_kind = ScanKind::THUMBNAIL;
+        w.scanning_mode = ScanMode::NORMAL_QUALITY;
+        w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
+    }
+    Ok(windows)
 }

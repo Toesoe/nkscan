@@ -105,6 +105,9 @@ pub fn table(caps: &Capabilities) -> Result<Boundary, Error> {
         let Some(extent) = image.length else {
             continue;
         };
+        // A scan window has to be whole readout blocks and has to sit inside
+        // the frame this table gives, so the table carries the rounding
+        let extent = super::window::whole_blocks(caps, extent);
         reachable(caps, extent)?;
         frames.push(Rect {
             top: image.top,
