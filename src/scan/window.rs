@@ -126,21 +126,55 @@ impl Recipe {
         }
     }
 
-    /// Whether this unit will read the CCD the way this asks
+    /// Whether this unit will scan the way this asks
     ///
-    /// Worth checking before anything moves: the windows are not built until
-    /// the frames are known, which is a stage move and a pass away
+    /// Everything here is answerable from the pages alone, so it is worth asking
+    /// before anything moves: the windows themselves are not built until the
+    /// frames are known, which is a whole pass and a stage move later.
     pub fn supported(&self, caps: &Capabilities) -> Result<(), Error> {
+        // 2-10 rounds a resolution off the unit's ladder and says so with
+        // `01h-37h`, so only the range is a refusal. Below it the unit answers
+        // an illegal request instead, and by then the stage has moved
+        let ladder = caps.address.x_axis.dpi_range;
+        if !ladder.contains(&self.dpi) {
+            return Err(Error::Unsupported {
+                op: "scan resolution",
+                reason: format!(
+                    "{} dpi is outside the {} to {} this unit scans",
+                    self.dpi, ladder.start, ladder.last
+                ),
+            });
+        }
+
+        if !(1..=MAX_SAMPLES).contains(&self.samples) {
+            return Err(Error::Unsupported {
+                op: "readings a line",
+                reason: format!(
+                    "{} readings of a line is outside 1 to {MAX_SAMPLES}",
+                    self.samples
+                ),
+            });
+        }
+
         let offered = caps.set_window.interleaving;
         match self.interleaving.bits().count_ones() == 1 && offered.contains(self.interleaving) {
             true => Ok(()),
             false => Err(Error::Unsupported {
                 op: "color interleaving",
                 reason: format!(
-                    "{:?} is not one reading mode this unit offers, which are {offered:?}",
-                    self.interleaving
+                    "this unit does not read the CCD {}, only {offered:?}",
+                    Self::reading(self.interleaving)
                 ),
             }),
+        }
+    }
+
+    /// What a reading mode is called, for saying a unit does not have it
+    fn reading(interleaving: ColorInterleaving) -> &'static str {
+        match interleaving {
+            ColorInterleaving::LINE_WITHOUT_DISTANCE => "one row at a time",
+            ColorInterleaving::MULTILINE_SIMULTANEOUS => "three rows at once",
+            _ => "that way",
         }
     }
 
@@ -173,15 +207,6 @@ impl Recipe {
     /// stays. Pass a rectangle inside a frame to scan a crop of it.
     pub fn windows(&self, caps: &Capabilities, frame: Rect) -> Result<Vec<Window>, Error> {
         self.supported(caps)?;
-        if !(1..=MAX_SAMPLES).contains(&self.samples) {
-            return Err(Error::Unsupported {
-                op: "scan window",
-                reason: format!(
-                    "{} readings of a line is outside 1 to {MAX_SAMPLES}",
-                    self.samples
-                ),
-            });
-        }
 
         // The captures lead with infrared
         let mut channels = color_channels(caps);
@@ -336,6 +361,54 @@ mod tests {
         let one = recipe().windows(&caps(), frame()).expect("windows");
         assert_eq!(one[0].multiple_reading, 0);
         assert!(!one[0].scanning_mode.contains(ScanMode::MULTI_READING));
+    }
+
+    /// A resolution the unit cannot scan is refused from the pages alone, so a
+    /// batch says so before the thumbnail pass rather than after it
+    #[test]
+    fn a_resolution_off_the_unit_is_refused_before_anything_moves() {
+        let caps = caps();
+        let ladder = caps.address.x_axis.dpi_range;
+
+        for dpi in [ladder.start, 2000, ladder.last] {
+            assert!(Recipe { dpi, ..recipe() }.supported(&caps).is_ok(), "{dpi}");
+        }
+        for dpi in [0, ladder.start - 1, ladder.last + 1] {
+            assert!(
+                Recipe { dpi, ..recipe() }.supported(&caps).is_err(),
+                "{dpi}"
+            );
+        }
+    }
+
+    /// Likewise a reading count the byte cannot hold
+    #[test]
+    fn a_reading_count_past_the_nibble_is_refused() {
+        let caps = caps();
+        assert!(
+            Recipe {
+                samples: 0,
+                ..recipe()
+            }
+            .supported(&caps)
+            .is_err()
+        );
+        assert!(
+            Recipe {
+                samples: 17,
+                ..recipe()
+            }
+            .supported(&caps)
+            .is_err()
+        );
+        assert!(
+            Recipe {
+                samples: 16,
+                ..recipe()
+            }
+            .supported(&caps)
+            .is_ok()
+        );
     }
 
     /// A reading mode the unit has not got is refused before anything moves

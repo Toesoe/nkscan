@@ -66,7 +66,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     // black and white negative returns is the picture again rather than
     // the dust on it
     if film == cli::FilmType::Mono && ir {
-        bail!("--ir does not work on black and white negatives, whose silver is opaque to it");
+        bail!("--ir does not work on black and white negatives");
     }
 
     // What the scans get tagged with, which follows the film type
@@ -74,7 +74,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     if icc.is_none() {
         warn!(
             product = session.capabilities().identity.product,
-            "no profile for this unit and film, so the scans will carry none"
+            "No color profile for this unit and film, so the scans will carry none"
         );
     }
 
@@ -89,20 +89,16 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         },
         infrared: ir,
     };
-    if let Err(e) = recipe.supported(session.capabilities()) {
-        match superfine {
-            true => bail!("--superfine: {e}"),
-            false => bail!("{e}"),
-        }
-    }
+    // Everything the recipe asks for is checked against the pages here, before
+    // the thumbnail pass and the stage move that would otherwise come first
+    recipe.supported(session.capabilities())?;
     // State for the first frame's exposures, reused for the rest so a strip comes out consistent rather than per-frame optimal
     let mut locked: Option<Exposures> = None;
 
     // Nothing can be framed before something is loaded
-    wait_for_holder(&mut session, "Load a film holder")?;
+    wait_for_film(&mut session, "Load a film holder")?;
 
-    // One buffer for every strip: a full resolution frame is half a
-    // gigabyte and there is no reason to hold two
+    // One buffer for every strip
     let mut samples: Vec<u16> = Vec::new();
 
     // A strip at a time until the operator stops feeding them
@@ -111,7 +107,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         // advertise. This picks one of four mechanisms; we only thumbnail
         // where the adapter offers it and the unit publishes no lengths.
         let framing = Framing::choose(session.capabilities());
-        info!(?framing, "Frame discovery mechanism");
+        debug!(?framing, "Frame discovery mechanism");
 
         // Resolve the film format up front where it will be needed, so a
         // missing --format fails before the thumbnail pass
@@ -179,7 +175,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         };
 
         if selected_frames.is_empty() {
-            warn!("no frames on this strip");
+            warn!("No frames on this strip");
         }
 
         // Where this strip starts writing, so a second strip through the
@@ -193,7 +189,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
 
             // Autofocus at the center of this frame
             let focused = session.focus_frame(frame, Focus::default())?;
-            info!(frame = n + 1, ?focused, "focused");
+            info!(frame = n + 1, ?focused, "Focused");
 
             // Autoexpose with reused exposure gains if locked
             let exposures = match &locked {
@@ -218,7 +214,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                     measured
                 }
             };
-            info!(frame = n + 1, ?exposures, "metered");
+            info!(frame = n + 1, ?exposures, "Metered");
 
             // Apply the exposures to the windows
             exposures.apply(&mut windows);
@@ -231,7 +227,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
             if !pass.complete {
                 warn!(
                     frame = n + 1,
-                    "the unit gave less than the pass promised, writing what arrived"
+                    "The unit gave less than the pass promised, writing what arrived"
                 );
             }
 
@@ -269,20 +265,13 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
             break;
         }
 
-        wait_for_holder(&mut session, "Load the next film holder")?;
+        wait_for_film(&mut session, "Load the next strip")?;
     }
     Ok(())
 }
 
 /// Wait until a holder is loaded, then put the unit in a state to scan from
-///
-/// Returns at once if one already is. Loading raises a medium change and what
-/// the unit publishes about the holder follows the holder rather than the
-/// model, so the capabilities are re-read each time round.
-///
-/// Staging is what moves the mechanism, so it happens here, once there is
-/// something loaded to move against.
-fn wait_for_holder(session: &mut Session, prompt: &str) -> anyhow::Result<()> {
+fn wait_for_film(session: &mut Session, prompt: &str) -> anyhow::Result<()> {
     // An eject leaves what we know about the holder behind, so ask again before
     // believing anything is in there
     session.refresh()?;
@@ -299,7 +288,7 @@ fn wait_for_holder(session: &mut Session, prompt: &str) -> anyhow::Result<()> {
             session.refresh()?;
             if session.media_loaded()? {
                 spinner.finish_and_clear();
-                info!("holder loaded");
+                info!("Strip loaded");
                 break;
             }
         }
@@ -349,7 +338,7 @@ fn resolve_format(flag: Option<FilmFormat>, holder_id: Option<u8>) -> anyhow::Re
     if let Some(format) = flag {
         return Ok(format);
     }
-    let id = holder_id.ok_or_else(|| anyhow!("no holder loaded; supply --format"))?;
+    let id = holder_id.ok_or_else(|| anyhow!("No holder loaded; supply --format"))?;
     FilmFormat::from_holder(id).ok_or_else(|| {
         let choices = FilmFormat::choices_for_holder(id)
             .map(|c| {
@@ -362,6 +351,6 @@ fn resolve_format(flag: Option<FilmFormat>, holder_id: Option<u8>) -> anyhow::Re
                 )
             })
             .unwrap_or_default();
-        anyhow!("this holder does not fix the film format; supply --format{choices}")
+        anyhow!("This holder does not fix the film format; supply --format{choices}")
     })
 }
