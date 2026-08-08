@@ -35,7 +35,15 @@
         craneLib = (crane.mkLib pkgs).overrideToolchain (
           p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
         );
-        src = craneLib.cleanCargoSource ./.;
+        # The scanner profiles are `include_bytes!`d into the crate, and a Rust
+        # source filter drops them, so they are put back
+        src = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions [
+            (craneLib.fileset.commonCargoSources ./.)
+            ./profiles
+          ];
+        };
 
         commonArgs = {
           inherit src;
