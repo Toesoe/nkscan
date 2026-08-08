@@ -5,8 +5,8 @@
 //! its section imposes, and absorbs the retry and polling semantics. Deciding
 //! what a scan should do belongs above this.
 
+pub mod autoexpose;
 pub mod data;
-pub mod expose;
 pub mod focus;
 pub mod image;
 pub mod probe;
@@ -23,7 +23,7 @@ use crate::{
         curves::Curves,
         data::{Boundary, CooperativeAction, Op, Operation},
         mode,
-        sense::{Activity, Change, Coop, Fault, Outcome, Refusal, interpret},
+        sense::{Activity, Change, Coop, Fault, Intervention, Outcome, Refusal, interpret},
     },
     transport::{self, Completion, Data, Transport},
 };
@@ -99,24 +99,67 @@ impl Session {
         session.stop_stale_scan()?;
         session.set_units(divisor)?;
 
-        // The preamble: CCD curves, re-establish the windows so the IR window's
-        // control byte is set, and park the focus where it already is
+        // The rest of the preamble drives the mechanism, so it waits until
+        // there is something loaded to drive it against
         session.fetch_curves();
-        let held = session.windows()?;
+        match session.media_loaded()? {
+            true => session.stage()?,
+            false => debug!("nothing is loaded, so the mechanism is left alone"),
+        }
+
+        Ok(session)
+    }
+
+    /// Whether a holder is loaded
+    ///
+    /// The frame page is the answer where the unit publishes one: it lists what
+    /// is in the holder, and an empty one is an empty unit. Where it does not,
+    /// the mechanism is asked instead, and answers `02h-3Ah-00h` with nothing
+    /// in it.
+    ///
+    /// Cheap either way, and nothing moves, which is the point: a scan drives
+    /// the stage against film and has to know before it starts.
+    pub fn media_loaded(&mut self) -> Result<bool, Error> {
+        if let Some(frames) = self.caps.frames.as_ref() {
+            return Ok(!frames.images.is_empty());
+        }
+        match self.test_unit_ready(PROBE_TIMEOUT) {
+            Ok(()) => Ok(true),
+            Err(Error::Media(Intervention::NoMedium)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Put the unit in the state a scan expects
+    ///
+    /// Re-establishes the window descriptors, which is what sets the infrared
+    /// window's control byte, and parks the focus where it already is. Both move
+    /// the mechanism, so this is not for an empty unit: [`open`](Self::open)
+    /// runs it only when something is loaded, and a caller that waited for a
+    /// holder runs it once one is.
+    pub fn stage(&mut self) -> Result<(), Error> {
+        let held = self.windows()?;
+        let y_boundary = self.caps.address.y_axis.boundary;
         for w in &held {
-            if let Err(e) = session.set_window(w) {
+            // The power-on descriptors describe the hardware maximum, not what
+            // the adapter opening allows, so a Y size past the boundary is a
+            // stale descriptor that can't be set. Skip it rather than warn
+            if w.size.1 > y_boundary {
+                debug!(id = w.id, size = w.size.1, "skipping stale power-on window");
+                continue;
+            }
+            if let Err(e) = self.set_window(w) {
                 debug!(id = w.id, %e, "this window would not go back");
             }
         }
-        if let Some(params) = session.get_parameter(Op::FocusMove).ok() {
+        if let Ok(params) = self.get_parameter(Op::FocusMove) {
             let at = params.first.min(u32::from(u16::MAX)) as u16;
-            match session.focus_to(at) {
+            match self.focus_to(at) {
                 Ok(()) => debug!(at, "staged the focus"),
                 Err(e) => debug!(at, %e, "could not stage the focus"),
             }
         }
-
-        Ok(session)
+        Ok(())
     }
 
     /// Run a command that some units will not have, answering whether it ran
@@ -342,7 +385,14 @@ impl Session {
                 // we asked. GET WINDOW is what reports the difference
                 Outcome::Complete => return Ok((completion, None)),
                 Outcome::CompleteWith(adjustment) => {
-                    info!(?adjustment, "the scanner had a note about that");
+                    // The sense-key specific bytes carry a field pointer, which
+                    // is the only thing that says what got adjusted
+                    info!(
+                        ?adjustment,
+                        opcode = cdb.first(),
+                        sense = ?completion.sense,
+                        "the scanner had a note about that"
+                    );
                     return Ok((completion, None));
                 }
 
