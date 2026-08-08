@@ -1,0 +1,392 @@
+use anyhow::{anyhow, bail};
+use clap::Parser;
+use cli::Cli;
+use indicatif::{ProgressBar, ProgressStyle};
+use nkscan::{
+    device,
+    protocol::caps::{film::FilmFormat, set_window::ColorInterleaving},
+    scan::{
+        autoexpose::Exposures,
+        focus::Focus,
+        framing::{self, Framing},
+        pass::Progress,
+        profile, thumbnail,
+        window::Recipe,
+    },
+    session::Session,
+};
+use std::{borrow::Cow, time::Duration};
+use tracing::*;
+
+mod cli;
+mod io;
+mod mono;
+
+pub const SCAN_TIMEOUT: Duration = Duration::from_secs(1800);
+
+/// How often to ask whether a holder has gone in
+const HOLDER_POLL: Duration = Duration::from_millis(500);
+
+/// How often the spinner moves while that is going on
+const SPINNER_TICK: Duration = Duration::from_millis(120);
+
+fn main() -> anyhow::Result<()> {
+    // Set up logging to stderr
+    let subscriber = tracing_subscriber::fmt().with_writer(std::io::stderr);
+    match tracing_subscriber::EnvFilter::try_from_default_env() {
+        Ok(filter) => subscriber.with_env_filter(filter).init(),
+        Err(_) => subscriber
+            .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+            .init(),
+    }
+
+    // Perform the requested CLI action
+    let cli = Cli::parse();
+    match cli.action {
+        cli::Action::List => {
+            let devs = device::list();
+            println!("Attached scanners:");
+            devs.iter().for_each(|x| println!("{x}"));
+        }
+        cli::Action::Scan {
+            device,
+            basename,
+            unlock_wb,
+            lock_ae,
+            dpi,
+            samples,
+            superfine,
+            frames,
+            ir,
+            no_eject,
+            format,
+            film,
+        } => {
+            // First grab the requested device, or the first one
+            let devices = device::list();
+            let device = (if let Some(d) = device {
+                device::Selector::Location(d)
+            } else {
+                device::Selector::Only
+            })
+            .resolve(&devices)?;
+
+            // Start up a scan session
+            let mut session = Session::open(device.open()?)?;
+            info!("Connected to scanner");
+
+            // Silver grains stop infrared as they stop light, so the mask a
+            // black and white negative returns is the picture again rather than
+            // the dust on it
+            if film == cli::FilmType::Mono && ir {
+                bail!(
+                    "--ir does not work on black and white negatives, whose silver is opaque to it"
+                );
+            }
+
+            // What the scans get tagged with, which follows the film type
+            let icc = profile::nikon(&session.capabilities().identity, film.into());
+            if icc.is_none() {
+                warn!(
+                    product = session.capabilities().identity.product,
+                    "no profile for this unit and film, so the scans will carry none"
+                );
+            }
+
+            // What every frame gets scanned with
+            // Checked before anything moves
+            let recipe = Recipe {
+                dpi: dpi.unwrap_or(session.capabilities().address.x_axis.optical_dpi),
+                samples,
+                interleaving: match superfine {
+                    true => ColorInterleaving::LINE_WITHOUT_DISTANCE,
+                    false => ColorInterleaving::MULTILINE_SIMULTANEOUS,
+                },
+                infrared: ir,
+            };
+            if let Err(e) = recipe.supported(session.capabilities()) {
+                match superfine {
+                    true => bail!("--superfine: {e}"),
+                    false => bail!("{e}"),
+                }
+            }
+            // State for the first frame's exposures, reused for the rest so a strip comes out consistent rather than per-frame optimal
+            let mut locked: Option<Exposures> = None;
+
+            // Nothing can be framed before something is loaded
+            wait_for_holder(&mut session, "Load a film holder")?;
+
+            // One buffer for every strip: a full resolution frame is half a
+            // gigabyte and there is no reason to hold two
+            let mut samples: Vec<u16> = Vec::new();
+
+            // A strip at a time until the operator stops feeding them
+            loop {
+                // Decide how the frames are found from what this unit and adapter
+                // advertise. This picks one of four mechanisms; we only thumbnail
+                // where the adapter offers it and the unit publishes no lengths.
+                let framing = Framing::choose(session.capabilities());
+                info!(?framing, "Frame discovery mechanism");
+
+                // Resolve the film format up front where it will be needed, so a
+                // missing --format fails before the thumbnail pass
+                let film_format = match framing {
+                    Framing::Thumbnail => Some(resolve_format(
+                        format,
+                        session.capabilities().address.holder_id,
+                    )?),
+                    _ => None,
+                };
+
+                let table = match framing {
+                    Framing::Published => framing::table(session.capabilities())?,
+                    Framing::Thumbnail => {
+                        let bar = pass_bar("thumbnail");
+                        let pass = session.scan_thumbnail_with(&mut samples, |p| bar.report(p))?;
+                        bar.finish_and_clear();
+                        debug!(
+                            "thumbnail {} x {} in {} channels, complete={}",
+                            pass.cols,
+                            pass.rows,
+                            pass.layout.channels.len(),
+                            pass.complete
+                        );
+
+                        let film_format = film_format.expect("resolved before the pass");
+                        let optical_dpi = session.capabilities().address.y_axis.optical_dpi;
+                        let length = film_format.height_dots(optical_dpi);
+                        info!(?film_format, length, "frame length");
+
+                        let measured = thumbnail::frames(
+                            session.capabilities(),
+                            &pass,
+                            &samples,
+                            length,
+                            None,
+                        )?;
+
+                        // Write the detected frames to the scanner's boundary table
+                        session.set_boundaries(&measured)?;
+                        info!(frames = measured.frames.len(), "detected frames");
+                        measured
+                    }
+                    Framing::Caller => {
+                        bail!("Caller-supplied frame boundaries are not implemented yet");
+                    }
+                    Framing::Perforation => {
+                        bail!("Perforation frame discovery is not implemented");
+                    }
+                };
+
+                // Select all or the requested subset of the frames to scan
+                let selected_frames = if frames.is_empty() {
+                    table.frames
+                } else {
+                    frames
+                        .iter()
+                        .map(|&idx| {
+                            table
+                                .frames
+                                .get(idx - 1) // One-indexed from the user
+                                .cloned()
+                                .ok_or(anyhow!(
+                                    "Requested frame {} not available. Frames detected: {}",
+                                    idx,
+                                    table.frames.len()
+                                ))
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?
+                };
+
+                if selected_frames.is_empty() {
+                    warn!("no frames on this strip");
+                }
+
+                // Where this strip starts writing, so a second strip through the
+                // same basename carries on rather than overwriting the first
+                let first = io::next_free(&basename);
+
+                // Scan each frame
+                for (n, frame) in selected_frames.into_iter().enumerate() {
+                    // Build the scan windows (one for each color, shared resolution, size, etc) from the frame (just position/size in the scanner)
+                    let mut windows = recipe.windows(session.capabilities(), frame)?;
+
+                    // Autofocus at the center of this frame
+                    let focused = session.focus_frame(frame, Focus::default())?;
+                    info!(frame = n + 1, ?focused, "focused");
+
+                    // Autoexpose with reused exposure gains if locked
+                    let exposures = match &locked {
+                        Some(held) => held.clone(),
+                        None => {
+                            let bar = pass_bar("metering");
+                            let mut shown = 0;
+                            let measured =
+                                session.autoexpose_frame_with(frame, !unlock_wb, |pass, p| {
+                                    // Each pass starts over, so say which one it is
+                                    if pass != shown {
+                                        bar.set_message(format!("meter {pass}"));
+                                        shown = pass;
+                                    }
+                                    bar.report(p);
+                                })?;
+                            bar.finish_and_clear();
+                            // If this was the first frame, save its exposure
+                            if lock_ae {
+                                locked = Some(measured.clone());
+                            }
+                            measured
+                        }
+                    };
+                    info!(frame = n + 1, ?exposures, "metered");
+
+                    // Apply the exposures to the windows
+                    exposures.apply(&mut windows);
+
+                    // Perform the scan pass
+                    let bar = pass_bar(format!("frame {}", n + 1));
+                    let pass =
+                        session.scan_pass_with(&windows, SCAN_TIMEOUT, &mut samples, |p| {
+                            bar.report(p)
+                        })?;
+                    bar.finish_and_clear();
+                    if !pass.complete {
+                        warn!(
+                            frame = n + 1,
+                            "the unit gave less than the pass promised, writing what arrived"
+                        );
+                    }
+
+                    let written = io::write_frame(
+                        &basename,
+                        first + n,
+                        &samples,
+                        &pass,
+                        icc,
+                        film == cli::FilmType::Mono,
+                    )?;
+                    info!(
+                        frame = n + 1,
+                        "{} x {} at {} dpi, wrote {}",
+                        pass.cols,
+                        pass.rows,
+                        pass.layout.dpi,
+                        written
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+
+                if no_eject {
+                    break;
+                }
+                session.eject()?;
+                info!("ejected");
+
+                // Naming frames is a targeted scan rather than a batch, and the
+                // numbers mean nothing on the next holder anyway
+                if !frames.is_empty() {
+                    break;
+                }
+
+                wait_for_holder(&mut session, "Load the next film holder")?;
+            }
+        }
+    };
+
+    Ok(())
+}
+
+/// Wait until a holder is loaded, then put the unit in a state to scan from
+///
+/// Returns at once if one already is. Loading raises a medium change and what
+/// the unit publishes about the holder follows the holder rather than the
+/// model, so the capabilities are re-read each time round.
+///
+/// Staging is what moves the mechanism, so it happens here, once there is
+/// something loaded to move against.
+fn wait_for_holder(session: &mut Session, prompt: &str) -> anyhow::Result<()> {
+    // An eject leaves what we know about the holder behind, so ask again before
+    // believing anything is in there
+    session.refresh()?;
+
+    if !session.media_loaded()? {
+        // The spinner is the affordance on a terminal, and hidden anywhere
+        // else, so the log says it too
+        info!("{prompt}");
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_message(format!("{prompt}. Ctrl-c to stop"));
+        spinner.enable_steady_tick(SPINNER_TICK);
+        loop {
+            std::thread::sleep(HOLDER_POLL);
+            session.refresh()?;
+            if session.media_loaded()? {
+                spinner.finish_and_clear();
+                info!("holder loaded");
+                break;
+            }
+        }
+    }
+    session.stage()?;
+    Ok(())
+}
+
+/// A bar for one pass
+///
+/// The length is not known until the first chunk arrives, so it starts empty
+/// and learns. Hidden by indicatif when stderr is not a terminal, and drawn no
+/// more than 20 times a second, which is what keeps the callback off the
+/// scanner's back
+fn pass_bar(label: impl Into<Cow<'static, str>>) -> ProgressBar {
+    let bar = ProgressBar::new(0);
+    bar.set_style(
+        ProgressStyle::with_template(
+            "{msg:<9} [{bar:30}] {bytes}/{total_bytes}  {bytes_per_sec}  eta {eta}",
+        )
+        .expect("a template of ours")
+        .progress_chars("=> "),
+    );
+    bar.set_message(label.into());
+    bar
+}
+
+/// Moving a pass's progress onto a bar
+trait Report {
+    fn report(&self, progress: Progress);
+}
+
+impl Report for ProgressBar {
+    fn report(&self, progress: Progress) {
+        // The layout's own total, which the cooperative modes can make wrong, so
+        // it is set every time rather than once
+        self.set_length(progress.total);
+        self.set_position(progress.bytes);
+    }
+}
+
+/// The film format to measure frames against, from the flag or the holder
+///
+/// A holder that takes one format fixes it. One that takes several cannot, and
+/// the frame length is not measurable from a thumbnail, so the caller has to say
+fn resolve_format(flag: Option<FilmFormat>, holder_id: Option<u8>) -> anyhow::Result<FilmFormat> {
+    if let Some(format) = flag {
+        return Ok(format);
+    }
+    let id = holder_id.ok_or_else(|| anyhow!("no holder loaded; supply --format"))?;
+    FilmFormat::from_holder(id).ok_or_else(|| {
+        let choices = FilmFormat::choices_for_holder(id)
+            .map(|c| {
+                format!(
+                    " (try: {})",
+                    c.iter()
+                        .map(cli::format_name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .unwrap_or_default();
+        anyhow!("this holder does not fix the film format; supply --format{choices}")
+    })
+}
