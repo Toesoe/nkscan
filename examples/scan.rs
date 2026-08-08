@@ -43,13 +43,7 @@ use nkscan::{
         data::{Boundary, Rect},
         window::{Channel, Composition, Flags, Window},
     },
-    scan::{
-        expose::{self, Exposure},
-        focus::Focus,
-        framing::{self, Framing},
-        pass::{self, Pass},
-        thumbnail,
-    },
+    scan::{focus::Focus, framing::Framing, pass::Pass, thumbnail},
     session::Session,
 };
 
@@ -227,15 +221,15 @@ fn scan(
     // exposures are measured off a focused frame
     if settings.focus {
         let started = Instant::now();
-        let focused = session.focus_with(Focus::default(), &windows)?;
+        let focused = session.focus_frame(*frame, Focus::default())?;
         println!("focus: {focused:?} in {:?}", started.elapsed());
     }
 
     if settings.meter {
-        let exposure = Exposure::choose(session.capabilities(), settings.lock_white_balance)?;
         let started = Instant::now();
-        windows = session.expose(&windows, exposure)?;
-        let held: Vec<_> = windows.iter().map(|w| (w.id, w.exposure)).collect();
+        let exposures = session.autoexpose(&windows, settings.lock_white_balance)?;
+        exposures.apply(&mut windows);
+        let held: Vec<_> = exposures.iter().collect();
         println!("metered {held:?} in {:?}", started.elapsed());
     }
 

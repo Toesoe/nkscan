@@ -1,14 +1,13 @@
-//! Focusing, which is EXECUTE operations `Op::AutoAf`, `Op::AutoFocus`,
-//! `Op::ColorAutoFocus` and `Op::FocusMove`. Section 2-15-4
+//! Focusing, which is EXECUTE operations `Op::AutoFocus`, `Op::ColorAutoFocus`
+//! and `Op::FocusMove`. Section 2-15-4
 
 use super::Session;
 use crate::{
     error::Error,
     protocol::{
         caps::{address::Axis, other::HostCooperation},
-        data::{Op, Operation},
+        data::{Op, Operation, Rect},
         sense::{Failure, Fault},
-        window::Window,
     },
     scan::focus::{Focus, Focused},
 };
@@ -124,28 +123,12 @@ impl Session {
         )
     }
 
-    /// Let the unit focus itself when it decides it needs to
-    pub fn set_auto_focus(&mut self, on: bool) -> Result<(), Error> {
-        offers(self, Op::AutoAf)?;
-        self.execute(
-            Op::AutoAf,
-            Operation {
-                first: u32::from(on),
-                ..Operation::default()
-            },
-            FOCUS_TIMEOUT,
-        )
-    }
-
-    /// Focus for a scan of `windows`, per `focus`
+    /// Focus on `frame`, per `focus`
     ///
-    /// The address is worked out from the first window. A set has to agree on
-    /// geometry, so any of them would do.
-    pub fn focus_with(&mut self, focus: Focus, windows: &[Window]) -> Result<Focused, Error> {
-        let Some(window) = windows.first() else {
-            return Ok(Focused::Skipped);
-        };
-
+    /// The frame is a rectangle of the boundary table, which is what the unit
+    /// resolves an autofocus address against. Pass a crop to focus on that
+    /// instead: any rectangle inside a frame works.
+    pub fn focus_frame(&mut self, frame: Rect, focus: Focus) -> Result<Focused, Error> {
         match focus {
             Focus::Hold => Ok(Focused::Skipped),
             Focus::At(position) => self.focus_to(position).map(|()| Focused::Yes),
@@ -157,8 +140,18 @@ impl Session {
                         .saturating_add(offset)
                         .clamp(axis.address_range.start, axis.address_range.last)
                 };
-                let x = point(&caps.address.x_axis, window.origin.0, window.size.0, at.0);
-                let y = point(&caps.address.y_axis, window.origin.1, window.size.1, at.1);
+                let x = point(
+                    &caps.address.x_axis,
+                    frame.left,
+                    frame.right.saturating_sub(frame.left),
+                    at.0,
+                );
+                let y = point(
+                    &caps.address.y_axis,
+                    frame.top,
+                    frame.bottom.saturating_sub(frame.top),
+                    at.1,
+                );
 
                 debug!(x, y, "focusing");
                 let outcome = match self.autofocus(x, y, color) {

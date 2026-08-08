@@ -5,10 +5,12 @@
 //! argument is legal stay down in `session`; picking between two mechanisms
 //! happens here, once, before anything moves.
 
+pub mod autoexpose;
 pub mod boundaries;
-pub mod expose;
 pub mod focus;
 pub mod framing;
 pub mod meter;
 pub mod pass;
+pub mod profile;
 pub mod thumbnail;
+pub mod window;
