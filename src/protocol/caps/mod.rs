@@ -5,6 +5,7 @@
 
 pub mod address;
 pub mod ccd;
+pub mod film;
 pub mod frames;
 pub mod identity;
 pub mod other;

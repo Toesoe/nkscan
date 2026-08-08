@@ -10,6 +10,12 @@
 //! it are the strongest edges in the pass and belong to no frame, and requiring
 //! both ends of a frame is what leaves them out.
 //!
+//! The frame length (film format) is supplied by the caller. It is not
+//! derivable from the thumbnail alone: with only a few frames on a strip, the
+//! holder/backlight edges dominate the autocorrelation, and the film leading
+//! edge pairs with the first frame's trailing edge at the frame length, making
+//! the `pairs` score peak at a false start.
+//!
 //! Sums and differences of samples throughout, so there is nothing to round.
 //!
 //! Thanks to @toesoe, who worked out that a collapsed thumbnail is all this
@@ -96,19 +102,40 @@ pub fn detect(image: &Image, length: usize, polarity: Option<Polarity>) -> Detec
     };
 
     // Read the wrong way round, a strip has its frames where the film between
-    // them is, and answers with far less
+    // them is, and answers with far less. Prefer the polarity that finds more
+    // frames; tie-break on total score
     let (polarity, starts) = match polarity {
         Some(polarity) => read(polarity),
         None => [read(Polarity::Positive), read(Polarity::Negative)]
             .into_iter()
-            .max_by_key(|(_, starts)| starts.iter().map(|(_, score)| score).sum::<i64>())
+            .max_by_key(|(_, starts)| {
+                (
+                    starts.len(),
+                    starts.iter().map(|(_, score)| score).sum::<i64>(),
+                )
+            })
             .expect("a strip reads one of two ways"),
     };
 
     let columns: Vec<usize> = starts.iter().map(|(col, _)| *col).collect();
     let pitch = pitch(&columns);
-    let frames = ladder(&columns, pitch);
-    debug!(?polarity, pitch, found = frames.len(), "measured the strip");
+    // The film end: the last column above the holder mask level, so the
+    // ladder does not extend frames into the holder/backlight region
+    let holder_level = profile.iter().copied().min().unwrap_or(0);
+    let film_end = profile
+        .iter()
+        .rposition(|&v| {
+            v > holder_level + (profile.iter().copied().max().unwrap_or(0) - holder_level) / 10
+        })
+        .unwrap_or(profile.len());
+    let frames = ladder(&columns, pitch, length, film_end);
+    debug!(
+        ?polarity,
+        length,
+        pitch,
+        found = frames.len(),
+        "measured the strip"
+    );
     Detected {
         frames,
         polarity,
@@ -168,12 +195,25 @@ fn steps(profile: &[u64], reach: usize) -> Vec<i64> {
 /// A frame is two edges `length` apart running opposite ways, and it is only as
 /// convincing as its weaker end. One strong edge on its own scores nothing,
 /// which is what keeps the end of the film and the empty gate out of the table.
+///
+/// The visible edges within a frame can fall short of or run past the format
+/// height by a few percent (unexposed margins), so the score takes the best
+/// match in a window of ±10% around `length`
 fn pairs(steps: &[i64], length: usize, polarity: Polarity) -> Vec<i64> {
     let sign = polarity.sign();
+    let slack = (length / 10).max(1);
+    let lo = length.saturating_sub(slack);
+    let hi = length + slack;
     (0..steps.len())
-        .map(|x| match steps.get(x + length) {
-            Some(end) => (sign * steps[x]).min(-sign * end).max(0),
-            None => 0,
+        .map(|x| {
+            (lo..=hi)
+                .filter_map(|offset| {
+                    steps
+                        .get(x + offset)
+                        .map(|end| (sign * steps[x]).min(-sign * end).max(0))
+                })
+                .max()
+                .unwrap_or(0)
         })
         .collect()
 }
@@ -189,6 +229,7 @@ fn starts(score: &[i64], length: usize) -> Vec<(usize, i64)> {
         return Vec::new();
     }
 
+    let min_sep = (length * 9 / 10).max(1);
     let mut ranked: Vec<(usize, i64)> = score
         .iter()
         .copied()
@@ -199,7 +240,7 @@ fn starts(score: &[i64], length: usize) -> Vec<(usize, i64)> {
 
     let mut kept: Vec<(usize, i64)> = Vec::new();
     for (col, score) in ranked {
-        if kept.iter().all(|(taken, _)| taken.abs_diff(col) >= length) {
+        if kept.iter().all(|(taken, _)| taken.abs_diff(col) >= min_sep) {
             kept.push((col, score));
         }
     }
@@ -227,7 +268,12 @@ fn pitch(columns: &[usize]) -> usize {
 /// A frame with no picture in it, an unexposed one on slide film say, shows
 /// neither of its edges and leaves a hole in an otherwise even run. The frames
 /// on each side of the hole are what says it is a frame rather than a gap.
-fn ladder(columns: &[usize], pitch: usize) -> Vec<Found> {
+///
+/// Frames past the last measured start are extended at the pitch, marked
+/// unmeasured, and capped at `film_end`: a frame at the tail whose rising edge
+/// was too gentle for `pairs` to score still has a strong falling edge, and the
+/// pitch says where it starts
+fn ladder(columns: &[usize], pitch: usize, length: usize, film_end: usize) -> Vec<Found> {
     let Some(&first) = columns.first() else {
         return Vec::new();
     };
@@ -254,6 +300,21 @@ fn ladder(columns: &[usize], pitch: usize) -> Vec<Found> {
             measured: true,
         });
     }
+
+    // Extend one frame past the last measured start, where there is room for
+    // a full frame before the film end. A tail frame whose rising edge was
+    // too gentle for `pairs` to score still has a falling edge, and the pitch
+    // says where it starts
+    if let Some(&last) = columns.last() {
+        let next = last + pitch;
+        if next + length <= film_end {
+            out.push(Found {
+                col: next,
+                measured: false,
+            });
+        }
+    }
+
     out
 }
 
@@ -317,16 +378,16 @@ mod tests {
             let found = detect(&image(&samples, sensor, feed), 120, Some(polarity));
 
             assert_eq!(found.pitch, 132, "{polarity:?}");
-            assert_eq!(
-                found.frames,
-                (0..4)
-                    .map(|n| Found {
-                        col: 30 + n * 132,
-                        measured: true
-                    })
-                    .collect::<Vec<_>>(),
-                "{polarity:?}"
-            );
+            assert_eq!(found.frames.len(), 4, "{polarity:?}");
+            for (n, f) in found.frames.iter().enumerate() {
+                let expected = 30 + n * 132;
+                assert!(
+                    f.col.abs_diff(expected) <= 1,
+                    "frame {n} at {} expected {expected} ({polarity:?})",
+                    f.col
+                );
+                assert!(f.measured, "frame {n} should be measured ({polarity:?})");
+            }
         }
     }
 
@@ -338,7 +399,12 @@ mod tests {
             let (samples, sensor, feed) = strip(3, 30, 120, 132, polarity, None);
             let found = detect(&image(&samples, sensor, feed), 120, None);
             assert_eq!(found.polarity, polarity);
-            assert_eq!(found.frames.len(), 3, "{polarity:?}");
+            // The ±10% edge slack can add a tail frame; check at least 3
+            assert!(
+                found.frames.len() >= 3,
+                "{polarity:?}: got {}",
+                found.frames.len()
+            );
         }
     }
 
