@@ -1,18 +1,4 @@
 //! Deciding where to focus
-//!
-//! `session` has the operations. This picks the point they get pointed at.
-
-use crate::{
-    error::Error,
-    protocol::{
-        caps::address::Axis,
-        data::Op,
-        sense::{Failure, Fault},
-        window::Window,
-    },
-    session::Session,
-};
-use tracing::*;
 
 /// How focusing went
 ///
@@ -52,55 +38,6 @@ impl Default for Focus {
         Self::Auto {
             at: (0.5, 0.5),
             color: None,
-        }
-    }
-}
-
-impl Focus {
-    /// Focus for a scan of `windows`
-    ///
-    /// The address is worked out from the first window. A set has to agree on
-    /// geometry, so any of them would do.
-    pub fn apply(self, session: &mut Session, windows: &[Window]) -> Result<Focused, Error> {
-        let Some(window) = windows.first() else {
-            return Ok(Focused::Skipped);
-        };
-
-        match self {
-            Self::Hold => Ok(Focused::Skipped),
-            Self::At(position) => session.focus_to(position).map(|()| Focused::Yes),
-            Self::Auto { at, color } => {
-                let caps = session.capabilities();
-                // Not an offset from the frame, whatever 2-15 means by "medium"
-                let point = |axis: &Axis, origin: u32, size: u32, fraction: f32| {
-                    let offset = (size as f32 * fraction.clamp(0.0, 1.0)) as u32;
-                    origin
-                        .saturating_add(offset)
-                        .clamp(axis.address_range.start, axis.address_range.last)
-                };
-                let x = point(&caps.address.x_axis, window.origin.0, window.size.0, at.0);
-                let y = point(&caps.address.y_axis, window.origin.1, window.size.1, at.1);
-
-                debug!(x, y, "focusing");
-                let outcome = match session.autofocus(x, y, color) {
-                    Ok(()) => Ok(Focused::Yes),
-                    Err(Error::Device(fault))
-                        if matches!(*fault, Fault::Reported(Failure::OutOfFocus, _)) =>
-                    {
-                        warn!(x, y, "autofocus did not reach focus");
-                        Ok(Focused::NotReached)
-                    }
-                    Err(e) => Err(e),
-                };
-
-                // 2-16 reports where the lens ended up. Nikon Scan reads
-                // `Op::FocusMove` straight after every autofocus, and it is
-                // what makes a focus repeatable without focusing again
-                if let Ok(params) = session.get_parameter(Op::FocusMove) {
-                    info!(position = params.first, "focused at");
-                }
-                outcome
-            }
         }
     }
 }

@@ -12,6 +12,7 @@ use crate::{
     },
     transport::{Data, Sense, Status},
 };
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::*;
 
@@ -138,7 +139,8 @@ impl Session {
     /// sends them, which is the only way frames the unit cannot measure for
     /// itself come to have a length
     pub fn set_boundaries(&mut self, boundary: &data::Boundary) -> Result<(), Error> {
-        self.send_data(data::DataType::Boundary, 0, &boundary.to_bytes())?;
+        let bytes = boundary.to_bytes()?;
+        self.send_data(data::DataType::Boundary, 0, &bytes)?;
         self.frames = Some(boundary.clone());
         Ok(())
     }
@@ -189,20 +191,28 @@ impl Session {
     /// meaning nothing states; 0 is the only one anything has used.
     ///
     /// `None` rather than an error where the unit offers no curves or the reply
-    /// does not match the page describing it. An uncorrected scan is what this
-    /// produced before the correction existed, so it is not worth failing over.
-    pub fn ccd_curves(&mut self, kind: usize) -> Option<Curves> {
-        let ccd = self.caps.ccd.clone()?;
+    /// Read the CCD response curves once and cache them on the session
+    ///
+    /// `CcdData` is not per-color, so one read covers every channel. `kind` is
+    /// the measurement type; 0 is the only one Nikon Scan or this driver uses.
+    /// Returns whether curves were cached
+    pub fn fetch_curves(&mut self) -> bool {
+        let Some(ccd) = self.caps.ccd.clone() else {
+            return false;
+        };
         let rows = usize::from(self.caps.address.lines).max(1);
-        let (_, values) = self
+        let (_, values) = match self
             .read_data(data::DataType::CcdData, 0)
             .inspect_err(|e| debug!(%e, "no CCD curves to correct with"))
-            .ok()?;
+        {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
         let data::Values::Words(words) = values else {
             debug!("CcdData did not come back as words");
-            return None;
+            return false;
         };
-        let curves = Curves::parse(&ccd, &words, rows, kind);
+        let curves = Curves::parse(&ccd, &words, rows, 0);
         if curves.is_none() {
             warn!(
                 curves = ccd.curves(),
@@ -211,7 +221,13 @@ impl Session {
                 "the CCD curves do not match the page describing them, scanning uncorrected"
             );
         }
-        curves
+        self.curves = curves.map(Arc::new);
+        self.curves.is_some()
+    }
+
+    /// The cached CCD curves, refcount-bumped for the decoder thread
+    pub fn curves(&self) -> Option<Arc<Curves>> {
+        self.curves.clone()
     }
 
     /// Read the initiator cooperative action parameter a SCAN just asked for

@@ -55,20 +55,20 @@ impl Framing {
         }
         Self::Caller
     }
-
-    /// Whether this is a mechanism we have implemented
-    ///
-    /// [`Perforation`](Self::Perforation) is not written at all
-    pub fn ready(self) -> bool {
-        matches!(self, Self::Published | Self::Thumbnail | Self::Caller)
-    }
 }
 
 /// Refuse a frame the stage cannot step to
 ///
 /// Past `Address`'s Y boundary the stage target comes out behind the home stop,
-/// and the mechanism grinds there until a power cycle
+/// and the mechanism grinds there until a power cycle. A length of zero is not a
+/// frame and would tile nothing
 pub(crate) fn reachable(caps: &Capabilities, extent: u32) -> Result<(), Error> {
+    if extent == 0 {
+        return Err(Error::Unsupported {
+            op: "frame table",
+            reason: "a frame of length 0 is not a frame".into(),
+        });
+    }
     let limit = caps.address.y_axis.boundary;
     match extent > limit {
         true => Err(Error::Unsupported {
@@ -81,43 +81,37 @@ pub(crate) fn reachable(caps: &Capabilities, extent: u32) -> Result<(), Error> {
     }
 }
 
-/// The frame table to send before the first pass, 2-11-6
+/// The frame table a masked holder publishes, 2-11-6
 ///
-/// Both the stage and autofocus resolve against it, so until one is sent
-/// nothing steps. `length` is the film format, which nothing advertises, and is
-/// ignored where the adapter publishes its own.
-pub fn table(caps: &Capabilities, length: u32) -> Result<Boundary, Error> {
+/// Both the stage and autofocus resolve against the `88h` table, and until the
+/// host writes one the unit answers with a single whole-sensor rect that makes
+/// every frame-kind SET WINDOW drive the holder out and back. A masked holder
+/// publishes its frames with lengths in C8h, and this emits one rect per image
+/// so the host can write them back as the `88h` table.
+///
+/// Strip holders publish no lengths, and this returns empty: the host has not
+/// measured yet, and the table they need comes from `thumbnail::frames` after a
+/// whole-strip pass. A rect longer than the Y boundary stalls the stage, so a
+/// placeholder is not something we can invent here
+pub fn table(caps: &Capabilities) -> Result<Boundary, Error> {
     let Some(published) = caps.frames.as_ref() else {
         return Ok(Boundary::default());
     };
-    let axis_end = caps.address.y_axis.address_range.last;
     let mut frames = Vec::new();
 
-    for (n, image) in published.images.iter().enumerate() {
+    for image in &published.images {
         // A published length is the adapter's own geometry. Without one, the
-        // caller's format is what gets tiled
-        let extent = image.length.unwrap_or(length);
-        reachable(caps, extent)?;
-
-        // Where this image's area ends: the next one begins, or the axis does
-        let stop = published
-            .images
-            .get(n + 1)
-            .map_or(axis_end, |next| next.top);
-        let tops: Vec<u32> = match image.length {
-            Some(_) => vec![image.top],
-            None => (0..)
-                .map(|f| image.top + f * extent)
-                .take_while(|top| top + extent <= stop)
-                .collect(),
+        // host owes a measurement and the table comes from `thumbnail::frames`
+        let Some(extent) = image.length else {
+            continue;
         };
-
-        frames.extend(tops.into_iter().map(|top| Rect {
-            top,
+        reachable(caps, extent)?;
+        frames.push(Rect {
+            top: image.top,
             left: image.left,
-            bottom: top + extent,
+            bottom: image.top + extent,
             right: image.left + image.width,
-        }));
+        });
     }
     Ok(Boundary { frames })
 }

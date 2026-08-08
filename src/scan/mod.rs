@@ -11,5 +11,4 @@ pub mod focus;
 pub mod framing;
 pub mod meter;
 pub mod pass;
-pub mod preamble;
 pub mod thumbnail;

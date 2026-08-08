@@ -6,9 +6,11 @@
 //! what a scan should do belongs above this.
 
 pub mod data;
+pub mod expose;
 pub mod focus;
 pub mod image;
 pub mod probe;
+pub mod scan;
 pub mod window;
 
 use crate::{
@@ -18,12 +20,14 @@ use crate::{
         cdbs::{
             Abort, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit, TestUnitReady,
         },
+        curves::Curves,
         data::{Boundary, CooperativeAction, Op, Operation},
         mode,
         sense::{Activity, Change, Coop, Fault, Outcome, Refusal, interpret},
     },
     transport::{self, Completion, Data, Transport},
 };
+use std::sync::Arc;
 use std::{
     io,
     thread::sleep,
@@ -38,6 +42,8 @@ pub struct Session {
     divisor: u16,
     /// The frame table that windowing uses
     frames: Option<Boundary>,
+    /// CCD row response curves, read once in the preamble
+    curves: Option<Arc<Curves>>,
     /// Whether we hold the unit, so [`Drop`] only releases what it took
     reserved: bool,
 }
@@ -83,6 +89,7 @@ impl Session {
             divisor,
             reserved: false,
             frames: None,
+            curves: None,
         };
         // INQUIRY answers while the unit is still initializing, so probing says
         // nothing about readiness. Everything below is a real command, and a
@@ -91,6 +98,24 @@ impl Session {
         session.reserved = session.reserve()?;
         session.stop_stale_scan()?;
         session.set_units(divisor)?;
+
+        // The preamble: CCD curves, re-establish the windows so the IR window's
+        // control byte is set, and park the focus where it already is
+        session.fetch_curves();
+        let held = session.windows()?;
+        for w in &held {
+            if let Err(e) = session.set_window(w) {
+                debug!(id = w.id, %e, "this window would not go back");
+            }
+        }
+        if let Some(params) = session.get_parameter(Op::FocusMove).ok() {
+            let at = params.first.min(u32::from(u16::MAX)) as u16;
+            match session.focus_to(at) {
+                Ok(()) => debug!(at, "staged the focus"),
+                Err(e) => debug!(at, %e, "could not stage the focus"),
+            }
+        }
+
         Ok(session)
     }
 
@@ -178,6 +203,8 @@ impl Session {
     /// fields track those rather than the model
     pub fn refresh(&mut self) -> Result<(), Error> {
         self.caps = probe::capabilities(self.transport.as_mut())?;
+        // Adapter may have changed, so the cached curves no longer apply
+        self.curves = None;
         Ok(())
     }
 

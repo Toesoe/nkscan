@@ -1,6 +1,7 @@
 //! READ and SEND data types. Section 2-11
 
 use super::{caps::other::DataTypes, sense::Coop};
+use crate::error::Error;
 use bitflags::bitflags;
 
 /// The header 2-11-6 puts in front of every type but `DataType::Image`
@@ -335,7 +336,19 @@ impl Boundary {
         Some(Self { frames })
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        // The count is one byte (2-11-6 byte 2), so more than 255 frames cannot
+        // be encoded. A silent `as u8` truncation sent a garbage table that the
+        // transport refused with EINVAL
+        if self.frames.len() > u8::MAX as usize {
+            return Err(Error::Unsupported {
+                op: "boundary",
+                reason: format!(
+                    "{} frames cannot fit the one-byte count field",
+                    self.frames.len()
+                ),
+            });
+        }
         let mut out = Vec::with_capacity(Self::HEAD + self.frames.len() * Self::RECT);
         // 2-11-6 gives bytes 0,1 as the parameter length "n-1", which for one
         // frame is 18. The unit's own record says 20, the whole thing including
@@ -349,7 +362,7 @@ impl Boundary {
                 out.extend_from_slice(&v.to_be_bytes());
             }
         }
-        out
+        Ok(out)
     }
 }
 
@@ -832,7 +845,7 @@ mod tests {
                 right: 9999,
             }],
         };
-        let bytes = b.to_bytes();
+        let bytes = b.to_bytes().unwrap();
         assert_eq!(bytes.len(), 20);
         // What the unit itself returns: the whole length, then the frame count
         assert_eq!(&bytes[..4], &[0x00, 0x14, 0x01, 0x00]);

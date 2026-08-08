@@ -9,10 +9,9 @@
 
 use super::{
     boundaries::{self, Polarity},
-    expose, framing,
-    pass::{self, Pass},
+    framing,
+    pass::Pass,
 };
-use crate::protocol::curves::Curves;
 use crate::{
     error::Error,
     protocol::{
@@ -24,13 +23,8 @@ use crate::{
         decode::Image,
         window::{Channel, Composition, LENGTH, Window, deepest_depth},
     },
-    session::Session,
 };
-use std::time::Duration;
 use tracing::*;
-
-/// Everything loaded, at the lowest resolution there is, so give it room
-const THUMBNAIL_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Whether this unit and adapter will thumbnail at all
 ///
@@ -39,26 +33,6 @@ const THUMBNAIL_TIMEOUT: Duration = Duration::from_secs(600);
 pub fn available(caps: &Capabilities) -> bool {
     caps.set_window.kind.contains(ScanKind::THUMBNAIL)
         && caps.address.thumbnail_resolution.start > 0
-}
-
-/// Scan everything loaded
-pub fn scan(
-    session: &mut Session,
-    curves: Option<&Curves>,
-    samples: &mut Vec<u16>,
-) -> Result<Pass, Error> {
-    if !available(session.capabilities()) {
-        return Err(Error::Unsupported {
-            op: "thumbnail",
-            reason: "this unit and adapter do not offer thumbnail scanning".into(),
-        });
-    }
-
-    let windows = windows(session.capabilities())?;
-    // A descriptor built from nothing carries no exposure, and equal exposures
-    // are not neutral. Nikon Scan thumbnails at the unit's own white balance
-    let windows = expose::seed_white_balance(session, &windows)?;
-    pass::take(session, &windows, THUMBNAIL_TIMEOUT, curves, samples)
 }
 
 /// The frame table a thumbnail measures, 2-11-6
@@ -124,7 +98,7 @@ fn opening(caps: &Capabilities) -> (u32, u32) {
 }
 
 /// Windows over everything the adapter can reach, one per channel
-fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
+pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
     let y = &caps.address.y_axis;
     let unsupported = |reason: String| Error::Unsupported {
         op: "thumbnail window",

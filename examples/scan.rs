@@ -40,7 +40,6 @@ use nkscan::{
             address::Axis,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        curves::Curves,
         data::{Boundary, Rect},
         window::{Channel, Composition, Flags, Window},
     },
@@ -49,7 +48,7 @@ use nkscan::{
         focus::Focus,
         framing::{self, Framing},
         pass::{self, Pass},
-        preamble, thumbnail,
+        thumbnail,
     },
     session::Session,
 };
@@ -134,15 +133,11 @@ fn main() -> anyhow::Result<()> {
         lock_white_balance: has("lockwb"),
     };
 
-    // The setup the captures run once before the first pass. `keep` leaves the
-    // table alone, since tiling over a measured one throws the measurement away
+    // The setup the captures run once before the first pass. The frame table is
+    // not sent here: the strip path measures it after thumbnailing, and `keep`
+    // leaves the unit's existing table alone
     let started = Instant::now();
-    let tiled = match has("keep") {
-        true => Boundary::default(),
-        false => framing::table(session.capabilities(), settings.format)?,
-    };
-    preamble::run(&mut session, &tiled)?;
-    println!("preamble in {:?}", started.elapsed());
+    println!("session open in {:?}", started.elapsed());
 
     // Where the frames are. The captures open with the whole-strip pass before
     // any frame placement, so the stage does not go out to a frame and back
@@ -158,9 +153,8 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // One buffer and one set of curves for the strip: a full-resolution frame is
-    // half a gigabyte, and there is no reason to hold two
-    let curves = session.ccd_curves(0);
+    // One buffer for the strip: a full-resolution frame is half a gigabyte,
+    // and there is no reason to hold two
     let mut samples = Vec::new();
     let only = arg("frame");
 
@@ -171,13 +165,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         let started = Instant::now();
-        let taken = scan(
-            &mut session,
-            frame,
-            &settings,
-            curves.as_ref(),
-            &mut samples,
-        )?;
+        let taken = scan(&mut session, frame, &settings, &mut samples)?;
         println!(
             "frame {number}: {} x {} at {} dpi, complete={}, owes {:?}, in {:?}",
             taken.cols,
@@ -199,9 +187,8 @@ fn main() -> anyhow::Result<()> {
 fn measure(session: &mut Session, format: u32) -> anyhow::Result<Boundary> {
     println!("framing {:?}", Framing::choose(session.capabilities()));
     let started = Instant::now();
-    let curves = session.ccd_curves(0);
     let mut samples = Vec::new();
-    let taken = thumbnail::scan(session, curves.as_ref(), &mut samples)?;
+    let taken = session.scan_thumbnail(&mut samples)?;
     println!(
         "thumbnail {} x {} in {:?}, complete={}",
         taken.cols,
@@ -232,7 +219,6 @@ fn scan(
     session: &mut Session,
     frame: &Rect,
     settings: &Settings,
-    curves: Option<&Curves>,
     samples: &mut Vec<u16>,
 ) -> anyhow::Result<Pass> {
     let mut windows = descriptors(session, frame, settings)?;
@@ -241,25 +227,19 @@ fn scan(
     // exposures are measured off a focused frame
     if settings.focus {
         let started = Instant::now();
-        let focused = Focus::default().apply(session, &windows)?;
+        let focused = session.focus_with(Focus::default(), &windows)?;
         println!("focus: {focused:?} in {:?}", started.elapsed());
     }
 
     if settings.meter {
         let exposure = Exposure::choose(session.capabilities(), settings.lock_white_balance)?;
         let started = Instant::now();
-        windows = expose::expose(session, &windows, exposure)?;
+        windows = session.expose(&windows, exposure)?;
         let held: Vec<_> = windows.iter().map(|w| (w.id, w.exposure)).collect();
         println!("metered {held:?} in {:?}", started.elapsed());
     }
 
-    Ok(pass::take(
-        session,
-        &windows,
-        SCAN_TIMEOUT,
-        curves,
-        samples,
-    )?)
+    Ok(session.scan_pass(&windows, SCAN_TIMEOUT, samples)?)
 }
 
 /// The descriptors that scan one frame, from the ones the unit already holds

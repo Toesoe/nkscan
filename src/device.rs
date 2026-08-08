@@ -1,5 +1,7 @@
 //! Unification of all the different transports to actually present the user
 
+#[cfg(target_os = "linux")]
+use crate::transport::linux::SgTransport;
 use crate::{
     error::Error,
     protocol::{caps::identity::Identity, cdbs::Inquiry},
@@ -72,9 +74,7 @@ impl Device {
                 Ok(Box::new(UsbTransport::open(info).map_err(io)?))
             }
             #[cfg(target_os = "linux")]
-            Attach::Sg(path) => Ok(Box::new(
-                crate::transport::linux::SgTransport::open(path).map_err(io)?,
-            )),
+            Attach::Sg(path) => Ok(Box::new(SgTransport::open(path).map_err(io)?)),
             #[cfg(target_os = "windows")]
             Attach::Scanner(path) => Ok(Box::new(
                 crate::transport::windows::ScsiScanDevice::open(path).map_err(io)?,
