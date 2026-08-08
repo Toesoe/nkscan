@@ -16,7 +16,7 @@ pub mod window;
 use crate::{
     error::Error,
     protocol::{
-        caps::Capabilities,
+        caps::{Capabilities, frames::Frames},
         cdbs::{
             Abort, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit, TestUnitReady,
         },
@@ -93,8 +93,16 @@ impl Session {
         };
         // INQUIRY answers while the unit is still initializing, so probing says
         // nothing about readiness. Everything below is a real command, and a
-        // cold unit would spend the whole of the first one's budget not ready
-        session.test_unit_ready(READY_TIMEOUT)?;
+        // cold unit would spend the whole of the first one's budget not ready.
+        //
+        // An empty unit answers this with no medium, which is a state to open
+        // in rather than a failure: the caller is the one who decides whether
+        // to wait for something to be loaded
+        match session.test_unit_ready(READY_TIMEOUT) {
+            Ok(()) => {}
+            Err(Error::Media(Intervention::NoMedium)) => debug!("nothing is loaded"),
+            Err(e) => return Err(e),
+        }
         session.reserved = session.reserve()?;
         session.stop_stale_scan()?;
         session.set_units(divisor)?;
@@ -117,11 +125,17 @@ impl Session {
     /// the mechanism is asked instead, and answers `02h-3Ah-00h` with nothing
     /// in it.
     ///
-    /// Cheap either way, and nothing moves, which is the point: a scan drives
-    /// the stage against film and has to know before it starts.
+    /// Read afresh either way rather than off what was cached at open, so this
+    /// can be asked in a loop while somebody loads one. Nothing moves, which is
+    /// the point: a scan drives the stage against film and has to know before
+    /// it starts.
     pub fn media_loaded(&mut self) -> Result<bool, Error> {
-        if let Some(frames) = self.caps.frames.as_ref() {
-            return Ok(!frames.images.is_empty());
+        if self.caps.frames.is_some() {
+            let page = probe::vpd(self.transport.as_mut(), Frames::PAGE_CODE)?;
+            let frames = Frames::try_from(&page)?;
+            let loaded = !frames.images.is_empty();
+            self.caps.frames = Some(frames);
+            return Ok(loaded);
         }
         match self.test_unit_ready(PROBE_TIMEOUT) {
             Ok(()) => Ok(true),
