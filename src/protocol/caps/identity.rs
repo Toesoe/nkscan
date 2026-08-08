@@ -3,6 +3,7 @@
 //! Note: this is not a VPD page
 
 use super::Error;
+use crate::protocol::model::Model;
 
 /// Peripheral device type 6, which is what a scanner reports
 pub const SCANNER: u8 = 0x06;
@@ -29,6 +30,11 @@ pub struct Identity {
 impl Identity {
     /// The spec's recommended allocation length, and all either unit returns
     pub const LENGTH: usize = 36;
+
+    /// Which scanner this is, where the product field names one we know
+    pub fn model(&self) -> Option<Model> {
+        Model::from_product(&self.product)
+    }
 
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() < Self::LENGTH {

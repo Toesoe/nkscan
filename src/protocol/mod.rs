@@ -11,5 +11,6 @@ pub mod data;
 pub mod decode;
 pub mod image;
 pub mod mode;
+pub mod model;
 pub mod sense;
 pub mod window;

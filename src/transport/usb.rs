@@ -2,7 +2,7 @@
 
 use super::{Completion, Data, Error, Sense, Status, Transport};
 use nusb::{
-    DeviceInfo, Endpoint, Interface, MaybeFuture, list_devices,
+    DeviceInfo, Endpoint, Interface, MaybeFuture,
     transfer::{Buffer, Bulk, In, Out, TransferError},
 };
 use std::{
@@ -11,16 +11,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::*;
-
-/// The "vendor ID" for Nikon
-const VID: u16 = 0x04B0;
-
-/// USB-attached Coolscans
-const PIDS: &[u16] = &[
-    0x4000, // LS-40 ED  (USB 1.1)
-    0x4001, // LS-50 ED
-    0x4002, // LS-5000 ED
-];
 
 // Single-byte transport opcodes on bulk-OUT (LS5K 1-1-2)
 /// Tell the unit to prepare a phase response
@@ -61,14 +51,6 @@ fn transfer_err(e: TransferError, timeout: Duration) -> Error {
 }
 
 impl UsbTransport {
-    /// List all attached Coolscan USB devices
-    pub fn list() -> io::Result<Vec<DeviceInfo>> {
-        Ok(list_devices()
-            .wait()?
-            .filter(|dev| dev.vendor_id() == VID && PIDS.contains(&dev.product_id()))
-            .collect())
-    }
-
     pub fn open(info: DeviceInfo) -> io::Result<Self> {
         let device = info.open().wait()?;
         // Unlike other platforms, macOS only sets a configuration itself for

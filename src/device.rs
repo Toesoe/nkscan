@@ -4,9 +4,10 @@
 use crate::transport::linux::SgTransport;
 use crate::{
     error::Error,
-    protocol::{caps::identity::Identity, cdbs::Inquiry},
+    protocol::{caps::identity::Identity, cdbs::Inquiry, model::Model},
     transport::{Data, Status, Transport, usb::UsbTransport},
 };
+use nusb::MaybeFuture;
 use std::{fmt, path::PathBuf, str::FromStr, time::Duration};
 use tracing::debug;
 
@@ -48,16 +49,23 @@ impl fmt::Display for Attach {
 #[derive(Debug, Clone)]
 pub struct Device {
     pub attach: Attach,
-    /// From standard INQUIRY
+    /// From standard INQUIRY, absent for a unit we could not open
     pub identity: Option<Identity>,
+    /// Which scanner this is, from the product ID where it is on USB and from
+    /// the INQUIRY answer otherwise. A USB unit another process is holding
+    /// still has one
+    pub model: Option<Model>,
 }
 
 impl Device {
     /// What to show a person
     pub fn name(&self) -> String {
-        match &self.identity {
-            Some(id) => format!("{} {}", id.vendor, id.product),
-            None => "(in use)".into(),
+        match (&self.identity, self.model) {
+            (Some(id), _) => format!("{} {}", id.vendor, id.product),
+            // Claiming is exclusive, so a unit in use answers nothing. The bus
+            // still says which model it is
+            (None, Some(model)) => format!("{} (in use)", model.name()),
+            (None, None) => "(in use)".into(),
         }
     }
 
@@ -98,6 +106,7 @@ pub fn list() -> Vec<Device> {
                 bus: info.bus_id().to_string(),
                 ports: info.port_chain().to_vec(),
             },
+            model: Model::from_usb(info.vendor_id(), info.product_id()),
             // Claiming is exclusive, so a unit another process holds probes as
             // `None` rather than dropping out of the list
             identity: UsbTransport::open(info)
@@ -110,11 +119,19 @@ pub fn list() -> Vec<Device> {
 }
 
 /// The USB units, filtered on vendor and product before anything is opened
+///
+/// Which product IDs are scanners is this layer's business rather than the
+/// transport's, whose job stops at moving bytes
 fn usb_devices() -> Vec<nusb::DeviceInfo> {
-    UsbTransport::list().unwrap_or_else(|e| {
-        debug!(%e, "could not enumerate USB");
-        Vec::new()
-    })
+    let all = match nusb::list_devices().wait() {
+        Ok(all) => all,
+        Err(e) => {
+            debug!(%e, "could not enumerate USB");
+            return Vec::new();
+        }
+    };
+    all.filter(|dev| Model::from_usb(dev.vendor_id(), dev.product_id()).is_some())
+        .collect()
 }
 
 /// Ask a transport who it is, and nothing else
@@ -153,6 +170,7 @@ fn scsi_devices() -> Vec<Device> {
             let identity = probe(&mut transport)?;
             Some(Device {
                 attach: Attach::Sg(path),
+                model: identity.model(),
                 identity: Some(identity),
             })
         })
@@ -172,9 +190,11 @@ fn scsi_devices() -> Vec<Device> {
             Some((path, probe(&mut transport)))
         })
         .filter_map(|(path, identity)| {
+            let identity = identity?;
             Some(Device {
                 attach: Attach::Scanner(path),
-                identity: Some(identity?),
+                model: identity.model(),
+                identity: Some(identity),
             })
         })
         .collect()
@@ -258,6 +278,7 @@ mod tests {
                 product: product.into(),
                 revision: "1.00".into(),
             }),
+            model: Model::from_product(product),
         }
     }
 
