@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1]
+
+### Added
+
+- `--log`, so verbosity can be set without shell-specific `RUST_LOG=` syntax
+  (which cmd.exe and PowerShell don't accept inline). `RUST_LOG` still wins
+  when set, since it can target individual modules.
+
+### Fixed
+
+- Color codes no longer leak into redirected or piped output (e.g. a log
+  captured for an issue report): ANSI is now gated on stdout actually being a
+  terminal.
+- On Windows, legacy `cmd.exe`/PowerShell windows not hosted in Windows
+  Terminal now render color instead of printing raw escape codes; the process
+  opts the console into VT processing at startup.
+
 ## [0.3.0]
 
 A complete and total rewrite.
