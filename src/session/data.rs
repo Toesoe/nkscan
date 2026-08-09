@@ -9,6 +9,7 @@ use crate::{
         curves::Curves,
         data,
         sense::{self, Failure, Fault},
+        window::Channel,
     },
     transport::{Data, Sense, Status},
 };
@@ -145,31 +146,29 @@ impl Session {
         Ok(())
     }
 
-    /// The exposures the unit measured for neutral white when it started up
+    /// The exposure the unit measured for this channel when it started up
     ///
-    /// 2-11-8, `DataType::WhiteBalanceExposure`, one 4-byte value per color, answered in R, G, B
-    /// order. The ratios are the unit's own white balance, so metering that
-    /// wants to preserve neutral starts from these rather than from whatever
-    /// the last session left in the descriptors.
+    /// 2-11-8, `DataType::WhiteBalanceExposure`, one 4-byte value. Across the
+    /// visible channels the ratios are the unit's own white balance, so metering
+    /// that wants to preserve neutral starts from these rather than from
+    /// whatever the last session left in the descriptors.
     ///
-    /// 2-11-3 only gives the qualifier default, R, G and B, so there is no
-    /// infrared reading here.
-    pub fn white_balance(&mut self) -> Result<[u32; 3], Error> {
-        let mut out = [0u32; 3];
-        for (n, slot) in out.iter_mut().enumerate() {
-            let color = n as u8 + 1;
-            let (_, values) = self.read_data(data::DataType::WhiteBalanceExposure, color)?;
-            let data::Values::Longs(v) = values else {
-                return Err(malformed(format!(
-                    "WhiteBalanceExposure color {color} did not come back as longs"
-                )));
-            };
-            *slot = *v.first().ok_or_else(|| {
-                malformed(format!("WhiteBalanceExposure color {color} was empty"))
-            })?;
-        }
-        debug!(?out, "start-up white balance");
-        Ok(out)
+    /// 2-11-3 lists only the default, R, G and B qualifiers, but the unit
+    /// answers for infrared as well and Nikon Scan reads it in every capture.
+    /// The qualifier is the window identifier
+    pub fn white_balance(&mut self, channel: Channel) -> Result<u32, Error> {
+        let color = channel.id();
+        let (_, values) = self.read_data(data::DataType::WhiteBalanceExposure, color)?;
+        let data::Values::Longs(v) = values else {
+            return Err(malformed(format!(
+                "WhiteBalanceExposure color {color} did not come back as longs"
+            )));
+        };
+        let exposure = *v
+            .first()
+            .ok_or_else(|| malformed(format!("WhiteBalanceExposure color {color} was empty")))?;
+        debug!(color, exposure, "start-up exposure");
+        Ok(exposure)
     }
 
     /// What the unit remembers about the film and the images on it

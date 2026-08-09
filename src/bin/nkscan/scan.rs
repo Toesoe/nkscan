@@ -198,7 +198,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                     let bar = pass_bar("metering");
                     let mut shown = 0;
                     let measured =
-                        session.autoexpose_frame_with(frame, !unlock_wb, |pass, p| {
+                        session.autoexpose_frame_with(frame, &recipe, !unlock_wb, |pass, p| {
                             // Each pass starts over, so say which one it is
                             if pass != shown {
                                 bar.set_message(format!("meter {pass}"));

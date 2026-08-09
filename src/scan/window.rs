@@ -108,12 +108,14 @@ pub struct Recipe {
 }
 
 impl Recipe {
-    /// A quick pass to measure by, not to keep
+    /// A quick pass to measure this one by, not to keep
     ///
-    /// The coarsest the unit offers, one reading, and no infrared, which has no
-    /// exposure to decide from a film's tones. Single-line where it is offered:
-    /// a pass that only gets measured has no reason to owe registration
-    pub fn metering(caps: &Capabilities) -> Self {
+    /// The coarsest the unit offers, one reading. Single-line where it is
+    /// offered: a pass that only gets measured has no reason to owe
+    /// registration. It carries whatever channels this scans, infrared
+    /// included, since a channel the metering pass leaves out is a channel the
+    /// scan has no exposure for
+    pub fn metering(&self, caps: &Capabilities) -> Self {
         let offered = caps.set_window.interleaving;
         Self {
             dpi: caps.address.x_axis.dpi_range.start,
@@ -122,7 +124,7 @@ impl Recipe {
                 true => ColorInterleaving::LINE_WITHOUT_DISTANCE,
                 false => ColorInterleaving::MULTILINE_SIMULTANEOUS,
             },
-            infrared: false,
+            infrared: self.infrared,
         }
     }
 
@@ -367,6 +369,31 @@ mod tests {
             windows
                 .iter()
                 .all(|w| w.composition == Composition::MultilevelRGB)
+        );
+    }
+
+    /// A metering pass covers the channels the scan will, or the scan goes out
+    /// with no exposure for the ones it left out
+    #[test]
+    fn metering_carries_the_channels_the_scan_does() {
+        let caps = caps();
+        let ids = |recipe: Recipe| {
+            recipe
+                .metering(&caps)
+                .windows(&caps, frame())
+                .expect("windows")
+                .iter()
+                .map(|w| w.id)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(ids(recipe()), vec![1, 2, 3]);
+        assert_eq!(
+            ids(Recipe {
+                infrared: true,
+                ..recipe()
+            }),
+            vec![9, 1, 2, 3]
         );
     }
 

@@ -19,16 +19,18 @@ const PASS_TIMEOUT: Duration = Duration::from_secs(300);
 impl Session {
     /// Meter `frame` and answer the exposures to scan it with
     ///
-    /// Builds its own metering windows, so the exposures come off the frame
-    /// rather than off whatever the last pass left in the unit. `lock_white_balance`
-    /// keeps the channels in the ratio the unit calls neutral, which is what a
-    /// scan that has to stay comparable to the next one wants.
+    /// Builds its own metering windows from `recipe`, so the exposures come off
+    /// the frame rather than off whatever the last pass left in the unit, and
+    /// cover the channels `recipe` will scan. `lock_white_balance` keeps the
+    /// channels in the ratio the unit calls neutral, which is what a scan that
+    /// has to stay comparable to the next one wants.
     pub fn autoexpose_frame(
         &mut self,
         frame: Rect,
+        recipe: &Recipe,
         lock_white_balance: bool,
     ) -> Result<Exposures, Error> {
-        self.autoexpose_frame_with(frame, lock_white_balance, |_, _| {})
+        self.autoexpose_frame_with(frame, recipe, lock_white_balance, |_, _| {})
     }
 
     /// The same, telling `on` how far along each metering pass is
@@ -38,10 +40,13 @@ impl Session {
     pub fn autoexpose_frame_with(
         &mut self,
         frame: Rect,
+        recipe: &Recipe,
         lock_white_balance: bool,
         on: impl FnMut(usize, Progress),
     ) -> Result<Exposures, Error> {
-        let windows = Recipe::metering(self.capabilities()).windows(self.capabilities(), frame)?;
+        let windows = recipe
+            .metering(self.capabilities())
+            .windows(self.capabilities(), frame)?;
         self.autoexpose_with(&windows, lock_white_balance, on)
     }
 
@@ -151,23 +156,26 @@ impl Session {
         }
     }
 
-    /// The same windows with the unit's start-up white balance in them
+    /// The same windows with the unit's start-up exposures in them
     ///
     /// Any pass wants this, not just a metered one: the channels do not read
     /// neutral at equal exposures, so a descriptor left at 0 comes back with a
-    /// cast. Only the visible channels: 2-11-3's qualifier has no infrared, so
-    /// an IR window keeps the exposure it came with.
+    /// cast. Infrared is seeded the same way, from the same record: metering
+    /// scales the exposure it finds, so a channel left at 0 stays at 0 however
+    /// many passes it gets, and the mask comes back at whatever the unit
+    /// defaults to rather than at the level the film base asks for.
+    ///
+    /// A channel the unit has no reading for keeps what it came with
     pub fn seed_white_balance(&mut self, windows: &[Window]) -> Result<Vec<Window>, Error> {
-        let wb = self.white_balance()?;
-        Ok(windows
-            .iter()
-            .map(|w| {
-                let mut w = w.clone();
-                if let Some(&exposure) = w.channel().visible_index().and_then(|n| wb.get(n)) {
-                    w.exposure = exposure;
-                }
-                w
-            })
-            .collect())
+        let mut seeded = Vec::with_capacity(windows.len());
+        for w in windows {
+            let mut w = w.clone();
+            match self.white_balance(w.channel()) {
+                Ok(exposure) => w.exposure = exposure,
+                Err(e) => debug!(id = w.id, %e, "no start-up exposure for this channel"),
+            }
+            seeded.push(w);
+        }
+        Ok(seeded)
     }
 }
