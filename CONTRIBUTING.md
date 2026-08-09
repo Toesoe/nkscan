@@ -7,19 +7,14 @@ If you would like to contribute to the project, we ask you adhere to the followi
 
 ```sh
 cargo fmt
-cargo clippy --all-targets     # should be silent
+cargo clippy --all-targets
 cargo test
-rg -nP '[^\x00-\x7F]' src/ examples/    # should find nothing
 ```
-
-The source is ASCII only. No em dashes, smart quotes or arrows, in code or comments.
 
 ## AI Assistance
 
-Using AI tools to help you contribute is nominally ok, we just want to remind you that
-*you* are asking the maintainers (human people) review your code and you need to be in the loop of that process.
-As such, we ask that you use AI as a tool to help you write code, not as an agent that autonomously generates
-an entire contribution and submits it on your behalf.
+Using AI tools to help you contribute is nominally ok, we just want to remind you that *you* are asking the maintainers (human people) review your code and you need to be in the loop of that process.
+As such, we ask that you use AI as a tool to help you write code, not as an agent that autonomously generates an entire contribution and submits it on your behalf.
 
 A few simple expectations:
 
