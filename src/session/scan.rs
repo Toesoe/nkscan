@@ -240,7 +240,10 @@ fn read_chunks(
             None => {
                 let waited = Instant::now();
                 let buf = match empty.recv() {
-                    Ok(buf) => buf,
+                    Ok(buf) => {
+                        debug!("got empty buffer");
+                        buf
+                    }
                     Err(_) => return,
                 };
                 Timing::add(&timing.starved, waited.elapsed().as_nanos() as u64);

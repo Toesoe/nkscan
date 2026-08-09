@@ -31,11 +31,18 @@ impl Session {
         let mut done = 0;
         while done < buf.len() {
             let want = chunk.min(buf.len() - done);
+
             let cmd = Read::new(code, 0, width, want as u32);
             let slice = &mut buf[done..done + want];
 
             match self.run(&cmd.cdb(), Data::In(slice), MOVE_TIMEOUT) {
                 Ok(completion) => {
+                    debug!(
+                        transferred = completion.transferred,
+                        want,
+                        "image READ completed"
+                    );
+
                     done += completion.transferred;
                     if completion.transferred < want {
                         break;
@@ -59,7 +66,10 @@ impl Session {
                     }
                     None => return Err(Error::Device(fault)),
                 },
-                Err(e) => return Err(e),
+                Err(e) => {
+                    debug!(error = ?e, "image READ failed");
+                    return Err(e)
+                }
             }
         }
         // Once a chunk, so hundreds of megabytes of scan is thousands of lines
@@ -157,13 +167,20 @@ impl Chunks<'_> {
             return None;
         }
         if self.remaining == 0 {
-            self.drain();
+            self.closed = true;
+            self.spent = true;
             return None;
         }
 
         let want = self.chunk.min(self.remaining as usize);
         buf.resize(want, 0);
         let layout = &self.layout;
+
+        debug!(
+            remaining = self.remaining,
+            buf_len = buf.len(),
+            "issuing image READ from fill"
+        );
         match self.session.read_image(layout, &mut buf[..want]) {
             Err(e) => {
                 self.spent = true;
@@ -201,6 +218,11 @@ impl Chunks<'_> {
         let limit = self.layout.total_bytes().max(self.chunk as u64);
         let mut buf = vec![0u8; self.chunk];
         loop {
+            debug!(
+                remaining = self.remaining,
+                buf_len = buf.len(),
+                "issuing image READ from drain"
+            );
             match self.session.read_image(&self.layout.clone(), &mut buf) {
                 Ok(0) => break,
                 Ok(got) => {
