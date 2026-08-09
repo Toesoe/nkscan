@@ -3,6 +3,12 @@ name = "nkscan"
 version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+# crates.io refuses an upload with no description, and shows the rest on the crate page
+description = "A platform-agnostic, performant driver for Nikon film scanners"
+repository = "https://github.com/activexray/nkscan"
+readme = "README.md"
+keywords = ["scanner", "film", "nikon", "coolscan", "scsi"]
+categories = ["hardware-support", "multimedia::images"]
 
 [dependencies]
 thiserror = "2"
