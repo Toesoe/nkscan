@@ -10,7 +10,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
     device,
     protocol::{
-        caps::{film::FilmFormat, set_window::ColorInterleaving},
+        caps::{film::FilmFormat, set_window::ColorInterleaving, other::HostCooperation},
         decode::Samples,
     },
     scan::{
@@ -81,15 +81,19 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         );
     }
 
+    let mut color_interleave = ColorInterleaving::LINE_WITHOUT_DISTANCE;
+
+    // validate existence of multiline scanning before evaluating superfine; not supported on LS-40/LS-50
+    if !superfine && session.capabilities().features.cooperation.contains(HostCooperation::MULTI_LINE) {
+        color_interleave = ColorInterleaving::MULTILINE_SIMULTANEOUS;
+    }
+
     // What every frame gets scanned with
     // Checked before anything moves
     let recipe = Recipe {
         dpi: dpi.unwrap_or(session.capabilities().address.x_axis.optical_dpi),
         samples,
-        interleaving: match superfine {
-            true => ColorInterleaving::LINE_WITHOUT_DISTANCE,
-            false => ColorInterleaving::MULTILINE_SIMULTANEOUS,
-        },
+        interleaving: color_interleave,
         infrared: ir,
     };
     // Everything the recipe asks for is checked against the pages here, before
