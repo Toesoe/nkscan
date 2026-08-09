@@ -119,18 +119,25 @@ impl Session {
                     let image = Image::new(layout, &samples)?;
                     n += 1;
 
-                    let settled = metering.settled(&image);
-                    debug!(pass = n, settled, "metering pass");
-                    if settled {
-                        break;
-                    }
-
+                    // Correct from what this pass measured, whether or not
+                    // another one follows: the exposures the scan gets are the
+                    // ones the last pass asked for, never the ones it ran at
                     let next = metering.apply(self.capabilities(), &image, &windows)?;
                     for (w, exposure) in windows.iter_mut().zip(next) {
                         w.exposure = exposure;
                     }
+
+                    // A level below full scale says exactly what exposure lands
+                    // on target, so confirming it costs a pass to learn nothing.
+                    // Only a clipped channel, whose correction is a retreat
+                    // rather than a measurement, is worth another
+                    let measured = metering.measured(&image);
+                    debug!(pass = n, measured, "metering pass");
+                    if measured {
+                        break;
+                    }
                     if n >= metering.max_passes.max(1) {
-                        debug!(passes = n, "metering did not settle");
+                        debug!(passes = n, "metering never came off full scale");
                         break;
                     }
                 }

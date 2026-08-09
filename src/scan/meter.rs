@@ -27,11 +27,9 @@ pub struct Metering {
     /// and the film keeps its cast. Off means each one fills the range by
     /// itself, which takes the orange mask off a negative
     pub lock_white_balance: bool,
-    /// How close to `target` counts as landed, as a fraction. A pass that comes
-    /// back inside this needs no correction and no further pass
-    pub tolerance: f32,
-    /// Passes to take before giving up on converging. A clipped channel needs
-    /// at least two, since halving it is a retreat rather than a correction
+    /// Passes to take before giving up on getting a level to correct from. Only
+    /// a clipped channel needs more than the one, and halving it is a retreat
+    /// rather than a correction, so it can need more than two
     pub max_passes: usize,
 }
 
@@ -41,7 +39,6 @@ impl Default for Metering {
             target: 0.97,
             percentile: 0.999,
             lock_white_balance: false,
-            tolerance: 0.02,
             max_passes: 3,
         }
     }
@@ -116,22 +113,19 @@ impl Metering {
 }
 
 impl Metering {
-    /// Whether a pass landed close enough that correcting it is not worth
-    /// another pass
+    /// Whether this pass measured every channel well enough to correct from
     ///
-    /// A channel with nothing to measure counts as settled: there is no
-    /// correction to make from a level of zero. A clipped one never does,
-    /// since where it actually sits is unknown.
-    pub fn settled(&self, image: &Image) -> bool {
+    /// The sensor is linear in integration time, so a level below full scale
+    /// says exactly what exposure lands on target and there is nothing a
+    /// further pass would add. A clipped channel says only that it is somewhere
+    /// above: the retreat is a guess, so that one has to be measured again.
+    /// A channel with nothing to measure has nothing to learn either
+    pub fn measured(&self, image: &Image) -> bool {
         let ceiling = ceiling(image.bits);
-        let target = (f32::from(ceiling) * self.target.clamp(0.0, 1.0)) as u16;
-
-        self.measure(image).into_iter().all(|level| {
-            match level.and_then(|l| step(l, target, ceiling)) {
-                None => true,
-                Some(scale) => (scale - 1.0).abs() <= f64::from(self.tolerance),
-            }
-        })
+        self.measure(image)
+            .into_iter()
+            .flatten()
+            .all(|level| level < ceiling)
     }
 
     /// The high tail of each channel, in the order the image interleaves them
@@ -348,26 +342,26 @@ mod tests {
         assert_eq!(got, vec![2000, 2000, 2000, 4000]);
     }
 
-    /// A pass already on target needs no correction and no further pass
+    /// Only a clipped channel is worth another pass: anything below full scale
+    /// says exactly what exposure lands on target, however far off it is
     #[test]
-    fn a_pass_on_target_is_settled() {
+    fn only_a_clipped_channel_needs_measuring_again() {
         let m = Metering {
             target: 1.0,
             ..Default::default()
         };
         let w = windows(&[1, 2, 3], 1000);
-        let settled = |levels: &[u16]| {
+        let measured = |levels: &[u16]| {
             let (l, s) = decoded(&w, levels);
-            m.settled(&image(&l, &s))
+            m.measured(&image(&l, &s))
         };
 
-        // Full scale is the target, and 65535 is clipped rather than landed
-        assert!(settled(&[65000, 65000, 65000]));
-        assert!(!settled(&[65535, 65000, 65000]));
-        // Half of target is nowhere near it
-        assert!(!settled(&[32767, 65000, 65000]));
-        // Nothing to measure is nothing to correct
-        assert!(settled(&[0, 65000, 65000]));
+        assert!(measured(&[65000, 65000, 65000]));
+        assert!(!measured(&[65535, 65000, 65000]));
+        // Nowhere near target, but the level is what the correction is made of
+        assert!(measured(&[32767, 65000, 65000]));
+        // Nothing to measure is nothing to learn from another pass
+        assert!(measured(&[0, 65000, 65000]));
     }
 
     /// A dark channel gives us nothing to scale, so it keeps what it had
