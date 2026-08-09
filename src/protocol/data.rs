@@ -216,6 +216,18 @@ impl DataType {
             },
         }
     }
+
+    pub fn qualifier(self) -> Option<(u8, u8)> {
+        match self {
+            Self::Boundary2 => Some((0, 0x3B)),
+            _ => self.row().width.map(|width| {
+                (
+                    width,
+                    width_code(width).expect("2-11-2 widths are all encodable"),
+                )
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,6 +279,12 @@ pub const fn width_code(width: u8) -> Option<u8> {
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrameTable {
+    Boundary(Boundary),
+    BoundaryType2(BoundaryType2),
+}
+
 /// One frame's rectangle as `DataType::Boundary` carries it, 2-11-6
 ///
 /// Sub-scanning is Y and main-scanning is X, and this record puts them in that
@@ -282,6 +300,30 @@ pub struct Rect {
     pub bottom: u32,
     /// Bytes 16-19, lower right in the main-scanning direction
     pub right: u32,
+}
+
+/// One frame's rectangle as `DataType::BoundaryType2` carries it, 2-11-9 (LS-5000)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FramePosition {
+    /// Bytes 4-7, Y address for line 1
+    pub top: u32,
+    /// Bytes 8-9, perforation number
+    pub perf_number: u16,
+    /// Byte 10, perforation decimal
+    pub perf_decimal: u8,
+    /// Byte 11, pulse number
+    pub pulse: u8,
+}
+
+impl FramePosition {
+    pub fn rect(self, x_start: u32, x_boundary: u32, length: u32) -> Rect {
+        Rect {
+            top: self.top,
+            left: x_start,
+            bottom: self.top + length - 1,
+            right: x_start + x_boundary - 1,
+        }
+    }
 }
 
 /// Boundary information, 2-11-6, `DataType::Boundary`
@@ -362,6 +404,101 @@ impl Boundary {
                 out.extend_from_slice(&v.to_be_bytes());
             }
         }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoundaryType2 {
+    pub frames: Vec<FramePosition>,
+}
+
+impl BoundaryType2 {
+    /// Bytes before the first frame.
+    const HEAD: usize = 4;
+
+    /// Bytes occupied by each frame record.
+    const FRAME: usize = 8;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
+
+        // Bytes 0-1: parameter length, which is total length - 1.
+        let parameter_length = u16::from_be_bytes([head[0], head[1]]) as usize;
+
+        // Byte 2: actual number of images.
+        let count = usize::from(head[2]);
+
+        // The parameter length describes everything following the field
+        // itself, i.e. total parameter size is length + 1.
+        let total = parameter_length.checked_add(1)?;
+
+        // The reserved byte is currently ignored.
+        let expected = Self::HEAD.checked_add(count.checked_mul(Self::FRAME)?)?;
+
+        // Reject truncated or structurally inconsistent data.
+        if total != expected || b.len() < total {
+            return None;
+        }
+
+        let mut frames = Vec::with_capacity(count);
+
+        for n in 0..count {
+            let at = Self::HEAD + n * Self::FRAME;
+            let r = b.get(at..at + Self::FRAME)?;
+
+            frames.push(FramePosition {
+                top: u32::from_be_bytes([r[0], r[1], r[2], r[3]]),
+                perf_number: u16::from_be_bytes([r[4], r[5]]),
+                perf_decimal: r[6],
+                pulse: r[7],
+            });
+        }
+
+        Some(Self { frames })
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        if self.frames.len() > u8::MAX as usize {
+            return Err(Error::Unsupported {
+                op: "boundary_type2",
+                reason: format!(
+                    "{} frames cannot fit the one-byte count field",
+                    self.frames.len()
+                ),
+            });
+        }
+
+        let total = Self::HEAD
+            .checked_add(self.frames.len() * Self::FRAME)
+            .ok_or_else(|| Error::Unsupported {
+                op: "boundary_type2",
+                reason: "boundary information is too large".into(),
+            })?;
+
+        // Parameter length is n - 1, where n is the total parameter size.
+        let parameter_length = total - 1;
+
+        if parameter_length > u16::MAX as usize {
+            return Err(Error::Unsupported {
+                op: "boundary_type2",
+                reason: "boundary information is too large".into(),
+            });
+        }
+
+        let mut out = Vec::with_capacity(total);
+
+        out.extend_from_slice(&(parameter_length as u16).to_be_bytes());
+        out.push(self.frames.len() as u8);
+        out.push(0);
+
+        for frame in &self.frames {
+            out.extend_from_slice(&frame.top.to_be_bytes());
+            out.extend_from_slice(&frame.perf_number.to_be_bytes());
+            out.push(frame.perf_decimal);
+            out.push(frame.pulse);
+        }
+
         Ok(out)
     }
 }

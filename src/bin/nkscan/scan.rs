@@ -12,6 +12,7 @@ use nkscan::{
     protocol::{
         caps::{film::FilmFormat, set_window::ColorInterleaving, other::HostCooperation},
         decode::Samples,
+        data::FrameTable
     },
     scan::{
         autoexpose::Exposures,
@@ -125,7 +126,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         // Resolve the film format up front where it will be needed, so a
         // missing --format fails before the thumbnail pass
         let film_format = match framing {
-            Framing::Thumbnail => Some(
+            Framing::Thumbnail | Framing::Perforation => Some(
                 resolve_format(
                     format,
                     if !uses_adapter { session.capabilities().address.holder_id } else { session.capabilities().address.connected_adapter },
@@ -134,8 +135,15 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
             _ => None,
         };
 
-        let table = match framing {
-            Framing::Published => framing::table(session.capabilities())?,
+        dbg!(film_format);
+
+        let (table, scan_frames) = match framing {
+            Framing::Published => {
+                let table = framing::table(session.capabilities())?;
+                let frames = table.frames.clone();
+
+                (FrameTable::Boundary(table), frames)
+            }
             Framing::Thumbnail => {
                 let bar = pass_bar("thumbnail");
                 let pass = session.scan_thumbnail_with(&mut samples, |p| bar.report(p))?;
@@ -153,37 +161,67 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 let length = film_format.height_dots(optical_dpi);
                 info!(?film_format, length, "frame length");
 
-                let measured =
-                    thumbnail::frames(session.capabilities(), &pass, &samples, length, None)?;
-
                 // Write the detected frames to the scanner's boundary table
+                let measured = thumbnail::frames(session.capabilities(), &pass, &samples, length, None)?;
                 session.set_boundaries(&measured)?;
+
+                let frames = measured.frames.clone();
+
                 info!(frames = measured.frames.len(), "detected frames");
-                measured
+                (FrameTable::Boundary(measured), frames)
             }
             Framing::Caller => {
                 bail!("Caller-supplied frame boundaries are not implemented yet");
             }
             Framing::Perforation => {
-                bail!("Perforation frame discovery is not implemented");
+                let bar = pass_bar("thumbnail");
+                let pass = session.scan_thumbnail_with(&mut samples, |p| bar.report(p))?;
+                bar.finish_and_clear();
+                debug!(
+                    "thumbnail {} x {} in {} channels, complete={}",
+                    pass.cols,
+                    pass.rows,
+                    pass.layout.channels.len(),
+                    pass.complete
+                );
+
+                let film_format = film_format.expect("resolved before the pass");
+                let optical_dpi = session.capabilities().address.y_axis.optical_dpi;
+                let length = film_format.height_dots(optical_dpi);
+                info!(?film_format, length, "frame length");
+
+                // Write the detected frames to the scanner's boundary table
+                let measured = thumbnail::frames_type2(session.capabilities(), &pass, &samples, length, None)?;
+                session.set_boundaries_type2(&measured)?;
+
+                let x_start = session.windows()?[0].origin.0;
+                let x_boundary = session.windows()?[0].origin.0 + session.windows()?[0].size.0;
+                let y_size = session.windows()?[0].origin.1 + session.windows()?[0].size.1;
+
+                let frames = measured
+                    .frames
+                    .iter()
+                    .map(|f| f.rect(x_start, x_boundary, y_size))
+                    .collect();
+                info!(frames = measured.frames.len(), "detected frames");
+                (FrameTable::BoundaryType2(measured), frames)
             }
         };
 
         // Select all or the requested subset of the frames to scan
         let selected_frames = if frames.is_empty() {
-            table.frames
+            scan_frames
         } else {
             frames
                 .iter()
                 .map(|&idx| {
-                    table
-                        .frames
-                        .get(idx - 1) // One-indexed from the user
+                    scan_frames
+                        .get(idx - 1)
                         .cloned()
                         .ok_or(anyhow!(
                             "Requested frame {} not available. Frames detected: {}",
                             idx,
-                            table.frames.len()
+                            scan_frames.len()
                         ))
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?

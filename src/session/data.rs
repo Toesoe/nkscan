@@ -7,7 +7,7 @@ use crate::{
         caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         curves::Curves,
-        data,
+        data::{self, FrameTable},
         sense::{self, Failure, Fault},
         window::Channel,
     },
@@ -98,12 +98,12 @@ impl Session {
             Some(bit) if self.caps.features.data_types.contains(bit) => {}
             _ => return Err(refuse(format!("this unit does not offer {kind:?}"))),
         }
-        let Some(width) = kind.row().width else {
+        let Some((width, qualifier)) = kind.qualifier() else {
             return Err(refuse(format!(
-                "{kind:?} takes a width 2-11-2 does not fix"
+                "{kind:?} has no addressing qualifier"
             )));
         };
-        let qualifier = data::width_code(width).expect("2-11-2 widths are all encodable");
+
         Ok((width, qualifier, if kind.per_color() { color } else { 0 }))
     }
 
@@ -123,7 +123,9 @@ impl Session {
         let (_, record) = self.read_record(data::DataType::Boundary, 0)?;
         let boundary = data::Boundary::from_bytes(&record)
             .ok_or_else(|| malformed(format!("Boundary was {} bytes", record.len())))?;
-        self.frames = Some(boundary.clone());
+
+        self.frames = Some(FrameTable::Boundary(boundary.clone()));
+
         Ok(boundary)
     }
 
@@ -131,7 +133,30 @@ impl Session {
     ///
     /// `None` until something has read or written one
     pub fn frames(&self) -> Option<&data::Boundary> {
-        self.frames.as_ref()
+        match self.frames.as_ref() {
+            Some(FrameTable::Boundary(boundary)) => Some(boundary),
+            _ => None,
+        }
+    }
+
+    pub fn boundaries_type2(&mut self) -> Result<data::BoundaryType2, Error> {
+        let (_, record) = self.read_record(data::DataType::Boundary2, 0)?;
+        let boundary = data::BoundaryType2::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("BoundaryType2 was {} bytes", record.len())))?;
+
+        self.frames = Some(FrameTable::BoundaryType2(boundary.clone()));
+
+        Ok(boundary)
+    }
+
+    /// The frame table as far as this session knows it
+    ///
+    /// `None` until something has read or written one
+    pub fn frames_type2(&self) -> Option<&data::BoundaryType2> {
+        match self.frames.as_ref() {
+            Some(FrameTable::BoundaryType2(boundary)) => Some(boundary),
+            _ => None,
+        }
     }
 
     /// Tell the unit where each frame is
@@ -142,7 +167,15 @@ impl Session {
     pub fn set_boundaries(&mut self, boundary: &data::Boundary) -> Result<(), Error> {
         let bytes = boundary.to_bytes()?;
         self.send_data(data::DataType::Boundary, 0, &bytes)?;
-        self.frames = Some(boundary.clone());
+        self.frames = Some(FrameTable::Boundary(boundary.clone()));
+        Ok(())
+    }
+
+    /// 2-11-9: alternate Type2 indexing for roll feeders
+    pub fn set_boundaries_type2(&mut self, boundary: &data::BoundaryType2) -> Result<(), Error> {
+        let bytes = boundary.to_bytes()?;
+        self.send_data(data::DataType::Boundary2, 0, &bytes)?;
+        self.frames = Some(FrameTable::BoundaryType2(boundary.clone()));
         Ok(())
     }
 

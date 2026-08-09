@@ -20,7 +20,7 @@ use crate::{
             Capabilities,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        data::{Boundary, Rect},
+        data::{Boundary, Rect, BoundaryType2, FramePosition},
         decode::{Image, Samples},
         window::Window,
     },
@@ -84,6 +84,67 @@ pub fn frames(
         "measured the loaded strip"
     );
     Ok(Boundary { frames })
+}
+
+pub fn frames_type2(
+    caps: &Capabilities,
+    pass: &Pass,
+    samples: &[u16],
+    length: u32,
+    polarity: Option<Polarity>,
+) -> Result<BoundaryType2, Error> {
+    // The window that scans a frame has to be whole readout blocks.
+    let length = window::whole_blocks(caps, length);
+    framing::reachable(caps, length)?;
+
+    let image = Image::new(&pass.layout, samples)?;
+
+    // A thumbnail column is one line pitch of film, and the pass starts
+    // where the Y axis does, so a column is an address.
+    let pitch = pass.layout.line_pitch.max(1);
+    let origin = caps.address.y_axis.address_range.start;
+    let end = caps.address.y_axis.address_range.last;
+
+    let found =
+        boundaries::detect(&image, (length / pitch) as usize, polarity);
+
+    let frames: Vec<FramePosition> = found
+        .frames
+        .iter()
+        .map(|frame| origin + frame.col as u32 * pitch)
+        .filter(|top| *top + length <= end)
+        .map(|top| {
+            let (perf_number, perf_decimal) = perforation_position(top);
+            FramePosition {
+                top,
+                perf_number,
+                perf_decimal,
+                pulse: 0,
+            }
+        })
+        .collect();
+
+    info!(
+        frames = frames.len(),
+        polarity = ?found.polarity,
+        pitch = found.pitch as u32 * pitch,
+        "measured the loaded strip"
+    );
+
+    Ok(BoundaryType2 { frames })
+}
+
+/// Perforation calculations for 8Fh BoundaryInformation Type2. Inferred from full roll previews
+/// Start offset always seems to be 28 internal units for the first perf
+fn perforation_position(y: u32) -> (u16, u8) {
+    const PERF_ORIGIN: f64 = 28.0;
+    const PERF_PITCH: f64 = 4000.0 * 4.8 / 25.4;
+
+    let position = (y as f64 - PERF_ORIGIN) / PERF_PITCH;
+    let number = position.floor() as u16;
+    let decimal = ((position - number as f64) * 5.0).floor() as u8;
+
+    (number, decimal)
 }
 
 /// Where the adapter's opening sits on the sensor, and how wide it is
