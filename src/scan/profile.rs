@@ -60,6 +60,21 @@ impl Family {
     }
 }
 
+/// What the embedded profiles are and whose they are
+///
+/// The bytes are compiled in, so this crate's own license is not the whole
+/// story for anything built from it. Anything redistributing a binary should
+/// put this where its user can read it
+pub const NOTICE: &str = "\
+The ICC profiles this program tags its scans with are derived from the ICM
+profiles in the Nikon Scan 4 installer, which carry the notice \"Nikon Inc. &
+Nikon Corporation 2003\". That notice is retained in each profile.
+
+They are not covered by this program's license, and no license to them is
+granted here. Their tables have been altered (the profile class, and the gamma
+2.2 encode composed into the curves), so they are not what Nikon shipped and
+should not be read as Nikon's characterization.";
+
 /// Bake the color profiles into our binary
 macro_rules! profile {
     ($name:literal) => {

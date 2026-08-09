@@ -1,9 +1,16 @@
 use clap::{Parser, Subcommand};
-use nkscan::{protocol::caps::film::FilmFormat, scan::profile::Film};
-use std::path::PathBuf;
+use nkscan::{protocol::caps::film::FilmFormat, scan::profile};
+use profile::Film;
+use std::{path::PathBuf, sync::LazyLock};
+
+/// The version, plus the notices for what is compiled in alongside our own code
+///
+/// `-V` stays the bare version; this is what `--version` gives
+static LONG_VERSION: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n\n{}", env!("CARGO_PKG_VERSION"), profile::NOTICE));
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version, about, long_version = LONG_VERSION.as_str())]
 /// Scan film on a Nikon Coolscan
 pub struct Cli {
     #[command(subcommand)]
@@ -61,8 +68,7 @@ pub struct Scan {
     #[arg(long)]
     pub no_eject: bool,
 
-    /// Film format. One of: 135, 16, 645, 66, 67, 68, 69, or a custom frame
-    /// height in mm. Defaults to whatever the loaded holder fixes.
+    /// Film format. One of: 135, 16, 645, 66, 67, 68, 69, or a custom frame length in mm. Defaults to what the holder reports (if any).
     #[arg(long, value_parser = parse_format)]
     pub format: Option<FilmFormat>,
 
