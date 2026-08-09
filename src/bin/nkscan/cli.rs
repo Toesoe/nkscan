@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use nkscan::{protocol::caps::film::FilmFormat, scan::profile};
 use profile::Film;
 use std::{path::PathBuf, sync::LazyLock};
+use tracing_subscriber::filter::LevelFilter;
 
 /// The version, plus the notices for what is compiled in alongside our own code
 ///
@@ -15,6 +16,10 @@ static LONG_VERSION: LazyLock<String> =
 pub struct Cli {
     #[command(subcommand)]
     pub action: Action,
+
+    /// Log verbosity: trace, debug, info, warn, error, or off.
+    #[arg(long, global = true, default_value_t = LevelFilter::INFO, value_parser = parse_log_level)]
+    pub log: LevelFilter,
 }
 
 #[derive(Subcommand)]
@@ -99,6 +104,12 @@ impl From<FilmType> for Film {
             FilmType::Mono => Film::MonochromeNegative,
         }
     }
+}
+
+/// A log level flag, by name
+pub fn parse_log_level(flag: &str) -> Result<LevelFilter, String> {
+    flag.parse()
+        .map_err(|_| format!("'{flag}' is not a valid log level (expected one of: trace, debug, info, warn, error, off)"))
 }
 
 /// A film format flag, by name or as a frame height in millimetres
