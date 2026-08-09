@@ -10,9 +10,7 @@ use crate::{
             Capabilities,
             address::Transfer,
             set_window::{ColorInterleaving, ScanKind},
-        },
-        data::width_code,
-        window::{Channel, Window, validate_set},
+        }, data::width_code, model::Model, window::{Channel, Window, validate_set}
     },
 };
 
@@ -123,7 +121,12 @@ fn pitches(caps: &Capabilities, window: &Window) -> Result<(u32, u32), Error> {
 /// Bit 1 makes it a line across every color, bit 2 one line. Neither set means
 /// the unit constrains nothing, so any length will do
 fn read_granule(caps: &Capabilities, line: usize, channels: usize) -> usize {
+    if caps.identity.model() == Some(Model::Ls50) { // LS50 always produces blocks of 131072b
+        return 1
+    }
+
     let transfer = caps.address.transfer;
+
     if transfer.contains(Transfer::READ_LINE_COLS) {
         (line * channels).max(1)
     } else if transfer.contains(Transfer::READ_LINE) {

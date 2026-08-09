@@ -102,8 +102,14 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     // State for the first frame's exposures, reused for the rest so a strip comes out consistent rather than per-frame optimal
     let mut locked: Option<Exposures> = None;
 
+
+    let uses_adapter = !device.is_mf_scanner() && session.capabilities().address.adapter_id.is_some_and(|id| id > 0);
+
     // Nothing can be framed before something is loaded
-    wait_for_film(&mut session, "Load a film holder")?;
+    wait_for_film(
+        &mut session,
+        &format!("Load a film {}", if uses_adapter { "strip" } else { "holder" }),
+    )?;
 
     // One buffer for every strip
     let mut samples = Samples::default();
@@ -119,10 +125,12 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         // Resolve the film format up front where it will be needed, so a
         // missing --format fails before the thumbnail pass
         let film_format = match framing {
-            Framing::Thumbnail => Some(resolve_format(
-                format,
-                session.capabilities().address.holder_id,
-            )?),
+            Framing::Thumbnail => Some(
+                resolve_format(
+                    format,
+                    if !uses_adapter { session.capabilities().address.holder_id } else { session.capabilities().address.connected_adapter },
+                )?,
+            ),
             _ => None,
         };
 
@@ -345,8 +353,13 @@ fn resolve_format(flag: Option<FilmFormat>, holder_id: Option<u8>) -> anyhow::Re
     if let Some(format) = flag {
         return Ok(format);
     }
+
+    dbg!(holder_id);
     let id = holder_id.ok_or_else(|| anyhow!("No holder loaded; supply --format"))?;
-    FilmFormat::from_holder(id).ok_or_else(|| {
+
+    FilmFormat::from_holder(id)
+    .or_else(|| FilmFormat::from_adapter(id))
+    .ok_or_else(|| {
         let choices = FilmFormat::choices_for_holder(id)
             .map(|c| {
                 format!(
@@ -358,6 +371,9 @@ fn resolve_format(flag: Option<FilmFormat>, holder_id: Option<u8>) -> anyhow::Re
                 )
             })
             .unwrap_or_default();
-        anyhow!("This holder does not fix the film format; supply --format{choices}")
+
+        anyhow!(
+            "This holder does not fix the film format; supply --format{choices}"
+        )
     })
 }
