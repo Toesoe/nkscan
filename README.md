@@ -4,6 +4,81 @@
 
 A cross-platform and performant driver for Nikon film scanners.
 
+## Usage
+
+For the command-line tool, download a binary release or build from source and run!
+
+
+### Example
+
+Say I'm batch scanning 6x6 color negatives on my Coolscan 9000 (the only Nikon scanner attached to my computer).
+I usually do 2x multisampling at the full native resolution with an IR pass.
+Additionally, I'll "lock" the exposure from the first frame so every frame is exposed the same off the scanner so I can perform roll analysis when I invert.
+To do this and scan my whole roll (with the program prompting between strips), I'd run
+
+``` bash
+nkscan scan --lock-ae --samples 2 --ir --format 66
+```
+
+### Options
+
+```
+Usage: nkscan scan [OPTIONS] [DEVICE]
+
+Arguments:
+  [DEVICE]
+          The scanner to connect to. Optional, will default to the first found
+
+Options:
+      --basename <BASENAME>
+          Where to write, as a path prefix. Each frame becomes <basename>_<n>.tiff, and its infrared mask <basename>_<n>_IR.tiff
+          
+          [default: scan]
+
+      --unlock-wb
+          Autoexpose per channel. Better dynamic range, but no longer "calibrated"
+
+      --lock-ae
+          Autoexpose the first frame and reuse that exposure across all frames
+
+      --dpi <DPI>
+          Resolution. Defaults to scanner maximum
+
+      --samples <SAMPLES>
+          Number of samples. Defaults to 1
+          
+          [default: 1]
+
+      --superfine
+          Singleline CCD mode. Only supported on multiline CCD scanners
+
+      --frames <FRAMES>
+          Which frame(s) to scan, comma separated. Defaults to all detected. Naming any stops after one holder rather than batching
+
+      --ir
+          Include the IR pass
+
+      --no-eject
+          Don't eject at the end of the strip
+
+      --format <FORMAT>
+          Film format. One of: 135, 16, 645, 66, 67, 68, 69, or a custom frame length in mm. Defaults to what the holder reports (if any)
+
+      --film <FILM>
+          Film type, which picks the color profile the scans are tagged with
+
+          Possible values:
+          - positive:   Slide film
+          - negative:   Color negative
+          - kodachrome: Kodachrome, whose dyes need their own profile
+          - mono:       Black and white negative
+          
+          [default: negative]
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
 ## Support
 Our goal is to support all the scanners supported by Nikon Scan, which are enumerated here by testing status.
 This library doesn't have anything scanner or adapter-specific so *theoretically* it should work across devices.
@@ -56,7 +131,6 @@ The code is broken down into several layers of independent abstractions
 
 ## TODO
 
-- CLI
 - Python bindings
 
 ### Algorithms
@@ -77,6 +151,9 @@ Dual licensed under either of
 - MIT license ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
+
+Except for the ICC profiles in [profiles/](profiles/README.md), which are
+derived from Nikon's and are not ours to license.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for
 inclusion in this work by you, as defined in the Apache-2.0 license, shall be dual licensed

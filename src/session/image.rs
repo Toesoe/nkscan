@@ -79,6 +79,7 @@ impl Session {
             chunk,
             remaining: layout.total_bytes(),
             spent: false,
+            surplus: 0,
         })
     }
 
@@ -127,6 +128,14 @@ pub struct Chunks<'a> {
     chunk: usize,
     remaining: u64,
     spent: bool,
+    /// Bytes the unit held past what the layout promised
+    ///
+    /// The modes that raise a cooperative request carry more than the arithmetic
+    /// says: a re-registered multi-line pass has extra lines at the seams. They
+    /// are read and dropped rather than left behind, since a scan the host walks
+    /// away from stays open and every command after it is refused out of
+    /// sequence
+    surplus: u64,
 }
 
 impl Chunks<'_> {
@@ -137,7 +146,11 @@ impl Chunks<'_> {
     /// what actually arrived, so one buffer can be reused for every chunk
     /// without reallocating
     pub fn fill(&mut self, buf: &mut Vec<u8>) -> Option<Result<usize, Error>> {
-        if self.spent || self.remaining == 0 {
+        if self.spent {
+            return None;
+        }
+        if self.remaining == 0 {
+            self.drain();
             return None;
         }
 
@@ -162,6 +175,38 @@ impl Chunks<'_> {
                 buf.truncate(got);
                 Some(Ok(got))
             }
+        }
+    }
+
+    /// Read off whatever the unit still holds, so the scan closes
+    ///
+    /// 2-11-5: the unit answers a read past the end of the image with `05h-2Ch`,
+    /// and that is what ends a scan. Stopping at the layout's own arithmetic
+    /// instead leaves it open, and the next command that is not a basic one is
+    /// refused with the same code
+    fn drain(&mut self) {
+        self.spent = true;
+        let mut buf = vec![0u8; self.chunk];
+        loop {
+            match self.session.read_image(&self.layout.clone(), &mut buf) {
+                Ok(0) => break,
+                Ok(got) => {
+                    self.surplus += got as u64;
+                    if got < self.chunk {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!(%e, "the unit stopped giving data");
+                    break;
+                }
+            }
+        }
+        if self.surplus > 0 {
+            warn!(
+                bytes = self.surplus,
+                "the unit held more than the layout promised, so the pass is not what it was read as"
+            );
         }
     }
 

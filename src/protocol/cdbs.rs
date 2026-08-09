@@ -6,9 +6,10 @@
 /// The control byte both specs give as 0
 ///
 /// Bit 7 is vendor specific in SCSI, and Nikon Scan sets it on INQUIRY with
-/// EVPD, SET WINDOW, GET WINDOW and READ. It is not decoration: a SET WINDOW
-/// for the infrared window is refused with `05h-24h`, invalid field in CDB,
-/// until it is set.
+/// EVPD, SET WINDOW, GET WINDOW and READ, on every one of those in the whole
+/// capture corpus, and on nothing else. It is not decoration: a SET WINDOW for
+/// the infrared window is refused with `05h-24h`, invalid field in CDB, until
+/// it is set.
 const VENDOR: u8 = 0x80;
 
 /// INQUIRY, 2-2
@@ -55,7 +56,12 @@ impl Inquiry {
             self.page.unwrap_or(0),
             0,
             self.allocation_length,
-            0,
+            // Nikon Scan sets it on the vendor pages and not on standard
+            // INQUIRY, which is the only place the corpus distinguishes the two
+            match self.page {
+                Some(_) => VENDOR,
+                None => 0,
+            },
         ]
     }
 }
@@ -210,7 +216,7 @@ impl GetWindow {
             hi,
             mid,
             lo,
-            0,
+            VENDOR,
         ]
     }
 }
@@ -263,7 +269,7 @@ impl Read {
         debug_assert!(self.transfer_length <= 0xFF_FFFF, "READ length is 24 bits");
         let [_, hi, mid, lo] = self.transfer_length.to_be_bytes();
         let [dtq_hi, dtq_lo] = self.dtq.to_be_bytes();
-        [0x28, 0, self.dtc, 0, dtq_hi, dtq_lo, hi, mid, lo, 0]
+        [0x28, 0, self.dtc, 0, dtq_hi, dtq_lo, hi, mid, lo, VENDOR]
     }
 }
 

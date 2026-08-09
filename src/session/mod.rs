@@ -54,7 +54,13 @@ pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// A unit that keeps asking is not going to start, so cap the re-issues
-const MAX_COOPERATION: usize = 4;
+///
+/// It asks for one job at a time and walks a list of them: a 666 dpi multi-line
+/// pass with three readings and infrared asked five times, one each for
+/// averaging, registration and the CCD data, with two the sense calls 5. The cap
+/// is only there to bound a unit that will not move on, which is what asking for
+/// the same thing twice means
+const MAX_COOPERATION: usize = 16;
 
 /// Long enough for a full-length stage move
 pub(crate) const MOVE_TIMEOUT: Duration = Duration::from_secs(180);
@@ -336,6 +342,7 @@ impl Session {
         timeout: Duration,
     ) -> Result<(Completion, Option<CooperativeAction>), Error> {
         let mut cooperation = None;
+        let mut asked: Vec<(Coop, CooperativeAction)> = Vec::new();
         for _ in 0..=MAX_COOPERATION {
             // `Data::In` holds a `&mut [u8]` and so is not `Copy`. Reborrowing
             // it here is what lets the same command go out more than once
@@ -353,12 +360,26 @@ impl Session {
             // the same job different 4th sense bytes
             let record = self.cooperation()?;
             debug!(?coop, ?record, "the unit wants something doing");
+
+            // Each job is asked for once, so the same one coming back means it
+            // is not satisfied by reading the record and re-issuing, and asking
+            // again would spin until the cap
+            if asked.contains(&(coop, record.clone())) {
+                return Err(Error::Unsupported {
+                    op: "host cooperation",
+                    reason: format!("the unit asked for {coop:?} twice over"),
+                });
+            }
+            asked.push((coop, record.clone()));
             cooperation = Some(record);
         }
 
         Err(Error::Unsupported {
             op: "host cooperation",
-            reason: format!("the unit kept asking after {MAX_COOPERATION} re-issues"),
+            reason: format!(
+                "the unit asked for {} things and was still going: {asked:?}",
+                asked.len()
+            ),
         })
     }
 

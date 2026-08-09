@@ -225,11 +225,36 @@ impl Recipe {
         framing::reachable(caps, extent)?;
         let size = (frame.right.saturating_sub(origin.0).min(x.boundary), extent);
 
-        // Byte 43 is normal quality in every captured scan. High speed turns up
-        // only in the 666 dpi preview, and the LS-5000 does not offer it at all
-        let mut mode = ScanMode::NORMAL_QUALITY;
+        // Below full resolution the three-line readout hands the sensor bar back
+        // at its native pitch, undivided, unless the pass is shaped the way a
+        // preview is: averaging off in byte 41 and high speed in byte 43. The
+        // stage axis divides either way, so the surplus is exactly the pitch: a
+        // 666 dpi pass on a 4000 dpi bar returns six times what it should.
+        //
+        // Which of the two bytes does the binning is unsettled. Nikon Scan never
+        // scans multi-line below full resolution, so they move together in every
+        // capture and this sends both
+        let native = self
+            .interleaving
+            .contains(ColorInterleaving::MULTILINE_SIMULTANEOUS)
+            && self.dpi < caps.address.x_axis.optical_dpi;
+        let fast = caps.set_window.mode.contains(ScanMode::HIGH_SPEED);
+
+        // Byte 43 is normal quality in every captured scan but the preview, and
+        // the LS-5000 does not offer high speed at all
+        let mut mode = match native && fast {
+            true => ScanMode::HIGH_SPEED,
+            false => ScanMode::NORMAL_QUALITY,
+        };
         if self.samples > 1 {
             mode |= ScanMode::MULTI_READING;
+        }
+
+        // Byte 41 bit 7 averages along the scan line, across the bar. Every
+        // capture but the preview sets it, as every capture sets bit 0
+        let mut flags = Flags::POSITIVE;
+        if !native {
+            flags |= Flags::AVERAGING;
         }
 
         let mut windows = blank(caps, &channels)?;
@@ -241,9 +266,7 @@ impl Recipe {
             w.scanning_kind = ScanKind::IMAGE;
             w.scanning_mode = mode;
             w.color_interleaving = self.interleaving;
-            // Byte 41 bit 7 averages along the scan line, across the bar. Every
-            // capture but the preview sets it, as every capture sets bit 0
-            w.flags = Flags::AVERAGING | Flags::POSITIVE;
+            w.flags = flags;
             // Byte 40 carries one less than the reading count. Its low nibble
             // leaves the color ordering to the unit
             w.multiple_reading = self.samples - 1;
@@ -280,6 +303,7 @@ mod tests {
         let mut d = vec![0u8; 28];
         d[1] = SetWindowFunction::PAGE_CODE;
         d[3] = 24;
+        d[5] = ScanMode::HIGH_SPEED.bits();
         d[6] = (ColorInterleaving::MULTILINE_SIMULTANEOUS
             | ColorInterleaving::LINE_WITHOUT_DISTANCE)
             .bits();
@@ -458,6 +482,67 @@ mod tests {
         let windows = recipe().windows(&caps, frame).expect("windows");
         assert_eq!(windows[0].size.1, 8784);
         assert!(windows[0].origin.1 + windows[0].size.1 <= end);
+    }
+
+    /// Below full resolution the three-line readout only bins the bar when the
+    /// pass is shaped like a preview, so the bytes have to say so
+    #[test]
+    fn a_reduced_multi_line_pass_is_shaped_like_a_preview() {
+        let caps = caps();
+        let optical = caps.address.x_axis.optical_dpi;
+
+        let full = recipe().windows(&caps, frame()).expect("windows");
+        assert!(full[0].flags.contains(Flags::AVERAGING));
+        assert_eq!(full[0].scanning_mode, ScanMode::NORMAL_QUALITY);
+
+        let reduced = Recipe {
+            dpi: optical / 6,
+            ..recipe()
+        }
+        .windows(&caps, frame())
+        .expect("windows");
+        assert!(!reduced[0].flags.contains(Flags::AVERAGING));
+        assert!(reduced[0].scanning_mode.contains(ScanMode::HIGH_SPEED));
+
+        // One row at a time has nothing to bin, so it keeps the full shape
+        let single = Recipe {
+            dpi: optical / 6,
+            interleaving: ColorInterleaving::LINE_WITHOUT_DISTANCE,
+            ..recipe()
+        }
+        .windows(&caps, frame())
+        .expect("windows");
+        assert!(single[0].flags.contains(Flags::AVERAGING));
+        assert_eq!(single[0].scanning_mode, ScanMode::NORMAL_QUALITY);
+    }
+
+    /// The descriptor bytes the pre-rewrite driver sent, which were confirmed
+    /// against the hardware at 2000, 1333 and 4000 dpi: byte 41 and byte 43
+    /// pair, `81/02` reading the bar out at its native pitch and `01/04`
+    /// binning it down to the window's resolution
+    #[test]
+    fn the_bytes_pair_the_way_the_hardware_wants() {
+        let caps = caps();
+        let optical = caps.address.x_axis.optical_dpi;
+        let bytes = |dpi, samples| {
+            let w = Recipe {
+                dpi,
+                samples,
+                ..recipe()
+            }
+            .windows(&caps, frame())
+            .expect("windows");
+            let d = w[0].to_bytes();
+            (d[40], d[41], d[42], d[43], d[44], d[45])
+        };
+
+        // Full resolution, one reading
+        assert_eq!(bytes(optical, 1), (0x00, 0x81, 0x01, 0x02, 0x40, 0xFF));
+        // Full resolution, four readings: the count in byte 40 and the bit in 43
+        assert_eq!(bytes(optical, 4), (0x30, 0x81, 0x01, 0x12, 0x40, 0xFF));
+        // Reduced, where the bar has to be binned
+        assert_eq!(bytes(optical / 6, 1), (0x00, 0x01, 0x01, 0x04, 0x40, 0xFF));
+        assert_eq!(bytes(optical / 6, 2), (0x10, 0x01, 0x01, 0x14, 0x40, 0xFF));
     }
 
     /// The window is the frame, so the stage steps to it and stays
