@@ -70,7 +70,9 @@ impl Session {
     /// Stream the image a chunk at a time, without a buffer the size of the scan
     ///
     /// Each chunk is a whole number of [`Layout::granule`]s, so a decoder can
-    /// consume them without straddling a boundary the unit will not split on
+    /// consume them without straddling a boundary the unit will not split on.
+    ///
+    /// Dropping one closes the scan, whatever route the caller took out of it
     pub fn image_chunks<'a>(&'a mut self, layout: &Layout) -> Result<Chunks<'a>, Error> {
         let chunk = self.chunk_size(layout)?;
         Ok(Chunks {
@@ -79,6 +81,7 @@ impl Session {
             chunk,
             remaining: layout.total_bytes(),
             spent: false,
+            closed: false,
             surplus: 0,
         })
     }
@@ -127,7 +130,11 @@ pub struct Chunks<'a> {
     /// Bytes in one chunk, bounded by what the transport can carry
     chunk: usize,
     remaining: u64,
+    /// Nothing more will be handed out, which says nothing about whether the
+    /// unit is finished with the scan
     spent: bool,
+    /// The unit has been read to the end and the scan is over
+    closed: bool,
     /// Bytes the unit held past what the layout promised
     ///
     /// The modes that raise a cooperative request carry more than the arithmetic
@@ -186,6 +193,12 @@ impl Chunks<'_> {
     /// refused with the same code
     fn drain(&mut self) {
         self.spent = true;
+        self.closed = true;
+        // The surplus is the seams of a re-registered pass, a fraction of it. A
+        // unit answering every read in full is not going to say it is spent,
+        // and this also runs on the way out of a pass that already went wrong,
+        // so give up rather than read forever
+        let limit = self.layout.total_bytes().max(self.chunk as u64);
         let mut buf = vec![0u8; self.chunk];
         loop {
             match self.session.read_image(&self.layout.clone(), &mut buf) {
@@ -193,6 +206,14 @@ impl Chunks<'_> {
                 Ok(got) => {
                     self.surplus += got as u64;
                     if got < self.chunk {
+                        break;
+                    }
+                    if self.surplus >= limit {
+                        warn!(
+                            bytes = self.surplus,
+                            limit,
+                            "the unit is still handing data back, giving up on closing the scan"
+                        );
                         break;
                     }
                 }
@@ -213,5 +234,27 @@ impl Chunks<'_> {
     /// Bytes one chunk holds, which is what the transport can carry at once
     pub fn capacity(&self) -> usize {
         self.chunk
+    }
+}
+
+/// A scan the host walks away from stays open, and every command after it is
+/// refused out of sequence
+///
+/// Reading to the end is what 2-11-5 says ends one, and only the pass that runs
+/// to the layout's own byte count reaches that on its own. A pass the unit cut
+/// short, one a decoder rejected, and one whose consumer hung up all leave the
+/// scan open, and this is the one place every route out passes through.
+///
+/// Reading rather than ABORT deliberately: 2-13 stops the scan block where it
+/// is, and aborting one mid-move has to wait for the mechanism first or the
+/// handle wedges until a power cycle. [`drain`](Chunks::drain) gives up on the
+/// first error, so there is nothing here to hang on a unit that has stopped
+/// answering
+impl Drop for Chunks<'_> {
+    fn drop(&mut self) {
+        if !self.closed {
+            debug!("the pass ended early, reading the rest off so the scan closes");
+            self.drain();
+        }
     }
 }
