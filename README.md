@@ -132,8 +132,6 @@ The code is broken down into several layers of independent abstractions
 
 Please note that while LLMs helped with the production of this crate, it was largley written by hand and not vibe-coded.
 If you contribute, please adhere to the [contribution guide](CONTRIBUTING.md).
-I don't mind if you use LLMs in your work, but I ask you do not blindly throw Claude at this an send in a PR that's all written by the LLM.
-Your eyes should go over the code first and ideally all the prose should be your own, to prove you understand what's happening.
 
 ## TODO
 
