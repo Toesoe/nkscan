@@ -258,11 +258,14 @@ impl Session {
     /// Re-read what the scanner says it can do
     ///
     /// Needed after anything that changes the adapter or holder, since several
-    /// fields track those rather than the model
+    /// fields track those rather than the model.
+    ///
+    /// The CCD curves are not among them: the page describing them and the rows
+    /// they cover are the sensor's, so they outlive an adapter change and are
+    /// read once at open rather than again here. Dropping them left every pass
+    /// after the first refresh decoding uncorrected
     pub fn refresh(&mut self) -> Result<(), Error> {
         self.caps = probe::capabilities(self.transport.as_mut())?;
-        // Adapter may have changed, so the cached curves no longer apply
-        self.curves = None;
         Ok(())
     }
 
@@ -341,6 +344,10 @@ impl Session {
         mut data: Data<'_>,
         timeout: Duration,
     ) -> Result<(Completion, Option<CooperativeAction>), Error> {
+        // One budget for the command, re-issues included, rather than one each:
+        // a fresh timeout per round would let 16 cooperative requests run for 16
+        // times what the caller allowed
+        let deadline = Instant::now() + timeout;
         let mut cooperation = None;
         let mut asked: Vec<(Coop, CooperativeAction)> = Vec::new();
         for _ in 0..=MAX_COOPERATION {
@@ -351,13 +358,17 @@ impl Session {
                 Data::In(buf) => Data::In(buf),
                 Data::Out(buf) => Data::Out(buf),
             };
-            let (completion, coop) = self.run_cooperative(cdb, payload, timeout)?;
+            let (completion, coop) = self.run_cooperative(cdb, payload, deadline, timeout)?;
             let Some(coop) = coop else {
                 return Ok((completion, cooperation));
             };
 
             // Dispatch on the record rather than the sense: the two specs give
-            // the same job different 4th sense bytes
+            // the same job different 4th sense bytes.
+            //
+            // This read carries its own `PROBE_TIMEOUT` rather than the
+            // command's deadline: it is a short reply the unit already has in
+            // hand, and it is bounded by the cap on the loop
             let record = self.cooperation()?;
             debug!(?coop, ?record, "the unit wants something doing");
 
@@ -388,13 +399,17 @@ impl Session {
     ///
     /// A cooperative request comes back on the `Option` rather than as an
     /// error, for [`run_handshake`](Self::run_handshake) to service
+    ///
+    /// `deadline` bounds this call and `budget` is only what a timeout reports,
+    /// since the deadline is the caller's whole command and the remainder of it
+    /// would be a misleading thing to name
     fn run_cooperative(
         &mut self,
         cdb: &[u8],
         mut data: Data<'_>,
-        timeout: Duration,
+        deadline: Instant,
+        budget: Duration,
     ) -> Result<(Completion, Option<Coop>), Error> {
-        let deadline = Instant::now() + timeout;
         let mut changes = 0usize;
         // Polling repeats the same outcome, so only log the transitions
         let mut reported: Option<Activity> = None;
@@ -410,7 +425,7 @@ impl Session {
 
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return Err(Error::Transport(transport::Error::Timeout(timeout)));
+                return Err(Error::Transport(transport::Error::Timeout(budget)));
             }
 
             let completion = self.transport.execute(cdb, payload, left)?;
