@@ -33,12 +33,8 @@ jobs:
                       target: x86_64-pc-windows-msvc
                       rustflags: -C target-feature=+crt-static
                       ext: .exe
-                    # macos-13 is the last Intel runner; everything from macos-14 on is Apple
-                    # Silicon. Both are built natively rather than cross-linked
                     - runner: macos-14
                       target: aarch64-apple-darwin
-                    - runner: macos-13
-                      target: x86_64-apple-darwin
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
