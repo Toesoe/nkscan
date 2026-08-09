@@ -7,7 +7,13 @@ A cross-platform and performant driver for Nikon film scanners.
 ## Usage
 
 For the command-line tool, download a binary release or build from source and run!
+Releases carry a binary for Linux (x86_64), Windows (x86_64) and macOS (both Apple Silicon and Intel).
 
+The Linux and Windows binaries are static, so there is no glibc version to match and no VC++ redistributable to install.
+The macOS ones cannot be — Apple does not support statically linking libSystem — but they use nothing a Mac does not already have.
+
+The macOS binaries are not signed, so Gatekeeper quarantines one that arrived through a browser and refuses to run it.
+Clear that with `xattr -d com.apple.quarantine nkscan-aarch64-apple-darwin`, or build from source instead.
 
 ### Example
 
