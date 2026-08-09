@@ -80,6 +80,7 @@ Options:
 ```
 
 ## Support
+
 Our goal is to support all the scanners supported by Nikon Scan, which are enumerated here by testing status.
 This library doesn't have anything scanner or adapter-specific so *theoretically* it should work across devices.
 
@@ -128,6 +129,11 @@ The code is broken down into several layers of independent abstractions
 - Protocol: An implementation of the Nikon spec via serialization and deserialization of bytes as they come off the wire. This module does no IO and is just byte-oriented.
 - Session: Combines a trait object of the Transport (type erasure) with the methods from Protocol. This wraps scanner state (like global units) and provides functions that essentially perform the spec's listed actions.
 - Scan: Combine the methods from Session to perform high-level scan operations. This asks the scanner what it can do and then orders session operations to do it.
+
+Please note that while LLMs helped with the production of this crate, it was largley written by hand and not vibe-coded.
+If you contribute, please adhere to the [contribution guide](CONTRIBUTING.md).
+I don't mind if you use LLMs in your work, but I ask you do not blindly throw Claude at this an send in a PR that's all written by the LLM.
+Your eyes should go over the code first and ideally all the prose should be your own, to prove you understand what's happening.
 
 ## TODO
 
