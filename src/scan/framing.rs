@@ -49,9 +49,9 @@ impl Framing {
         if caps
             .features
             .data_types
-            .contains(DataTypes::BOUNDARY2_READ)
+            .contains(DataTypes::PERFORATION_READ)
         {
-            return Self::Thumbnail;
+            return Self::Perforation;
         }
         Self::Caller
     }
