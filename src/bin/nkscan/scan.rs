@@ -257,7 +257,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
             break;
         }
         session.eject()?;
-        info!("ejected");
+        info!("Ejected");
 
         // Naming frames is a targeted scan rather than a batch, and the
         // numbers mean nothing on the next holder anyway
