@@ -2,16 +2,14 @@
 
 use super::{PROBE_TIMEOUT, Session, malformed};
 use crate::{
-    error::Error,
-    protocol::{
+    error::Error, protocol::{
         caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         curves::Curves,
         data::{self, FrameTable},
         sense::{self, Failure, Fault},
         window::Channel,
-    },
-    transport::{Data, Sense, Status},
+    }, transport::{Data, Sense, Status}
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -177,6 +175,32 @@ impl Session {
         self.send_data(data::DataType::Boundary2, 0, &bytes)?;
         self.frames = Some(FrameTable::BoundaryType2(boundary.clone()));
         Ok(())
+    }
+
+    pub fn read_perforations(&mut self) -> Result<(), Error> {
+        let result = self.read_data(data::DataType::Perforation, 0)?;
+        Ok(())
+    }
+
+    pub fn read_boundaries_type2(&mut self) -> Result<(), Error> {
+        let result = self.read_data(data::DataType::Boundary2, 0)?;
+        Ok(())
+    }
+
+    pub fn inquiry_c1(&mut self, alloc: u8) -> Result<Vec<u8>, Error> {
+        debug!("c1 inquiry for len {}", alloc);
+        let mut res = vec![0u8; alloc as usize];
+        let cdb = [0x12, 0x01, 0xC1, 0x00, alloc, 0x80];
+        let completion = self.run(
+            &cdb,
+            Data::In(&mut res),
+            PROBE_TIMEOUT,
+        )?;
+
+        res.truncate(completion.transferred);
+
+        dbg!(&res);
+        Ok(res)
     }
 
     /// The exposure the unit measured for this channel when it started up

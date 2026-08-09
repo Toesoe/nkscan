@@ -219,6 +219,7 @@ impl DataType {
 
     pub fn qualifier(self) -> Option<(u8, u8)> {
         match self {
+            Self::Perforation => Some((0, 0x00)),
             Self::Boundary2 => Some((0, 0x3B)),
             _ => self.row().width.map(|width| {
                 (
