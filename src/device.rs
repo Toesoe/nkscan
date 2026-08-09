@@ -8,7 +8,10 @@ use crate::{
     transport::{Data, Status, Transport, usb::UsbTransport},
 };
 use nusb::MaybeFuture;
-use std::{fmt, path::PathBuf, str::FromStr, time::Duration};
+/// Only the two platforms with a SCSI node to open name one
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::path::PathBuf;
+use std::{fmt, str::FromStr, time::Duration};
 use tracing::debug;
 
 /// Asking a device who it is should never take long

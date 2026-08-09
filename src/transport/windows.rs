@@ -209,7 +209,7 @@ impl Transport for ScsiScanDevice {
             // driver reports 02h-04h-01h and 06h-28h-00h each carrying
             // their documented 01h here, so both repack SBP-2 quadlet 5 to
             // bytes 15-17 the same way
-            sense_from_fixed(sb, Some(sb[15]))
+            Some(sense_from_fixed(&sb, Some(sb[15])))
         } else {
             None
         };

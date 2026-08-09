@@ -12,6 +12,10 @@ pub mod windows;
 
 /// How much sense data we ask a transport for, matches the Linux kernel's SCSI_SENSE_BUFFERSIZE.
 /// The transports will basically always return less
+///
+/// The sg path is the only one that gets to ask: `scsiscan.sys` fixes its own
+/// buffer and the USB wrapper carries eight bytes whatever we do
+#[cfg(target_os = "linux")]
 const SENSE_REQUEST_LEN: usize = 96;
 
 /// The SCSI operation error type
@@ -101,6 +105,10 @@ impl fmt::Debug for Sense {
 /// The caller guarantees at least the 14 minimal bytes and passes the slice it
 /// is willing to trust as `raw` together with the `tsc` value it can justify,
 /// since the platforms differ on how far the driver wrote
+///
+/// The two SCSI passthroughs only: the USB wrapper carries its four sense bytes
+/// in a shape of its own and builds a [`Sense`] directly
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn sense_from_fixed(buffer: &[u8], tsc: Option<u8>) -> Sense {
     Sense {
         key: buffer[2] & 0xF,
