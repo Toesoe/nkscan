@@ -7,12 +7,9 @@ A cross-platform and performant driver for Nikon film scanners.
 ## Usage
 
 For the command-line tool, download a binary release or build from source and run!
-Releases carry a binary for Linux (x86_64), Windows (x86_64) and macOS (both Apple Silicon and Intel).
+Releases carry a binary for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon (aarch64) only).
 
-The Linux and Windows binaries are static, so there is no glibc version to match and no VC++ redistributable to install.
-The macOS ones cannot be — Apple does not support statically linking libSystem — but they use nothing a Mac does not already have.
-
-The macOS binaries are not signed, so Gatekeeper quarantines one that arrived through a browser and refuses to run it.
+The mac binaries are not signed, so Gatekeeper will trigger and will prevent it from running.
 Clear that with `xattr -d com.apple.quarantine nkscan-aarch64-apple-darwin`, or build from source instead.
 
 ### Example
@@ -26,12 +23,16 @@ To do this and scan my whole roll (with the program prompting between strips), I
 nkscan scan --lock-ae --samples 2 --ir --format 66
 ```
 
+![demo gif](docs/demo.gif)
+
 ### Options
 
 <details>
 <summary><code>nkscan scan --help</code></summary>
 
 ```
+Perform a scan. Defaults to batch scanning with sensible defaults
+
 Usage: nkscan scan [OPTIONS] [DEVICE]
 
 Arguments:
@@ -49,6 +50,11 @@ Options:
 
       --lock-ae
           Autoexpose the first frame and reuse that exposure across all frames
+
+      --log <LOG>
+          Log verbosity: trace, debug, info, warn, error, or off
+          
+          [default: info]
 
       --dpi <DPI>
           Resolution. Defaults to scanner maximum
@@ -118,7 +124,7 @@ If you want to use a Firewire scanner on an old Mac that still has OS support fo
 It is technically possible, but getting Rust to compile a binary for older MacOS is not something I have experience in.
 You could also just like, install Linux on it :)
 
-### USB Scanners
+### USB Scanner Drivers
 
 We use [nusb](https://github.com/kevinmehall/nusb), which is a pure-Rust alternative to libusb, but it carries the same invariants.
 On Windows, this means you need to associate your device with a WinUSB driver.
@@ -127,6 +133,13 @@ The most popular way to do this is with [Zadig](https://zadig.akeo.ie/).
 On Linux, make sure you have the appropriate udev rules set up. Nusb has some [help](https://docs.rs/nusb/latest/nusb/#linux) on this.
 
 MacOS *should* just work.
+
+### FireWire Drivers
+
+Things *should* just work on Linux (assuming you've got the [SG](https://www.kernel.org/doc/html/latest/scsi/scsi-generic.html) module loaded) and Windows.
+MacOS dropped support for hardware FireWire a while ago and while there are [efforts](github.com/mrmidi/ASFireWire) to bring it back, it seems a bit hacky at the moment.
+If you have an older mac with FireWire on it, you could just install Linux and have an OS that respects your freedom.
+If you have a newer mac and a cascade of dongles, maybe open an issue if you'd like support.
 
 ## Design Notes
 
