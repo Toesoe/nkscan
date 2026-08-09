@@ -170,31 +170,60 @@ impl TryFrom<&Page> for SetWindowFunction {
     type Error = Error;
 
     fn try_from(page: &Page) -> Result<Self, Self::Error> {
-        let (o1, o2) = (page.u8(8)?, page.u8(9)?);
+        // Five extendable fields in a row, each saying where the next begins.
+        // The byte numbers are where a unit that extends none of them puts
+        // them, which is both of the ones we have
+        let (kind, len) = page.flags(4)?; // byte 4
+        let (mode, n) = page.flags(4 + len)?; // byte 5
+        let (interleaving, n2) = page.flags(4 + len + n)?; // byte 6
+        let (components, n3) = page.flags(4 + len + n + n2)?; // byte 7
+        let order = 4 + len + n + n2 + n3; // byte 8
+        let (o1, o2) = (page.u8(order)?, page.u8(order + 1)?);
+        let (depth, n4) = page.flags(order + 2)?; // byte 10
+        let rest = order + 2 + n4; // byte 11
+
+        // The digital control's additional information sits between the two
+        // supports, so the analog side starts wherever that ended
+        let dic_len = page.u8(rest + 2)?;
+        let (aic, n5) = page.flags(rest + 3 + usize::from(dic_len))?; // byte 14
+        let analog = rest + 3 + usize::from(dic_len);
+        let aic_len = page.u8(analog + n5)?;
+
+        // Then the first control's parameter: its width, its minimum and its
+        // maximum, the last two as wide as the first says. A unit offering no
+        // analog control at all has no exposure to set
+        let first = analog + n5 + 1;
+        let exposure = match aic_len {
+            0 => (0..=0).into(),
+            _ => {
+                let width = usize::from(page.u8(first)?);
+                (page.be(first + 1, width)?..=page.be(first + 1 + width, width)?).into()
+            }
+        };
+        let tail = first + usize::from(aic_len);
+
         Ok(Self {
             page_length: page.u8(3)?,
-            kind: ScanKind::from_bits_truncate(page.u8(4)?),
-            mode: ScanMode::from_bits_truncate(page.u8(5)?),
-            interleaving: ColorInterleaving::from_bits_truncate(page.u8(6)?),
-            components: ColorComponents::from_bits_truncate(page.u8(7)?),
+            kind: ScanKind::from_bits_truncate(kind as u8),
+            mode: ScanMode::from_bits_truncate(mode as u8),
+            interleaving: ColorInterleaving::from_bits_truncate(interleaving as u8),
+            components: ColorComponents::from_bits_truncate(components as u8),
             order: [
                 Component::from_nibble(o1 & 0x0F),
                 Component::from_nibble(o1 >> 4),
                 Component::from_nibble(o2 & 0x0F),
                 Component::from_nibble(o2 >> 4),
             ],
-            depth: BitDepth::from_bits_truncate(page.u8(10)?),
-            setup_modes: page.u8(11)?,
-            dic: page.u8(12)?,
-            dic_len: page.u8(13)?,
-            aic: AnalogControl::from_bits_truncate(page.u8(14)?),
-            aic_len: page.u8(15)?,
-            // Byte 16 is the parameter width. Both units say 4; anything else
-            // would mean these offsets are wrong
-            exposure: (page.be32(17)?..=page.be32(21)?).into(),
-            filter_support: page.u8(25)?,
-            matrix_support: page.u8(26)?,
-            halftone_support: page.u8(27)?,
+            depth: BitDepth::from_bits_truncate(depth as u8),
+            setup_modes: page.u8(rest)?,
+            dic: page.u8(rest + 1)?,
+            dic_len,
+            aic: AnalogControl::from_bits_truncate(aic as u8),
+            aic_len,
+            exposure,
+            filter_support: page.u8(tail)?,
+            matrix_support: page.u8(tail + 1)?,
+            halftone_support: page.u8(tail + 2)?,
         })
     }
 }
@@ -266,5 +295,80 @@ mod tests {
         let real = parse(LS9000);
         assert!(real.kind.contains(ScanKind::SETUP_2 | ScanKind::HISTOGRAM));
         assert_eq!(real.setup_modes, 0);
+    }
+
+    /// Every field before the analog control is extendable, so a unit that
+    /// carries any of them on moves the whole tail
+    #[test]
+    fn an_extended_scanning_kind_moves_the_analog_side_along() {
+        let mut p = LS9000.to_vec();
+        p.insert(5, 0x00); // the byte the scanning kind extends into
+        p[4] |= 0x80;
+        p[3] += 1;
+
+        let moved = parse(&p);
+        let flat = parse(LS9000);
+        assert_eq!(moved.kind, flat.kind);
+        assert_eq!(moved.mode, flat.mode);
+        assert_eq!(moved.depth, flat.depth);
+        assert_eq!(moved.aic, flat.aic);
+        assert_eq!(moved.exposure, flat.exposure);
+    }
+
+    /// A real LS-8000 ED, which reaches the same fields with a 14 bit depth
+    #[test]
+    fn the_walk_lands_on_a_second_unit() {
+        const LS8000: &[u8] = &[
+            0x06, 0xD1, 0x00, 0x17, 0x77, 0x16, 0x42, 0x46, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00,
+            0x40, 0x09, 0x04, 0x00, 0x00, 0x00, 0x01, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+        ];
+        let real = parse(LS8000);
+        assert_eq!(real.aic, AnalogControl::EXPOSURE_VALUE);
+        assert_eq!(real.aic_len, 9);
+        assert_eq!(real.exposure, (1..=0x3FF_FFFF).into());
+        assert_eq!(real.depth, BitDepth::BIT_8 | BitDepth::BIT_14);
+    }
+
+    /// Both known units leave the digital control empty, so the analog side
+    /// happens to start at byte 14. A unit that carried some would push the
+    /// whole tail along by the length it declared
+    #[test]
+    fn digital_control_information_moves_the_analog_side_along() {
+        let mut p = LS9000.to_vec();
+        let tail = p.split_off(14);
+        p.extend([0xAA, 0xBB]); // two bytes of digital control information
+        p.extend(tail);
+        p[3] += 2;
+        p[13] = 2;
+
+        let moved = parse(&p);
+        assert_eq!(moved.aic, parse(LS9000).aic);
+        assert_eq!(moved.exposure, parse(LS9000).exposure);
+        assert_eq!(moved.halftone_support, parse(LS9000).halftone_support);
+    }
+
+    /// The width of the first control's minimum and maximum is a field of its
+    /// own, not the 4 bytes both units happen to use
+    #[test]
+    fn the_control_parameter_is_as_wide_as_the_unit_says() {
+        let mut p = LS9000.to_vec();
+        p[15] = 5; // a width, then a two byte minimum and maximum
+        p[16] = 2;
+        p[17..19].copy_from_slice(&64u16.to_be_bytes());
+        p[19..21].copy_from_slice(&4096u16.to_be_bytes());
+        p[21] = 0x11; // where filter, matrix and halftone now sit
+        p[22] = 0x22;
+        p[23] = 0x33;
+
+        let narrow = parse(&p);
+        assert_eq!(narrow.exposure, (64..=4096).into());
+        assert_eq!(
+            (
+                narrow.filter_support,
+                narrow.matrix_support,
+                narrow.halftone_support
+            ),
+            (0x11, 0x22, 0x33)
+        );
     }
 }

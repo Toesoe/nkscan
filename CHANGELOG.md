@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3]
+
+### Fixed
+
+- The capability pages are walked rather than indexed. Extend bits and length
+  prefixes mean the unit decides where each field sits, so a spec's byte
+  numbers only hold for the model it documents. Units that spend fewer bytes
+  than the LS-9000 had every field after the first short one read a byte early,
+  which on an LS-8000 ED refused to scan for want of an autofocus it has.
+- A field the page ends before takes its documented default instead of whatever
+  the transport padded with.
+
 ## [0.3.2]
 
 ### Added

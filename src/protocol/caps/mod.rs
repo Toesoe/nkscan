@@ -92,6 +92,72 @@ impl Page {
         Ok(u32::from_be_bytes(self.array(i)?))
     }
 
+    /// A big-endian integer `len` bytes wide, where the unit gave the width
+    fn be(&self, i: usize, len: usize) -> Result<u32, Error> {
+        if len == 0 || len > 4 {
+            return Err(Error::BadField {
+                page: self.code,
+                byte: i,
+                what: "parameter width",
+                value: len as u32,
+            });
+        }
+        let mut value = 0u32;
+        for n in 0..len {
+            value = value << 8 | u32::from(self.u8(i + n)?);
+        }
+        Ok(value)
+    }
+
+    /// How many bytes the page says it holds
+    ///
+    /// Clamped to what arrived, since a unit declaring more than it sent is no
+    /// licence to read past the buffer
+    fn declared_len(&self) -> usize {
+        (4 + usize::from(self.bytes[3])).min(self.bytes.len())
+    }
+
+    /// The byte at `i`, if the page is long enough to carry it
+    ///
+    /// Several fields are documented to take a default when the unit "sends no
+    /// value", which is a page that ends before them rather than a short read.
+    /// Reading one off the buffer anyway takes whatever the transport left
+    /// there, and a padded read looks exactly like data
+    fn carried_u8(&self, i: usize) -> Option<u8> {
+        match i < self.declared_len() {
+            true => self.u8(i).ok(),
+            false => None,
+        }
+    }
+
+    /// A run of bit flags, as the bits and the bytes they took
+    ///
+    /// Bit 7 of each byte is the extend bit: set means the field carries on
+    /// into the next one. How long it is therefore comes from the unit, and so
+    /// does where every field after it starts. A spec prints the byte numbers
+    /// of the unit it documents, which is one instance of the layout rather
+    /// than the layout itself.
+    ///
+    /// The extend bits stay in the returned value; no flag is defined on one,
+    /// so they truncate away with the rest of the reserved bits
+    fn flags(&self, i: usize) -> Result<(u64, usize), Error> {
+        let mut bits = 0u64;
+        for n in 0..8 {
+            let byte = self.u8(i + n)?;
+            bits |= u64::from(byte) << (8 * n);
+            if byte & 0x80 == 0 {
+                return Ok((bits, n + 1));
+            }
+        }
+        // Eight bytes is every bit a u64 holds, so a ninth has nowhere to go
+        Err(Error::BadField {
+            page: self.code,
+            byte: i + 7,
+            what: "flags run past 8 bytes",
+            value: bits as u32,
+        })
+    }
+
     /// Zero means "absent" in several fields on this page
     fn opt_u8(&self, i: usize) -> Result<Option<u8>, Error> {
         Ok(Some(self.u8(i)?).filter(|&v| v != 0))

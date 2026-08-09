@@ -186,42 +186,41 @@ impl TryFrom<&Page> for Address {
 
     fn try_from(page: &Page) -> Result<Self, Self::Error> {
         let page_length = page.u8(3)?;
-        let transfer = Transfer::from_bits_truncate(page.u8(4)?);
-        let window_descriptor_len = page.be16(5)?;
-        let set_parameter_len = page.be16(7)?;
-        let scsi_buffer = page.opt_be16(9)?;
-        let image_buffer_kb = page.be16(11)?;
-        let units_attachable = page.u8(13)?;
-        let adapter_id = page.opt_u8(14)?;
-        let holder_id = page.opt_u8(15)?;
-        let line_gap = page.u8(85)?;
-        let b16 = page.u8(16)?;
-        let coordinate_base = CoordinateBase::from_bits_truncate(b16);
-        let pitch_rule = match b16 & 0b11 {
-            0 => PitchRule::Continuous,
-            1 => PitchRule::EachPitch,
-            2 => PitchRule::DivisorsOf(line_gap),
-            3 => PitchRule::OnePlusEven,
-            _ => unreachable!("masked to two bits"),
-        };
-        let addressing_kind = AddressingKind::from_bits_truncate(page.u8(17)?);
-        let x_axis = Axis {
-            optical_dpi: page.be16(18)?,
-            dpi_range: ((page.be16(22)?)..=(page.be16(20)?)).into(),
-            address_range: ((page.be32(28)?)..=(page.be32(24)?)).into(),
-            address_offset: page.be32(32)?,
-            boundary: page.be32(36)?,
-        };
-        let y_axis = Axis {
-            optical_dpi: page.be16(40)?,
-            dpi_range: ((page.be16(44)?)..=(page.be16(42)?)).into(),
-            address_range: ((page.be32(50)?)..=(page.be32(46)?)).into(),
-            address_offset: page.be32(54)?,
-            boundary: page.be32(58)?,
-        };
 
-        let y_outside_max = page.be32(62)?;
-        let y_outside_min = page.be32(66)?;
+        // Two extendable fields, each moving everything that follows it. The
+        // byte numbers in the comments are where a unit that extends neither
+        // puts them, which is both of the ones we have
+        let (bits, len) = page.flags(4)?;
+        let transfer = Transfer::from_bits_truncate(bits as u8);
+        let head = 4 + len; // byte 5
+        let window_descriptor_len = page.be16(head)?;
+        let set_parameter_len = page.be16(head + 2)?;
+        let scsi_buffer = page.opt_be16(head + 4)?;
+        let image_buffer_kb = page.be16(head + 6)?;
+        let units_attachable = page.u8(head + 8)?;
+        let adapter_id = page.opt_u8(head + 9)?;
+        let holder_id = page.opt_u8(head + 10)?;
+
+        let (base, len) = page.flags(head + 11)?; // byte 16
+        let rest = head + 11 + len; // byte 17
+        let addressing_kind = AddressingKind::from_bits_truncate(page.u8(rest)?);
+
+        // Both axes are the same 22 byte block, X then Y
+        let axis = |at: usize| -> Result<Axis, Error> {
+            Ok(Axis {
+                optical_dpi: page.be16(at)?,
+                dpi_range: ((page.be16(at + 4)?)..=(page.be16(at + 2)?)).into(),
+                address_range: ((page.be32(at + 10)?)..=(page.be32(at + 6)?)).into(),
+                address_offset: page.be32(at + 14)?,
+                boundary: page.be32(at + 18)?,
+            })
+        };
+        let axes = rest + 1; // byte 18
+        let x_axis = axis(axes)?;
+        let y_axis = axis(axes + 22)?;
+
+        let y_outside_max = page.be32(axes + 44)?;
+        let y_outside_min = page.be32(axes + 48)?;
 
         let y_outside = if y_outside_min == 0 && y_outside_max == 0 {
             None
@@ -229,14 +228,28 @@ impl TryFrom<&Page> for Address {
             Some(((y_outside_min)..=(y_outside_max)).into())
         };
 
-        let thumbnail_resolution = ((page.be16(72)?)..=(page.be16(70)?)).into();
-        let max_frames = page.u8(74)?;
-        let loaded_frames = page.u8(75)?;
-        let focus_range = ((page.be16(76)?)..=(page.be16(78)?)).into();
-        let lamp_warmup_time = page.be16(80)?;
-        let bit_depth = page.u8(82)?;
-        let ccd_pixels = page.be16(83)?;
-        let lines = match page.u8(86)? {
+        let thumbnail_resolution = ((page.be16(axes + 54)?)..=(page.be16(axes + 52)?)).into();
+        let max_frames = page.u8(axes + 56)?;
+        let loaded_frames = page.u8(axes + 57)?;
+        let focus_range = ((page.be16(axes + 58)?)..=(page.be16(axes + 60)?)).into();
+        let lamp_warmup_time = page.be16(axes + 62)?;
+        let bit_depth = page.u8(axes + 64)?;
+        let ccd_pixels = page.be16(axes + 65)?;
+        let line_gap = page.u8(axes + 67)?; // byte 85
+
+        let coordinate_base = CoordinateBase::from_bits_truncate(base as u8);
+        let pitch_rule = match base & 0b11 {
+            0 => PitchRule::Continuous,
+            1 => PitchRule::EachPitch,
+            2 => PitchRule::DivisorsOf(line_gap),
+            3 => PitchRule::OnePlusEven,
+            _ => unreachable!("masked to two bits"),
+        };
+
+        // 2-2-2-3 byte 86: zero *or a page that stops before it* means three.
+        // The note under it has this page stopping at byte 14 when there is no
+        // adapter, so stopping short is something it does
+        let lines = match page.carried_u8(axes + 68).unwrap_or(0) {
             0 => 3,
             n => n,
         };
@@ -356,6 +369,55 @@ mod tests {
         let mut p = ls9000();
         p[86] = 0;
         assert_eq!(parse(&p).lines, 3);
+    }
+
+    /// The same clause covers "or no value is sent to this field", which is a
+    /// page that ends first. Read off the buffer regardless it is whatever the
+    /// transport padded with, and a 20h pad is a 32 line CCD.
+    ///
+    /// These are a real LS-8000 ED's bytes, which stop at byte 85
+    #[test]
+    fn a_page_that_ends_before_the_line_count_still_means_three() {
+        let mut ls8000: Vec<u8> = vec![
+            0x06, 0xC1, 0x00, 0x52, 0x01, 0x00, 0x3A, 0x00, 0x0F, 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x01, 0x10, 0x42, 0x12, 0x0F, 0xA0, 0x0F, 0xA0, 0x02, 0x9A, 0x00, 0x00, 0x27, 0x0F,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x27, 0x10, 0x0F, 0xA0,
+            0x0F, 0xA0, 0x01, 0x4D, 0x00, 0x00, 0x36, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x36, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x53, 0x00, 0x53, 0x00, 0x00, 0x00, 0x00, 0x01, 0xC2, 0x00, 0x00, 0x0E, 0x27,
+            0x10, 0x0C,
+        ];
+        assert_eq!(ls8000.len(), 4 + usize::from(ls8000[3]));
+
+        let parsed = parse(&ls8000);
+        assert_eq!(parsed.lines, 3);
+        // The last field it does carry, and the two before it
+        assert_eq!(parsed.line_gap, 12);
+        assert_eq!(parsed.ccd_pixels, 10000);
+        assert_eq!(parsed.bit_depth, 14);
+
+        // The transport pads the rest of the allocation it was given, which is
+        // where the 32 line CCD came from
+        ls8000.resize(91, 0x20);
+        assert_eq!(parse(&ls8000).lines, 3);
+    }
+
+    /// Byte 4 is extendable, so a unit that carries on into byte 5 moves every
+    /// field of the page along with it
+    #[test]
+    fn an_extended_function_support_moves_the_page_along() {
+        let mut p = ls9000();
+        p.insert(5, 0x00); // the byte it extends into
+        p[4] |= 0x80;
+        p[3] += 1;
+
+        let moved = parse(&p);
+        let flat = parse(&ls9000());
+        assert_eq!(moved.window_descriptor_len, flat.window_descriptor_len);
+        assert_eq!(moved.x_axis.optical_dpi, flat.x_axis.optical_dpi);
+        assert_eq!(moved.y_axis.address_range, flat.y_axis.address_range);
+        assert_eq!(moved.line_gap, flat.line_gap);
+        assert_eq!(moved.lines, flat.lines);
     }
 
     /// Byte 16 varies with what is loaded, not with the model: the IA-20 flips

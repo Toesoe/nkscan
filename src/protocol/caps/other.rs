@@ -4,29 +4,31 @@ use super::{Error, Page};
 use crate::protocol::data::Op;
 use bitflags::bitflags;
 
+/// The two flag fields are extendable, so each says where the next one starts
+/// and the rest is found by walking rather than by indexing
 #[derive(Debug, Clone)]
 pub struct Features {
-    /// Declared page length. Byte 3
+    /// Declared page length
     pub page_length: u8,
-    /// What the host (this software) needs to do rather than the scanner. Byte 4,5
+    /// What the host (this software) needs to do rather than the scanner
     pub cooperation: HostCooperation,
-    /// What types are available for READ/SEND. Bytes 6 - 10
+    /// What types are available for READ/SEND
     pub data_types: DataTypes,
-    /// Bit depths for the various things. Bytes 11-19
+    /// Bit depths for the various things
     pub depths: Depths,
-    /// EXECUTE operation support. Bytes 20 - 35
+    /// EXECUTE operation support
     pub execute: ExecuteOps,
-    /// Other other additional information (jfc nikon). Byte 36
+    /// Other other additional information (jfc nikon)
     pub additional: u8,
-    /// RAM buffer area. Byte 37
+    /// RAM buffer area
     pub volatile_buffer: u8,
-    /// NV buffer area. Byte 38
+    /// NV buffer area
     pub nonvolatile_buffer: u8,
 }
 
 bitflags! {
-    /// Bytes 4 and 5, assembled as `byte4 | byte5 << 8`.
-    /// A bit set means *the initiator* does that work, not the scanner
+    /// The field's bytes, low one first. A bit set means *the initiator* does
+    /// that work, not the scanner
     ///
     /// Five of these pair with the [`Coop`](crate::protocol::sense::Coop)
     /// handshakes: a bit set here is an `09h-80h` ASCQ that will arrive
@@ -167,40 +169,44 @@ impl TryFrom<&Page> for Features {
     type Error = Error;
 
     fn try_from(page: &Page) -> Result<Self, Self::Error> {
-        let cooperation = HostCooperation::from_bits_truncate(
-            u16::from(page.u8(4)?) | u16::from(page.u8(5)?) << 8,
-        );
-
-        let mut types = 0u64;
-        for (n, byte) in (6..=10).enumerate() {
-            types |= u64::from(page.u8(byte)?) << (8 * n);
-        }
+        // Both of the leading fields are extendable, so each one says where the
+        // next begins. Only the depths onwards are a fixed count of bytes
+        let (cooperation, len) = page.flags(4)?;
+        let (types, types_len) = page.flags(4 + len)?;
+        let depths = 4 + len + types_len;
+        let execute = depths + 9;
+        let tail = execute + 16;
+        // Extendable in its turn, so the two buffer sizes follow it
+        let (additional, additional_len) = page.flags(tail)?;
+        let buffers = tail + additional_len;
 
         let mut groups = [0u16; 8];
         for (n, group) in groups.iter_mut().enumerate() {
-            // Low byte first: byte 20 carries 8xh ops 0-7, byte 21 ops 8-15
-            *group = u16::from(page.u8(20 + 2 * n)?) | u16::from(page.u8(21 + 2 * n)?) << 8;
+            // Low byte first: the first byte of a pair carries ops 0-7 of that
+            // high nibble, the second ops 8-15
+            *group = u16::from(page.u8(execute + 2 * n)?)
+                | u16::from(page.u8(execute + 1 + 2 * n)?) << 8;
         }
 
         Ok(Self {
             page_length: page.u8(3)?,
-            cooperation,
+            cooperation: HostCooperation::from_bits_truncate(cooperation as u16),
             data_types: DataTypes::from_bits_truncate(types),
             depths: Depths {
-                halftone_mask: page.u8(11)?,
-                lut_input: page.u8(12)?,
-                lut_output: page.u8(13)?,
-                histogram: page.u8(14)?,
-                max_value: page.u8(15)?,
-                matrix: page.u8(16)?,
-                filter: page.u8(17)?,
-                shading: page.u8(18)?,
-                dark_current: page.u8(19)?,
+                halftone_mask: page.u8(depths)?,
+                lut_input: page.u8(depths + 1)?,
+                lut_output: page.u8(depths + 2)?,
+                histogram: page.u8(depths + 3)?,
+                max_value: page.u8(depths + 4)?,
+                matrix: page.u8(depths + 5)?,
+                filter: page.u8(depths + 6)?,
+                shading: page.u8(depths + 7)?,
+                dark_current: page.u8(depths + 8)?,
             },
             execute: ExecuteOps(groups),
-            additional: page.u8(36)?,
-            volatile_buffer: page.u8(37)?,
-            nonvolatile_buffer: page.u8(38)?,
+            additional: additional as u8,
+            volatile_buffer: page.u8(buffers)?,
+            nonvolatile_buffer: page.u8(buffers + 1)?,
         })
     }
 }
@@ -214,6 +220,14 @@ mod tests {
         0x06, 0xE1, 0x00, 0x23, 0x83, 0x0D, 0xA0, 0x80, 0xF0, 0xBA, 0x48, 0x00, 0x00, 0x00, 0x00,
         0x10, 0x00, 0x00, 0x10, 0x10, 0x03, 0x00, 0x06, 0x00, 0x01, 0x00, 0x09, 0x00, 0x02, 0x00,
         0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x04, 0x00,
+    ];
+
+    /// Read off a real LS-8000 ED, whose data types field is a byte shorter
+    /// than the LS-9000's, moving everything after it
+    const LS8000: &[u8] = &[
+        0x06, 0xE1, 0x00, 0x22, 0x83, 0x05, 0xAC, 0x90, 0xF0, 0x3A, 0x00, 0x0E, 0x0E, 0x00, 0x0E,
+        0x00, 0x00, 0x0E, 0x0E, 0x03, 0x00, 0x06, 0x00, 0x01, 0x00, 0x09, 0x00, 0x02, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x04, 0x00,
     ];
 
     /// 2-2-2-5's SA-21/SA-30 column for the LS-5000
@@ -292,5 +306,70 @@ mod tests {
         assert!(!e.supports(Op::Other(0x93)));
         // Nothing below 80h has a word
         assert!(!e.supports(Op::Other(0x7F)));
+    }
+
+    /// The extend bit sets the length, not the byte numbers the spec prints:
+    /// this unit ends its data types at 3Ah where the LS-9000's BAh carries on
+    /// into a fifth byte. Read at the LS-9000's offsets the fields land a byte
+    /// early, which is a 14 bit unit reporting a 3 bit dark current, an
+    /// autofocus it has refusing to run, and a buffer size read off the padding
+    #[test]
+    fn a_shorter_data_types_field_moves_everything_after_it() {
+        let f = parse(LS8000);
+        assert_eq!(f.page_length, 34);
+
+        assert_eq!(
+            f.execute.iter().map(Op::code).collect::<Vec<_>>(),
+            parse(LS9000)
+                .execute
+                .iter()
+                .map(Op::code)
+                .collect::<Vec<_>>()
+        );
+        assert!(f.execute.supports(Op::AutoFocus));
+
+        // The depths are the unit's 14 bit ADC, not the LS-9000's 16
+        assert_eq!(f.depths.max_value, 14);
+        assert_eq!(f.depths.shading, 14);
+        assert_eq!(f.depths.dark_current, 14);
+
+        // The tail lands inside the page rather than on the space padding
+        assert_eq!(
+            (f.additional, f.volatile_buffer, f.nonvolatile_buffer),
+            (2, 4, 0)
+        );
+    }
+
+    /// Nothing on either side of the shift is lost: the flags are the same
+    /// whether the field the unit sent was four bytes or five
+    #[test]
+    fn the_extend_bit_itself_is_not_a_flag() {
+        let f = parse(LS8000);
+        assert_eq!(
+            f.cooperation,
+            HostCooperation::THUMBNAIL
+                | HostCooperation::AVERAGING
+                | HostCooperation::MULTI_LINE
+                | HostCooperation::TRUNCATED
+        );
+        // Unlike the LS-9000, this unit takes a downloaded LUT, at the same
+        // 14 bits in and out
+        assert!(f.data_types.contains(DataTypes::GAMMA_READ));
+        assert!(f.data_types.contains(DataTypes::GAMMA_WRITE));
+        assert_eq!((f.depths.lut_input, f.depths.lut_output), (14, 14));
+    }
+
+    /// A field that never clears its extend bit would run off the end of a u64
+    #[test]
+    fn an_endless_flags_field_is_refused() {
+        let mut p = vec![0u8; 39];
+        p[1] = Features::PAGE_CODE;
+        p[3] = 35;
+        p[4..].fill(0xFF);
+        let page = Page::new(Features::PAGE_CODE, p).expect("page");
+        assert!(matches!(
+            Features::try_from(&page),
+            Err(Error::BadField { .. })
+        ));
     }
 }

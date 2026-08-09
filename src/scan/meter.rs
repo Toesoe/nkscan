@@ -213,6 +213,8 @@ mod tests {
         let mut d = vec![0u8; 28];
         d[1] = SetWindowFunction::PAGE_CODE;
         d[3] = 24;
+        d[15] = 9; // one analog control, of a width and a min and max
+        d[16] = 4;
         d[17..21].copy_from_slice(&1u32.to_be_bytes());
         d[21..25].copy_from_slice(&0x3FFFFFFu32.to_be_bytes());
         let set_window =
