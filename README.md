@@ -28,6 +28,9 @@ nkscan scan --lock-ae --samples 2 --ir --format 66
 
 ### Options
 
+<details>
+<summary><code>nkscan scan --help</code></summary>
+
 ```
 Usage: nkscan scan [OPTIONS] [DEVICE]
 
@@ -84,6 +87,8 @@ Options:
   -h, --help
           Print help (see a summary with '-h')
 ```
+
+</details>
 
 ## Support
 
@@ -142,16 +147,6 @@ If you contribute, please adhere to the [contribution guide](CONTRIBUTING.md).
 ## TODO
 
 - Python bindings
-
-### Algorithms
-
-The scanner occasionally asks the host to perform actions that it does not do internally.
-So far this has been:
-- Frame detection in certain holders (like the 869S)
-- Autoexposure
-- CCD anti-banding
-
-We have not reverse-engineered with Nikon scan does and have written our own versions of these algorithms.
 
 ## License
 
