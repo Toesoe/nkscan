@@ -33,8 +33,42 @@ pub fn inquiry(t: &mut dyn Transport, cmd: Inquiry) -> Result<Vec<u8>, Error> {
 }
 
 /// Read a VPD page from the scanner
+///
+/// Traces what arrived: a unit we have no spec for is only ever debugged from
+/// the bytes it actually sent
 pub fn vpd(t: &mut dyn Transport, code: u8) -> Result<Page, Error> {
-    Ok(Page::new(code, inquiry(t, Inquiry::vpd(code))?)?)
+    let bytes = inquiry(t, Inquiry::vpd(code))?;
+    if enabled!(Level::TRACE) {
+        let hex: Vec<String> = bytes.iter().map(|b| format!("{b:02X}")).collect();
+        trace!(page = format!("{code:02X}h"), bytes = hex.join(" "), "vpd");
+    }
+    Ok(Page::new(code, bytes)?)
+}
+
+/// Documented in LS-9000 2-2-2-7 but missing from its own page 00h list, so
+/// worth asking for even when the unit does not admit to it
+pub const UNLISTED: &[u8] = &[CcdMeasurement::PAGE_CODE];
+
+/// Every VPD page code this unit carries, in the order to ask for them
+///
+/// Page 00h enumerates what the unit admits to, and [`UNLISTED`] covers what a
+/// spec names but that list leaves out. 00h itself is dropped: it is the list,
+/// not a page of capabilities.
+pub fn page_codes(t: &mut dyn Transport) -> Result<Vec<u8>, Error> {
+    let list = inquiry(t, Inquiry::vpd(0x00))?;
+    // Byte 3 is the page length. The unit pads the rest of whatever allocation
+    // we asked for, so taking everything after byte 4 picks up the padding too
+    let length = usize::from(*list.get(3).unwrap_or(&0));
+    let mut codes: Vec<u8> = list.get(4..4 + length).unwrap_or_default().to_vec();
+    codes.retain(|&code| code != 0x00);
+
+    let missing: Vec<u8> = UNLISTED
+        .iter()
+        .copied()
+        .filter(|code| !codes.contains(code))
+        .collect();
+    codes.extend(missing);
+    Ok(codes)
 }
 
 /// Ask the scanner what it can do
@@ -58,10 +92,19 @@ pub fn capabilities(t: &mut dyn Transport) -> Result<Capabilities, Error> {
         false => None,
     };
 
+    // What the unit will do for itself, which every gate above here reads
+    let features = Features::try_from(&vpd(t, Features::PAGE_CODE)?)?;
+    debug!(
+        page_length = features.page_length,
+        cooperation = ?features.cooperation,
+        execute = ?features.execute,
+        "features"
+    );
+
     Ok(Capabilities {
         identity,
         address,
-        features: Features::try_from(&vpd(t, Features::PAGE_CODE)?)?,
+        features,
         set_window: SetWindowFunction::try_from(&vpd(t, SetWindowFunction::PAGE_CODE)?)?,
         // Neither spec lists this one in page 00h, so a refusal means the unit
         // has not got it rather than that anything went wrong

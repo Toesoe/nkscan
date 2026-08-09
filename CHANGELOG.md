@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2]
+
+### Added
+
+- `nkscan dump`, which prints every VPD page for debugging
+- Probing now logs what it found: the raw page bytes at trace, and the declared
+  page length, host cooperation and EXECUTE operations at debug.
+
 ## [0.3.1]
 
 ### Added

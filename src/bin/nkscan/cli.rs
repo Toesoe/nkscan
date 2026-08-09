@@ -28,6 +28,15 @@ pub enum Action {
     List,
     /// Perform a scan. Defaults to batch scanning with sensible defaults.
     Scan(Scan),
+    /// Dump a scanner's INQUIRY pages. Reads only; nothing moves.
+    Dump(Dump),
+}
+
+/// Which scanner to ask about itself
+#[derive(clap::Args)]
+pub struct Dump {
+    /// The scanner to read. Optional, will default to the first found.
+    pub device: Option<String>,
 }
 
 /// What to scan and how

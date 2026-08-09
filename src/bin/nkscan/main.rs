@@ -5,6 +5,7 @@ use std::io::{IsTerminal, stdout};
 use tracing_subscriber::EnvFilter;
 
 mod cli;
+mod dump;
 mod io;
 mod mono;
 mod scan;
@@ -58,6 +59,7 @@ fn main() -> anyhow::Result<()> {
             devs.iter().for_each(|x| println!("{x}"));
         }
         cli::Action::Scan(args) => scan::run(args)?,
+        cli::Action::Dump(args) => dump::run(args)?,
     }
 
     // Donezo
