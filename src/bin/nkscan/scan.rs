@@ -172,8 +172,8 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 bail!("Caller-supplied frame boundaries are not implemented yet");
             }
             Framing::Perforation => {
-                let _ = session.read_perforations()?;
-                let _ = session.read_boundaries_type2()?;
+                let perfs = session.read_perforations()?;
+                let frames = session.read_boundaries_type2();
                 let bar = pass_bar("thumbnail");
 
                 let pass = session.scan_thumbnail_with(&mut samples, |p| bar.report(p))?;
@@ -191,15 +191,21 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 let length = film_format.height_dots(optical_dpi);
                 info!(?film_format, length, "frame length");
 
+                session.test_unit_ready(Duration::from_secs(5))?;
+
+                session.inquiry_c1(0x04)?;
+                session.inquiry_c1(87)?;
+
+                session.test_unit_ready(Duration::from_secs(5))?;
+
+                session.inquiry_c1(0x04)?;
+
                 // Write the detected frames to the scanner's boundary table
-                let measured = thumbnail::frames_type2(session.capabilities(), &pass, &samples, length, None)?;
-
-                session.test_unit_ready(Duration::from_millis(500))?;
-                session.test_unit_ready(Duration::from_millis(500))?;
-
                 let from_scanner = session.read_perforations();
                 dbg!(&from_scanner);
                 from_scanner?;
+
+                let measured = thumbnail::frames_type2(session.capabilities(), &pass, &samples, length, None)?;
 
                 session.test_unit_ready(Duration::from_millis(500))?;
                 session.set_boundaries_type2(&measured)?;

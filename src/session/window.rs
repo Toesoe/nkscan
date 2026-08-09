@@ -121,12 +121,19 @@ impl Session {
         let ids: Vec<u8> = windows.iter().map(|w| w.id).collect();
         let cmd = Scan::new(ids.len() as u8);
 
+        debug!("scan cmd {:02x?}", &cmd.cdb());
+
         // 2-7: the unit answers, then asks what the host will owe the data.
         // `run_handshake` reads the `DataType::Cooperation` record, sends SCAN
         // again with nothing in between, and hands the record back so the
         // caller can honor it once the image is read
         let (_, cooperation) = self.run_handshake(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
         debug!(?ids, ?cooperation, "scanning");
+
+        if let Some(CooperativeAction::Truncate(truncation)) = cooperation.as_ref() {
+            // add truncated length per line to total read size. truncation.per_color to each scanline.
+            //truncation.per_color
+        }
 
         Ok(Started {
             layout,
