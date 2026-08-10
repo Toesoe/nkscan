@@ -109,7 +109,7 @@ This library doesn't have anything scanner or adapter-specific so *theoretically
 | Scanner \ Holder | 835M | 835S | 869S  | 869G  | 869GR  | 869M | 816 | 8G1 |
 |------------------|:----:|:----:|:-----:|:-----:|:------:|:----:|:---:|:---:|
 | 9000             | ⚠️  |  ⚠️   | ✅   | ⚠️   |  ⚠️   |  ⚠️ | ⚠️ |  ⚠️ |
-| 8000             | ⚠️  |  ⚠️   | ⚠️   | ⚠️   |  ⚠️   |  ⚠️ | ⚠️ |  ⚠️ |
+| 8000             | ⚠️  |  ⚠️   | ✅   | ✅   |  ⚠️   |  ⚠️ | ⚠️ |  ⚠️ |
 
 ### 35mm Scanners
 
