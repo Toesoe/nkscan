@@ -144,8 +144,9 @@ If you have a newer mac and a cascade of dongles, maybe open an issue if you'd l
 ## Design Notes
 
 This library is written from the ground up following the official Nikon spec of the wire protocol for the LS-5000 and LS-9000 ED scanners (located in docs/).
-Comparing the two, we find an identical protocol. Some types are absent in one but not the other, some lists capabilities the other doesn't have, but all of the bits and bytes are in the same position across all the data.
-This implies we don't need any model or holder specifics, we can just read what the scanner advertises as its capabilities and work from there.
+Comparing the two, we find an identical protocol.
+Some types are absent in one but not the other, some lists capabilities the other doesn't have, but all of the bits and bytes are in the same position across all the data.
+This implies we don't need any model or holder specifics, we can just read what the scanner advertises as its capabilities and work from there (for the most part).
 This means (hopefully) we can support every scanner and every holder with a single codebase (although please test and let me know)!
 
 The code is broken down into several layers of independent abstractions
@@ -154,8 +155,17 @@ The code is broken down into several layers of independent abstractions
 - Session: Combines a trait object of the Transport (type erasure) with the methods from Protocol. This wraps scanner state (like global units) and provides functions that essentially perform the spec's listed actions.
 - Scan: Combine the methods from Session to perform high-level scan operations. This asks the scanner what it can do and then orders session operations to do it.
 
-Please note that while LLMs helped with the production of this crate, it was largley written by hand and not vibe-coded.
+Please note that while LLMs helped with the production of this crate, it was largely written by hand and not vibe-coded as I'd rather spend money on film than tokens.
 If you contribute, please adhere to the [contribution guide](CONTRIBUTING.md).
+
+### Why Rust
+
+I'm impatient and don't have time for runtimes, garbage collection, and dumb compilers.
+I like types, memory safety, correctness, and speed.
+Rust's model fits this better than any language, plus it has great tooling and libraries for the low-level programming in this crate.
+For the CLI user, you get one ~5MB binary and *that's it*, no messing around.
+I'm not super interested in a GUI right now, but that's the library part of this code base.
+Please go make one (hopefully also in Rust)!
 
 ## TODO
 
