@@ -95,6 +95,7 @@ impl Session {
     /// Dropping one closes the scan, whatever route the caller took out of it
     pub fn image_chunks<'a>(&'a mut self, layout: &Layout) -> Result<Chunks<'a>, Error> {
         let chunk = self.chunk_size(layout)?;
+        dbg!(layout.total_bytes());
         Ok(Chunks {
             session: self,
             layout: layout.clone(),

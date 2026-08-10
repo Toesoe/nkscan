@@ -181,6 +181,7 @@ impl Session {
 
     pub fn read_perforations(&mut self) -> Result<(), Error> {
         let result = self.read_data(data::DataType::Perforation, 0)?;
+        self.test_unit_ready(Duration::from_millis(500))?;
         Ok(())
     }
 

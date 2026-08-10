@@ -191,15 +191,6 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 let length = film_format.height_dots(optical_dpi);
                 info!(?film_format, length, "frame length");
 
-                session.test_unit_ready(Duration::from_secs(5))?;
-
-                session.inquiry_c1(0x04)?;
-                session.inquiry_c1(87)?;
-
-                session.test_unit_ready(Duration::from_secs(5))?;
-
-                session.inquiry_c1(0x04)?;
-
                 // Write the detected frames to the scanner's boundary table
                 let from_scanner = session.read_perforations();
                 dbg!(&from_scanner);
@@ -207,8 +198,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
 
                 let measured = thumbnail::frames_type2(session.capabilities(), &pass, &samples, length, None)?;
 
-                session.test_unit_ready(Duration::from_millis(500))?;
-                session.set_boundaries_type2(&measured)?;
+                // session.set_boundaries_type2(&measured)?;
 
                 let x_start = session.windows()?[0].origin.0;
                 let x_boundary = session.windows()?[0].origin.0 + session.windows()?[0].size.0;
