@@ -98,7 +98,9 @@ impl Session {
 
         let cmd = SetWindow::new(payload.len() as u32);
         debug!(id = window.id, "setting window");
-        self.run(&cmd.cdb(), Data::Out(&payload), MOVE_TIMEOUT)?;
+        // setting windows is not a cooperative action
+        self.transport.execute(&cmd.cdb(), Data::Out(&payload), MOVE_TIMEOUT)?;
+
         Ok(())
     }
 
@@ -116,8 +118,6 @@ impl Session {
     /// once the image is read.
     pub fn scan(&mut self, windows: &[Window]) -> Result<Started, Error> {
         // Checks every rule spanning the set on the way
-        let layout = Layout::new(&self.caps, windows, self.divisor)?;
-
         let ids: Vec<u8> = windows.iter().map(|w| w.id).collect();
         let cmd = Scan::new(ids.len() as u8);
 
@@ -130,10 +130,13 @@ impl Session {
         let (_, cooperation) = self.run_handshake(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
         debug!(?ids, ?cooperation, "scanning");
 
-        if let Some(CooperativeAction::Truncate(truncation)) = cooperation.as_ref() {
-            // add truncated length per line to total read size. truncation.per_color to each scanline.
-            //truncation.per_color
-        }
+        let truncation = if let Some(CooperativeAction::Truncate(t)) = cooperation.as_ref() {
+            Some(t)
+        } else {
+            None
+        };
+
+        let layout = Layout::new(&self.caps, windows, self.divisor, truncation)?;
 
         Ok(Started {
             layout,

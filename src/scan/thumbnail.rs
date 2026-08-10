@@ -22,7 +22,7 @@ use crate::{
         },
         data::{Boundary, Rect, BoundaryType2, FramePosition},
         decode::{Image, Samples},
-        window::Window,
+        window::{Flags, Window},
     },
 };
 use tracing::*;
@@ -176,6 +176,14 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         )));
     }
 
+    let (thumb_size, flags) = if caps.identity.model().unwrap().name().starts_with("LS-4") ||
+                            caps.identity.model().unwrap().name().starts_with("LS-5") {
+                                (250_278, Flags::POSITIVE | Flags::AVERAGING)
+                            }
+                            else {
+                                (y.address_range.last, Flags::empty())
+                            };
+
     let (left, width) = opening(caps);
     let mut windows = window::blank(caps, &window::color_channels(caps))?;
     for w in &mut windows {
@@ -186,9 +194,10 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         // Y starts at the axis rather than the first frame, so the leading
         // edge of the film is in the pass and can be found
         w.origin = (left, y.address_range.start);
-        w.size = (width, y.address_range.last);
+        w.size = (width, thumb_size);
         w.scanning_kind = ScanKind::THUMBNAIL;
         w.scanning_mode = ScanMode::NORMAL_QUALITY;
+        w.flags = flags;
         w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
     }
     Ok(windows)
