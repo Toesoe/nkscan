@@ -27,6 +27,7 @@ impl Session {
         let chunk = self.chunk_size(layout)?;
         let code = DataType::Image.row().code;
         let width = layout.width_code();
+        let len = buf.as_mut().len();
 
         let mut done = 0;
         while done < buf.len() {
@@ -34,6 +35,14 @@ impl Session {
 
             let cmd = Read::new(code, 0, width, want as u32);
             let slice = &mut buf[done..done + want];
+
+            debug!(
+                cdb = ?cmd.cdb(),
+                want,
+                done,
+                left = len - done,
+                "executing image READ"
+            );
 
             match self.run(&cmd.cdb(), Data::In(slice), MOVE_TIMEOUT) {
                 Ok(completion) => {
@@ -53,6 +62,7 @@ impl Session {
                 Err(Error::Device(fault))
                     if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) =>
                 {
+                    dbg!("end of stream reached");
                     break;
                 }
                 // 2-11: a transfer shorter than asked for comes back as CHECK
@@ -167,8 +177,7 @@ impl Chunks<'_> {
             return None;
         }
         if self.remaining == 0 {
-            self.closed = true;
-            self.spent = true;
+            self.drain();
             return None;
         }
 
@@ -191,7 +200,13 @@ impl Chunks<'_> {
                 None
             }
             Ok(got) => {
-                self.remaining -= got as u64;
+                let rem = self.remaining as i64 - got as i64;
+
+                if rem < 0 {
+                    self.remaining = 0;
+                } else {
+                    self.remaining = rem as u64;
+                }
                 // The unit ran out before the layout said it would
                 if got < want {
                     self.spent = true;
@@ -218,11 +233,6 @@ impl Chunks<'_> {
         let limit = self.layout.total_bytes().max(self.chunk as u64);
         let mut buf = vec![0u8; self.chunk];
         loop {
-            debug!(
-                remaining = self.remaining,
-                buf_len = buf.len(),
-                "issuing image READ from drain"
-            );
             match self.session.read_image(&self.layout.clone(), &mut buf) {
                 Ok(0) => break,
                 Ok(got) => {

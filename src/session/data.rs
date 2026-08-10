@@ -52,8 +52,10 @@ impl Session {
         let mut fetch = |len: u32| -> Result<Vec<u8>, Error> {
             let cmd = Read::new(code, color, qualifier, len);
             let mut buf = vec![0u8; cmd.allocation_length()];
+            debug!("cdb for read {:02x} {:02x?}", code, &cmd.cdb());
             let completion = self.run(&cmd.cdb(), Data::In(&mut buf), PROBE_TIMEOUT)?;
             buf.truncate(completion.transferred);
+            debug!("recv {:02x?}", buf);
             Ok(buf)
         };
 
@@ -111,7 +113,7 @@ impl Session {
             self.addressing(kind, kind.row().write, color, "send data type")?;
 
         let cmd = Send::new(kind.row().code, color, qualifier, body.len() as u32);
-        debug!(?kind, bytes = body.len(), "send data");
+        debug!("cdb for send {:02x} {:02x?} data {:02x?}", kind.row().code, &cmd.cdb(), &body);
         self.run(&cmd.cdb(), Data::Out(body), PROBE_TIMEOUT)?;
         Ok(())
     }

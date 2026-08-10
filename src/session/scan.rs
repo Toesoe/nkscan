@@ -6,7 +6,10 @@
 use super::Session;
 use crate::{
     error::Error,
-    protocol::{decode::Samples, image::Layout, window::Window},
+    protocol::{
+        decode::Samples, image::Layout, window::Window,
+        caps::set_window::ScanKind
+    },
     scan::pass::{self, Pass, Progress},
     session::window::Started,
 };
@@ -23,6 +26,8 @@ use tracing::*;
 
 /// How many raw chunks the reader and decoder have in flight between them
 const POOL: usize = 3;
+
+const ROLL_SCAN_THUMBNAIL_SIZE_BYTES: usize = 6_250_496; // needs to be 47x128K + 1x90112 to finish up successfully
 
 /// A chunk handed from the reader thread to the decoder, or how the stream ended
 enum Chunk {
@@ -82,8 +87,15 @@ impl Session {
         mut on: impl FnMut(Progress),
     ) -> Result<Pass, Error> {
         let started = self.start_pass(windows, timeout)?;
-        let layout = started.layout.clone();
+        let mut layout = started.layout.clone();
+
+        let is_full_thumbnail = windows[0].scanning_kind.contains(ScanKind::THUMBNAIL) && windows[0].size.1 > self.caps.address.y_axis.address_range.last;
+        if !self.caps.identity.is_mf() && is_full_thumbnail {
+            layout.override_size(ROLL_SCAN_THUMBNAIL_SIZE_BYTES);
+        };
+
         let total = layout.total_bytes();
+
         let curves = self.curves();
         let mut decoder = pass::decoder(&layout, curves.as_deref())?;
         samples.resize_for(&decoder);

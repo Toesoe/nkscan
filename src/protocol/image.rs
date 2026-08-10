@@ -10,7 +10,7 @@ use crate::{
             Capabilities,
             address::Transfer,
             set_window::{ColorInterleaving, ScanKind},
-        }, data::width_code, model::Model, window::{Channel, Window, validate_set}
+        }, data::{Truncation, width_code}, model::Model, window::{Channel, Window, validate_set}
     },
 };
 
@@ -51,6 +51,14 @@ pub struct Layout {
     /// The transfer length every READ has to be a whole number of. 1 means the
     /// unit constrains nothing
     pub granule: usize,
+    /// Invalid bytes attached to every scan line, per 2-11-5-3
+    pub truncated_bytes_per_line: u32,
+    /// Invalid lines attached before the image
+    pub truncated_lines_top: u32,
+    /// Invalid lines attached after the image
+    pub truncated_lines_bottom: u32,
+    pub override_size: bool,
+    pub overridden_size: usize
 }
 
 impl Layout {
@@ -73,6 +81,11 @@ impl Layout {
             ccd_lines: 1,
             registration_gap: 0,
             granule: 1,
+            truncated_bytes_per_line: 0,
+            truncated_lines_bottom: 0,
+            truncated_lines_top: 0,
+            override_size: false,
+            overridden_size: 0
         }
     }
 }
@@ -121,8 +134,8 @@ fn pitches(caps: &Capabilities, window: &Window) -> Result<(u32, u32), Error> {
 /// Bit 1 makes it a line across every color, bit 2 one line. Neither set means
 /// the unit constrains nothing, so any length will do
 fn read_granule(caps: &Capabilities, line: usize, channels: usize) -> usize {
-    if caps.identity.model() == Some(Model::Ls50) { // LS50 always produces blocks of 131072b
-        return 1
+    if caps.identity.model() == Some(Model::Ls50) {
+        return 1024
     }
 
     let transfer = caps.address.transfer;
@@ -140,7 +153,7 @@ impl Layout {
     /// Work out what a scan of `windows` will produce
     ///
     /// `divisor` is the measurement unit in force, from the mode page
-    pub fn new(caps: &Capabilities, windows: &[Window], divisor: u16) -> Result<Self, Error> {
+    pub fn new(caps: &Capabilities, windows: &[Window], divisor: u16, truncated_by_driver: Option<&Truncation>) -> Result<Self, Error> {
         // Every rule about the set itself, including that they agree on
         // everything shaping the stream
         validate_set(windows)?;
@@ -152,7 +165,7 @@ impl Layout {
         // A window coordinate is one sensor step only at the unit's maximum
         // resolution. At 1200 it is coarser, so the sizes scale to the sensor
         // before the pitch divides them
-        let (pixels, lines) = if divisor == COARSE_DIVISOR {
+        let (mut pixels, lines) = if divisor == COARSE_DIVISOR {
             let scale = |v: u32, p: u32| {
                 (u64::from(v) * u64::from(optical) / (u64::from(COARSE_DIVISOR) * u64::from(p)))
                     as u32
@@ -175,6 +188,21 @@ impl Layout {
         let line = pixels as usize * usize::from(bytes_per_sample);
         let granule = read_granule(caps, line, channels.len());
 
+        let mut truncated_bytes_per_line = 0;
+        let mut truncated_lines_top = 0;
+        let mut truncated_lines_bottom = 0;
+
+        if let Some(t) = truncated_by_driver {
+            truncated_bytes_per_line =
+                u32::from(t.per_color.first)
+                + u32::from(t.per_color.last)
+                + u32::from(t.all_colors.first)
+                + u32::from(t.all_colors.last);
+
+            truncated_lines_top = u32::from(t.lines.first);
+            truncated_lines_bottom = u32::from(t.lines.last);
+        }
+
         Ok(Self {
             pixels,
             lines,
@@ -192,6 +220,11 @@ impl Layout {
             // two pitches are equal except in a preview, which halves only Y
             registration_gap: u32::from(caps.address.line_gap) / line_pitch,
             granule,
+            truncated_bytes_per_line,
+            truncated_lines_bottom,
+            truncated_lines_top,
+            overridden_size: 0,
+            override_size: false
         })
     }
 
@@ -211,22 +244,32 @@ impl Layout {
     }
 
     /// Bytes in one line of every channel
-    pub fn bytes_per_line(&self) -> u64 {
-        u64::from(self.pixels) * u64::from(self.bytes_per_sample) * self.channels.len() as u64
+    pub fn bytes_per_line(&self) -> u32 {
+        self.pixels
+            * u32::from(self.bytes_per_sample)
+            * self.readouts()
+            + self.truncated_bytes_per_line
     }
 
     /// How many bytes the whole scan will hand back
     ///
-    /// The modes that raise a cooperative request are the ones this can be
-    /// wrong for: the
-    /// multi-line record reports its own byte and line counts, and a scan whose
-    /// CCD lines need re-registering carries extra lines at the seams. Prefer
-    /// the unit's numbers where it gives them
+    /// Takes truncated bytes reported by driver from LS-4x/LS-5x in account
     pub fn total_bytes(&self) -> u64 {
-        u64::from(self.pixels)
-            * u64::from(self.lines)
-            * u64::from(self.bytes_per_sample)
-            * u64::from(self.readouts())
+        if !self.override_size {
+        return u64::from(self.bytes_per_line())
+            * u64::from(
+                self.lines
+                    + self.truncated_lines_top
+                    + self.truncated_lines_bottom
+            )
+        } else {
+            return self.overridden_size as u64;
+        }
+    }
+
+    pub fn override_size(&mut self, size: usize) {
+        self.override_size = true;
+        self.overridden_size = size;
     }
 
     /// Readouts the unit emits per line

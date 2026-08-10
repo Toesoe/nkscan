@@ -203,7 +203,7 @@ impl Transport for UsbTransport {
         // According to table 1-1-5-1 this will only ever be Good or CheckCondition, which is reasonable
         let status = Status::from(sb[0]);
 
-        let sense = if status != Status::Good {
+        let sense =  {
             Some(Sense {
                 key: sb[1],
                 asc: sb[2],
@@ -215,8 +215,6 @@ impl Transport for UsbTransport {
                 information: None,
                 raw: sb.to_vec(),
             })
-        } else {
-            None
         };
 
         Ok(Completion {
