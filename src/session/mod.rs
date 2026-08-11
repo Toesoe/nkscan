@@ -346,12 +346,12 @@ impl Session {
         cdb: &[u8],
         mut data: Data<'_>,
         timeout: Duration,
-    ) -> Result<(Completion, Option<CooperativeAction>), Error> {
+    ) -> Result<(Completion, Vec<CooperativeAction>), Error> {
         // One budget for the command, re-issues included, rather than one each:
         // a fresh timeout per round would let 16 cooperative requests run for 16
         // times what the caller allowed
         let deadline = Instant::now() + timeout;
-        let mut cooperation = None;
+        let mut cooperations = Vec::new();
         let mut asked: Vec<(Coop, CooperativeAction)> = Vec::new();
         for _ in 0..=MAX_COOPERATION {
             // `Data::In` holds a `&mut [u8]` and so is not `Copy`. Reborrowing
@@ -363,7 +363,7 @@ impl Session {
             };
             let (completion, coop) = self.run_cooperative(cdb, payload, deadline, timeout)?;
             let Some(coop) = coop else {
-                return Ok((completion, cooperation));
+                return Ok((completion, cooperations));
             };
 
             // Dispatch on the record rather than the sense: the two specs give
@@ -385,7 +385,7 @@ impl Session {
                 });
             }
             asked.push((coop, record.clone()));
-            cooperation = Some(record);
+            cooperations.push(record);
         }
 
         Err(Error::Unsupported {

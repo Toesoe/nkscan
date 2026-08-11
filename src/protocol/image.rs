@@ -3,6 +3,8 @@
 //! Image data carries no header and no length of its own, so [`Layout`] is the
 //! only thing that says how much there is to read and how it is shaped.
 
+use tracing::debug;
+
 use crate::{
     error::Error,
     protocol::{
@@ -256,11 +258,11 @@ impl Layout {
     /// Takes truncated bytes reported by driver from LS-4x/LS-5x in account
     pub fn total_bytes(&self) -> u64 {
         if !self.override_size {
-        return u64::from(self.bytes_per_line())
-            * u64::from(
-                self.lines
-                    + self.truncated_lines_top
-                    + self.truncated_lines_bottom
+            return u64::from(self.bytes_per_line())
+                * u64::from(
+                    self.lines
+                        + self.truncated_lines_top
+                        + self.truncated_lines_bottom
             )
         } else {
             return self.overridden_size as u64;

@@ -19,7 +19,7 @@ pub struct Pass {
     /// The stream's shape, as far as 2-10's formula describes it
     pub layout: Layout,
     /// What the unit asked the host to do with the data, if anything
-    pub cooperation: Option<CooperativeAction>,
+    pub cooperation: Vec<CooperativeAction>,
     /// Whether every block the layout promised arrived
     pub complete: bool,
     /// Image rows and columns: the sensor (the layout's pixels) and the feed

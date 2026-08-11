@@ -127,20 +127,21 @@ impl Session {
         // `run_handshake` reads the `DataType::Cooperation` record, sends SCAN
         // again with nothing in between, and hands the record back so the
         // caller can honor it once the image is read
-        let (_, cooperation) = self.run_handshake(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
-        debug!(?ids, ?cooperation, "scanning");
+        let (_, cooperations) = self.run_handshake(&cmd.cdb(), Data::Out(&ids), MOVE_TIMEOUT)?;
+        debug!(?ids, ?cooperations, "scanning");
 
-        let truncation = if let Some(CooperativeAction::Truncate(t)) = cooperation.as_ref() {
-            Some(t)
-        } else {
-            None
-        };
+        let truncation = cooperations.iter().find_map(|c| match c {
+            CooperativeAction::Truncate(t) => Some(t),
+            _ => None,
+        });
 
         let layout = Layout::new(&self.caps, windows, self.divisor, truncation)?;
 
+        dbg!(&layout);
+
         Ok(Started {
             layout,
-            cooperation,
+            cooperations,
         })
     }
 }
@@ -152,5 +153,5 @@ pub struct Started {
     pub layout: Layout,
     /// What the unit asked the host to do with the data, if anything. Reading
     /// the record is what lets the scan proceed; honoring it is the caller's
-    pub cooperation: Option<CooperativeAction>,
+    pub cooperations: Vec<CooperativeAction>,
 }

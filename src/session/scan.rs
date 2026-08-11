@@ -161,7 +161,7 @@ impl Session {
         let (rows, cols) = decoder.shape();
         Ok(Pass {
             layout: started.layout,
-            cooperation: started.cooperation,
+            cooperation: started.cooperations,
             complete: decoder.complete(),
             rows,
             cols,

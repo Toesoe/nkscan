@@ -89,7 +89,7 @@ pub struct Axis {
 impl Axis {
     /// Equal ends mean no arbitrary range on this axis: the caller has to use the full [`boundary`](Self::boundary) width
     pub fn croppable(&self) -> bool {
-        self.address_range.start != self.address_range.last
+        (self.address_range.last == 0) || (self.address_range.start != self.address_range.last)
     }
 }
 
