@@ -280,7 +280,7 @@ mod tests {
                 }
             }
         }
-        let layout = Layout::new(&caps(), windows, 4000).unwrap();
+        let layout = Layout::new(&caps(), windows, 4000, None).unwrap();
         let mut decoder = Decoder::new(&layout).unwrap();
         let mut samples = Samples::default();
         samples.resize_for(&decoder);

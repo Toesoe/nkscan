@@ -256,21 +256,12 @@ impl Layout {
     ///
     /// Takes truncated bytes reported by driver from LS-4x/LS-5x in account
     pub fn total_bytes(&self) -> u64 {
-        if !self.override_size {
-            return u64::from(self.bytes_per_line())
-                * u64::from(
-                    self.lines
-                        + self.truncated_lines_frame.0
-                        + self.truncated_lines_frame.1
-            )
-        } else {
-            return self.overridden_size as u64;
-        }
-    }
-
-    pub fn override_size(&mut self, size: usize) {
-        self.override_size = true;
-        self.overridden_size = size;
+        return u64::from(self.bytes_per_line())
+            * u64::from(
+                self.lines
+                    + self.truncated_lines_frame.0
+                    + self.truncated_lines_frame.1
+        )
     }
 
     /// Readouts the unit emits per line
