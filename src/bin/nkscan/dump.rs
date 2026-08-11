@@ -60,7 +60,7 @@ pub fn run(args: cli::Dump) -> anyhow::Result<()> {
         println!("\n== page {code:02X}h{unlisted} ==");
         match read(transport.as_mut(), Inquiry::vpd(code)) {
             Some(bytes) => {
-                hexdump(&bytes);
+                page_hexdump(&bytes);
                 // Everything a parser prints can be diffed against the
                 // bracketed values in that page's section of the spec
                 if let Some(decoded) = decode(code, &bytes) {
@@ -109,6 +109,17 @@ fn read(transport: &mut dyn Transport, cmd: Inquiry) -> Option<Vec<u8>> {
             println!("  {e}");
             None
         }
+    }
+}
+
+/// Dump a VPD page, stopping where the page says it ends
+fn page_hexdump(bytes: &[u8]) {
+    let declared = bytes
+        .get(3)
+        .map_or(bytes.len(), |&n| (4 + usize::from(n)).min(bytes.len()));
+    hexdump(&bytes[..declared]);
+    if declared < bytes.len() {
+        println!("  ... {} bytes of residue after it", bytes.len() - declared);
     }
 }
 
