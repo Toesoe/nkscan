@@ -367,8 +367,11 @@ impl Boundary {
 }
 
 /// What the unit remembers about one image, from 2-11-7
+///
+/// Named apart from [`crate::protocol::decode::Image`], which is pixel data;
+/// this is one entry of the unit's own SETUP record
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Image {
+pub struct SetupImage {
     /// Which image this is
     pub index: u8,
     /// Exposure after this image's prescan
@@ -397,7 +400,7 @@ pub struct Setup {
     /// Bytes 9-12, the white balance exposure at that same measurement
     pub base_white_balance: u32,
     /// Byte 13 onwards, 13 bytes each
-    pub images: Vec<Image>,
+    pub images: Vec<SetupImage>,
 }
 
 impl Setup {
@@ -416,7 +419,7 @@ impl Setup {
         for n in 0..count {
             let at = Self::HEAD + n * Self::IMAGE;
             let e = b.get(at..at + Self::IMAGE)?;
-            images.push(Image {
+            images.push(SetupImage {
                 index: e[0],
                 exposure: be32(e, 1),
                 white_balance: be32(e, 5),
@@ -816,7 +819,7 @@ mod tests {
         assert_eq!(setup.base_white_balance, 326754);
         assert_eq!(
             setup.images,
-            vec![Image {
+            vec![SetupImage {
                 index: 1,
                 exposure: 0x0004F000,
                 white_balance: 0x0004F000,
