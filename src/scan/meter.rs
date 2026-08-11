@@ -55,12 +55,12 @@ impl Metering {
         image: &Image,
         windows: &[Window],
     ) -> Result<Vec<u32>, Error> {
-        if image.channels.len() != windows.len() {
+        let carried = image.colors.len() + usize::from(!image.ir.is_empty());
+        if carried != windows.len() {
             return Err(Error::Unsupported {
                 op: "metering",
                 reason: format!(
-                    "the pass carried {} channels and there are {} windows",
-                    image.channels.len(),
+                    "the pass carried {carried} channels and there are {} windows",
                     windows.len()
                 ),
             });
@@ -74,7 +74,7 @@ impl Metering {
 
         // What each channel asks to be scaled by, before the lock has a say
         let steps: Vec<Option<f64>> = self
-            .measure(image)
+            .measure(image, windows)
             .into_iter()
             .map(|level| level.and_then(|l| step(l, target, ceiling)))
             .collect();
@@ -120,20 +120,31 @@ impl Metering {
     /// further pass would add. A clipped channel says only that it is somewhere
     /// above: the retreat is a guess, so that one has to be measured again.
     /// A channel with nothing to measure has nothing to learn either
-    pub fn measured(&self, image: &Image) -> bool {
+    pub fn measured(&self, image: &Image, windows: &[Window]) -> bool {
         let ceiling = ceiling(image.bits);
-        self.measure(image)
+        self.measure(image, windows)
             .into_iter()
             .flatten()
             .all(|level| level < ceiling)
     }
 
-    /// The high tail of each channel, in the order the image interleaves them
+    /// The high tail of each channel, in `windows` order
     ///
     /// What the exposures get decided from, so it is worth looking at alone
-    pub fn measure(&self, image: &Image) -> Vec<Option<u16>> {
-        (0..image.channels.len())
-            .map(|channel| tail(image, channel, self.percentile))
+    pub fn measure(&self, image: &Image, windows: &[Window]) -> Vec<Option<u16>> {
+        let mut color = 0usize;
+        windows
+            .iter()
+            .map(|w| {
+                let plane = if w.channel().is_color() {
+                    let p = image.colors[color];
+                    color += 1;
+                    p
+                } else {
+                    image.ir
+                };
+                tail(plane, self.percentile)
+            })
             .collect()
     }
 }
@@ -158,14 +169,13 @@ fn step(level: u16, target: u16, ceiling: u16) -> Option<f64> {
     }
 }
 
-/// The `percentile` brightest sample of one channel, or `None` where the pass
-/// carried none for it
+/// The `percentile` brightest sample of one plane, or `None` where it is empty
 ///
 /// Counted rather than sorted, so a plane is read once and never copied
-fn tail(image: &Image, channel: usize, percentile: f32) -> Option<u16> {
+fn tail(plane: &[u16], percentile: f32) -> Option<u16> {
     let mut counts = vec![0u32; usize::from(u16::MAX) + 1];
     let mut total = 0usize;
-    for sample in image.plane(channel) {
+    for &sample in plane {
         counts[usize::from(sample)] += 1;
         total += 1;
     }
@@ -356,7 +366,7 @@ mod tests {
         let w = windows(&[1, 2, 3], 1000);
         let measured = |levels: &[u16]| {
             let (l, s) = decoded(&w, levels);
-            m.measured(&image(&l, &s))
+            m.measured(&image(&l, &s), &w)
         };
 
         assert!(measured(&[65000, 65000, 65000]));

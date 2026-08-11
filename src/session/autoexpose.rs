@@ -135,7 +135,7 @@ impl Session {
                     // on target, so confirming it costs a pass to learn nothing.
                     // Only a clipped channel, whose correction is a retreat
                     // rather than a measurement, is worth another
-                    let measured = metering.measured(&image);
+                    let measured = metering.measured(&image, &windows);
                     debug!(pass = n, measured, "metering pass");
                     if measured {
                         break;
@@ -147,7 +147,7 @@ impl Session {
                 }
 
                 let layout = layout.expect("the loop runs at least once");
-                let measured = metering.measure(&Image::new(&layout, &samples)?);
+                let measured = metering.measure(&Image::new(&layout, &samples)?, &windows);
                 for (n, (window, level)) in windows.iter().zip(&measured).enumerate() {
                     let unit = self.setup(window.id).ok();
                     let image = unit.as_ref().and_then(|s| s.images.first());

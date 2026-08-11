@@ -91,7 +91,7 @@ pub fn write_frame(
 
     let (color_path, ir_path) = paths(basename, n);
     let mut written = Vec::new();
-    let stride = color_ids.len();
+    let planes: Vec<&[u16]> = samples.colors.iter().map(Vec::as_slice).collect();
 
     // Three channels and a profile to weigh them by is the only way to make
     // luminance. Anything less falls back to the channel 2-11-3 calls the
@@ -111,47 +111,34 @@ pub fn write_frame(
     match (&luminance, fallback, color.len()) {
         (Some(luminance), _, _) => {
             let gray = mono::gray_profile()?;
-            let planes = [color[0], color[1], color[2]];
+            let source_planes = [color[0], color[1], color[2]];
             write_planes::<Gray16>(
                 &color_path,
-                &samples.color,
+                &planes,
                 pass,
-                Source::Luminance { planes, luminance },
+                Source::Luminance {
+                    planes: source_planes,
+                    luminance,
+                },
                 Some(&gray),
-                stride,
             )?
         }
-        (None, Some(gray), _) => write_planes::<Gray16>(
-            &color_path,
-            &samples.color,
-            pass,
-            Source::Planes(&[gray]),
-            None,
-            stride,
-        )?,
-        (None, None, 3) => write_planes::<RGB16>(
-            &color_path,
-            &samples.color,
-            pass,
-            Source::Planes(&color),
-            icc,
-            stride,
-        )?,
-        (None, None, 1) => write_planes::<Gray16>(
-            &color_path,
-            &samples.color,
-            pass,
-            Source::Planes(&color),
-            icc,
-            stride,
-        )?,
+        (None, Some(gray), _) => {
+            write_planes::<Gray16>(&color_path, &planes, pass, Source::Planes(&[gray]), None)?
+        }
+        (None, None, 3) => {
+            write_planes::<RGB16>(&color_path, &planes, pass, Source::Planes(&color), icc)?
+        }
+        (None, None, 1) => {
+            write_planes::<Gray16>(&color_path, &planes, pass, Source::Planes(&color), icc)?
+        }
         (None, None, n) => bail!("{n} color planes is not a TIFF this writes"),
     }
     written.push(color_path);
 
     if let Some(ir) = &samples.ir {
         // The mask measures obstructions rather than color, so no profile
-        write_planes::<Gray16>(&ir_path, ir, pass, Source::Planes(&[0]), None, 1)?;
+        write_planes::<Gray16>(&ir_path, &[ir], pass, Source::Planes(&[0]), None)?;
         written.push(ir_path);
     }
 
@@ -201,15 +188,14 @@ impl Source<'_> {
 
 /// Write `source` to one file, a strip at a time
 ///
-/// `samples` interleaves `stride` channels; a TIFF holds only what is going in
-/// this file, so each strip is gathered rather than copied
+/// `planes` is one slice per channel, never interleaved; a TIFF holds only
+/// what is going in this file, so each strip is gathered rather than copied
 fn write_planes<C>(
     path: &Path,
-    samples: &[u16],
+    planes: &[&[u16]],
     pass: &Pass,
     source: Source<'_>,
     icc: Option<&[u8]>,
-    stride: usize,
 ) -> Result<()>
 where
     C: ColorType<Inner = u16>,
@@ -237,7 +223,7 @@ where
     let scale = full_scale(pass.layout.bits_per_sample);
 
     let at = |pixel: usize, plane: usize| {
-        let raw = samples[pixel * stride + plane];
+        let raw = planes[plane][pixel];
         match &scale {
             Some(table) => table[usize::from(raw)],
             None => raw,
