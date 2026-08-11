@@ -14,6 +14,7 @@ thiserror = "2"
 bitflags = "2"
 nusb = "0.2"
 tracing = "0.1"
+wide = "1"
 
 # Python library dependencies
 #
@@ -25,29 +26,30 @@ numpy = { version = "0.29", optional = true }
 # infer_signature is what turns a default into its actual repr rather than `...`; the rest of the
 # crate's defaults are type support for crates this does not use
 pyo3-stub-gen = { version = "0.23", optional = true, default-features = false, features = [
-  "numpy",
-  "infer_signature",
+    "numpy",
+    "infer_signature",
 ] }
 
 # The CLI stack, which a library consumer has no use for
 tracing-subscriber = { version = "0.3", features = [
-  "env-filter",
+    "env-filter",
 ], optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 anyhow = { version = "1", optional = true }
 indicatif = { version = "0.18", optional = true }
 tiff = { version = "0.11", optional = true }
 moxcms = { version = "0.9", optional = true }
+rayon = "1.12.0"
 
 
 [features]
 cli = [
-  "dep:tracing-subscriber",
-  "dep:clap",
-  "dep:anyhow",
-  "dep:indicatif",
-  "dep:tiff",
-  "dep:moxcms",
+    "dep:tracing-subscriber",
+    "dep:clap",
+    "dep:anyhow",
+    "dep:indicatif",
+    "dep:tiff",
+    "dep:moxcms",
 ]
 python = ["dep:pyo3", "dep:numpy", "dep:pyo3-stub-gen"]
 
@@ -61,10 +63,10 @@ nix = { version = "0.31", features = ["ioctl"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = [
-  "Win32_Foundation",
-  "Win32_Storage_FileSystem",
-  "Win32_System_IO",
-  "Win32_System_Console",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Console",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -75,3 +77,11 @@ io-kit-sys = "0.5"
 name = "nkscan"
 path = "src/bin/nkscan/main.rs"
 required-features = ["cli"]
+
+[dev-dependencies]
+divan = "0.1.21"
+tiff = "0.11"
+
+[[bench]]
+name = "dust"
+harness = false

@@ -606,7 +606,11 @@ mod tests {
         // column 0 carries the first wire line and nothing else has moved
         for (y, s) in [(0usize, 3usize), (1, 2), (2, 1), (3, 0)] {
             for c in 0..3usize {
-                assert_eq!(samples.colors[c][y * cols], (s * 10 + c) as u16, "row {y} ch {c}");
+                assert_eq!(
+                    samples.colors[c][y * cols],
+                    (s * 10 + c) as u16,
+                    "row {y} ch {c}"
+                );
             }
         }
         // The other feed positions have not arrived, so their columns are blank
@@ -854,8 +858,7 @@ mod transposed {
                     let reads: Vec<u16> = slots.iter().map(|&s| tag(stage, s, pixel, 0)).collect();
                     let want = reads.iter().map(|&s| u32::from(s)).sum::<u32>() / 4;
                     assert_eq!(
-                        samples.colors[c][pixel_at],
-                        want as u16,
+                        samples.colors[c][pixel_at], want as u16,
                         "stage {stage} pixel {pixel} color {c}"
                     );
                 }
