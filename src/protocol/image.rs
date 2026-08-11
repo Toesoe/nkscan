@@ -53,12 +53,10 @@ pub struct Layout {
     /// The transfer length every READ has to be a whole number of. 1 means the
     /// unit constrains nothing
     pub granule: usize,
-    /// Invalid bytes attached to every scan line, per 2-11-5-3
-    pub truncated_bytes_per_line: u32,
-    /// Invalid lines attached before the image
-    pub truncated_lines_top: u32,
-    /// Invalid lines attached after the image
-    pub truncated_lines_bottom: u32,
+    /// Invalid bytes attached to every scan line, at start and end per 2-11-5-3
+    pub truncated_bytes_line: (u32, u32),
+    /// Invalid lines attached to every image, so total lines before the first and after the last line per 2-11-5-3
+    pub truncated_lines_frame: (u32, u32),
     pub override_size: bool,
     pub overridden_size: usize
 }
@@ -83,9 +81,8 @@ impl Layout {
             ccd_lines: 1,
             registration_gap: 0,
             granule: 1,
-            truncated_bytes_per_line: 0,
-            truncated_lines_bottom: 0,
-            truncated_lines_top: 0,
+            truncated_bytes_line: (0, 0),
+            truncated_lines_frame: (0, 0),
             override_size: false,
             overridden_size: 0
         }
@@ -190,19 +187,21 @@ impl Layout {
         let line = pixels as usize * usize::from(bytes_per_sample);
         let granule = read_granule(caps, line, channels.len());
 
-        let mut truncated_bytes_per_line = 0;
-        let mut truncated_lines_top = 0;
-        let mut truncated_lines_bottom = 0;
+        let mut truncated_bytes_line  = (0, 0);
+        let mut truncated_lines_frame = (0, 0);
 
         if let Some(t) = truncated_by_driver {
-            truncated_bytes_per_line =
+            truncated_bytes_line = (
                 u32::from(t.per_color.first)
-                + u32::from(t.per_color.last)
-                + u32::from(t.all_colors.first)
-                + u32::from(t.all_colors.last);
+                    + u32::from(t.all_colors.first),
+                u32::from(t.per_color.last)
+                    + u32::from(t.all_colors.last),
+            );
 
-            truncated_lines_top = u32::from(t.lines.first);
-            truncated_lines_bottom = u32::from(t.lines.last);
+            truncated_lines_frame = (
+                u32::from(t.lines.first),
+                u32::from(t.lines.last),
+            );
         }
 
         Ok(Self {
@@ -222,9 +221,8 @@ impl Layout {
             // two pitches are equal except in a preview, which halves only Y
             registration_gap: u32::from(caps.address.line_gap) / line_pitch,
             granule,
-            truncated_bytes_per_line,
-            truncated_lines_bottom,
-            truncated_lines_top,
+            truncated_bytes_line,
+            truncated_lines_frame,
             overridden_size: 0,
             override_size: false
         })
@@ -250,7 +248,8 @@ impl Layout {
         self.pixels
             * u32::from(self.bytes_per_sample)
             * self.readouts()
-            + self.truncated_bytes_per_line
+            + self.truncated_bytes_line.0
+            + self.truncated_bytes_line.1
     }
 
     /// How many bytes the whole scan will hand back
@@ -261,8 +260,8 @@ impl Layout {
             return u64::from(self.bytes_per_line())
                 * u64::from(
                     self.lines
-                        + self.truncated_lines_top
-                        + self.truncated_lines_bottom
+                        + self.truncated_lines_frame.0
+                        + self.truncated_lines_frame.1
             )
         } else {
             return self.overridden_size as u64;
