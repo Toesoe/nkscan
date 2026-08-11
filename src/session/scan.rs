@@ -6,7 +6,7 @@
 use super::Session;
 use crate::{
     error::Error,
-    protocol::{image::Layout, window::Window},
+    protocol::{decode::Samples, image::Layout, window::Window},
     scan::pass::{self, Pass, Progress},
     session::window::Started,
 };
@@ -56,17 +56,21 @@ impl Session {
 
     /// Start a pass and unscramble it into `samples` as it arrives
     ///
-    /// `samples` is cleared and resized; the caller owns it
+    /// `samples` is resized for this pass's shape; the caller owns it, so a
+    /// batch reuses the one allocation pass to pass rather than growing a new
+    /// one. `samples.color` is row-major, channels interleaved per pixel, and
+    /// `samples.ir` is likewise but only `Some` where the windows carried
+    /// infrared. See [`Samples`].
     pub fn scan_pass(
         &mut self,
         windows: &[Window],
         timeout: Duration,
-        samples: &mut Vec<u16>,
+        samples: &mut Samples,
     ) -> Result<Pass, Error> {
         self.scan_pass_with(windows, timeout, samples, |_| {})
     }
 
-    /// The same, telling `on` how far along the pass is after every chunk
+    /// The same as [`scan_pass`], telling `on` how far along the pass is after every chunk
     ///
     /// `on` runs on the decoding thread between chunks, so anything slow in it
     /// is time the unit spends waiting for the next read with its buffer filling
@@ -74,7 +78,7 @@ impl Session {
         &mut self,
         windows: &[Window],
         timeout: Duration,
-        samples: &mut Vec<u16>,
+        samples: &mut Samples,
         mut on: impl FnMut(Progress),
     ) -> Result<Pass, Error> {
         let started = self.start_pass(windows, timeout)?;
@@ -82,8 +86,7 @@ impl Session {
         let total = layout.total_bytes();
         let curves = self.curves();
         let mut decoder = pass::decoder(&layout, curves.as_deref())?;
-        samples.clear();
-        samples.resize(decoder.samples(), 0);
+        samples.resize_for(&decoder);
 
         let timing = Timing::default();
         let mut decoding = Duration::ZERO;
@@ -157,14 +160,14 @@ impl Session {
     ///
     /// Builds its own windows from the capabilities (whole strip, lowest dpi,
     /// one channel per color), seeds white balance, and takes the pass
-    pub fn scan_thumbnail(&mut self, samples: &mut Vec<u16>) -> Result<Pass, Error> {
+    pub fn scan_thumbnail(&mut self, samples: &mut Samples) -> Result<Pass, Error> {
         self.scan_thumbnail_with(samples, |_| {})
     }
 
     /// The same, telling `on` how far along the pass is after every chunk
     pub fn scan_thumbnail_with(
         &mut self,
-        samples: &mut Vec<u16>,
+        samples: &mut Samples,
         on: impl FnMut(Progress),
     ) -> Result<Pass, Error> {
         if !crate::scan::thumbnail::available(self.capabilities()) {

@@ -4,11 +4,11 @@
 //! Bytes arrive in whatever lengths the transport allows, so a decoder holds
 //! whatever part of a line the last chunk left and writes complete lines only.
 //!
-//! Output is one sample per channel per pixel, channels in the order `Layout`
-//! lists them, so a caller can wrap it as `(rows, cols, channels)` without
-//! copying. Whatever the interleaving, the geometry is the same: the sensor bar
-//! is the image's rows and the stage's feed positions are its columns, with the
-//! bar read out backwards.
+//! [`Samples`] is two buffers, color and infrared, each contiguous and
+//! wrappable as `(rows, cols, channels)` without copying. Whatever the
+//! interleaving, the geometry is the same: the sensor bar is the image's rows
+//! and the stage's feed positions are its columns, with the bar read out
+//! backwards.
 
 use crate::{
     error::Error,
@@ -25,37 +25,73 @@ fn bad(reason: String) -> Error {
     }
 }
 
+/// The buffers one pass fills: color always, infrared only when the pass asks
+/// for it
+#[derive(Debug, Clone, Default)]
+pub struct Samples {
+    pub color: Vec<u16>,
+    pub ir: Option<Vec<u16>>,
+}
+
+impl Samples {
+    /// Clear and size both buffers for what `decoder` is about to produce
+    pub(crate) fn resize_for(&mut self, decoder: &Decoder) {
+        self.color.clear();
+        self.color.resize(decoder.color_samples(), 0);
+        match decoder.ir_samples() {
+            0 => self.ir = None,
+            n => {
+                let ir = self.ir.get_or_insert_with(Vec::new);
+                ir.clear();
+                ir.resize(n, 0);
+            }
+        }
+    }
+}
+
 /// A view of an unscrambled pass
 ///
-/// The samples are the buffer a [`Decoder`] filled, which the caller owns, so
-/// nothing here copies an image. The identifiers are a handful of bytes and are
-/// owned, which keeps the view off the layout's lifetime.
+/// The samples are the [`Samples`] a [`Decoder`] filled, which the caller
+/// owns, so nothing here copies an image. The identifiers are a handful of
+/// bytes and are owned, which keeps the view off the layout's lifetime.
 #[derive(Debug, Clone)]
 pub struct Image<'a> {
-    /// One sample per channel per pixel, channels interleaved
-    pub samples: &'a [u16],
+    /// One sample per color channel per pixel, channels interleaved
+    pub color: &'a [u16],
+    /// One sample per pixel of infrared, empty where the pass carried none
+    pub ir: &'a [u16],
     pub rows: usize,
     pub cols: usize,
-    /// Channel identifiers, in the order `samples` interleaves them
+    /// Channel identifiers, in the order the pass carried them. Which buffer
+    /// and stride a channel resolves to follows from [`Channel::is_color`]
     pub channels: Vec<u8>,
     /// Valid bits in a sample, which can be fewer than 16
     pub bits: u8,
 }
 
 impl<'a> Image<'a> {
-    /// Read a filled buffer as the image `layout` describes
-    pub fn new(layout: &Layout, samples: &'a [u16]) -> Result<Self, Error> {
+    /// Read `samples` as the image `layout` describes
+    pub fn new(layout: &Layout, samples: &'a Samples) -> Result<Self, Error> {
         let decoder = Decoder::new(layout)?;
-        if samples.len() < decoder.samples() {
+        if samples.color.len() < decoder.color_samples() {
             return Err(bad(format!(
-                "{} samples is short of the {} this layout describes",
-                samples.len(),
-                decoder.samples()
+                "{} color samples is short of the {} this layout describes",
+                samples.color.len(),
+                decoder.color_samples()
+            )));
+        }
+        let ir: &'a [u16] = samples.ir.as_deref().unwrap_or(&[]);
+        if ir.len() < decoder.ir_samples() {
+            return Err(bad(format!(
+                "{} infrared samples is short of the {} this layout describes",
+                ir.len(),
+                decoder.ir_samples()
             )));
         }
         let (rows, cols) = decoder.shape();
         Ok(Self {
-            samples,
+            color: &samples.color,
+            ir,
             rows,
             cols,
             channels: layout.channels.clone(),
@@ -63,19 +99,62 @@ impl<'a> Image<'a> {
         })
     }
 
-    /// One row, channels interleaved in the order `channels` lists them
-    pub fn row(&self, y: usize) -> &'a [u16] {
-        let stride = self.cols * self.channels.len();
-        &self.samples[y * stride..(y + 1) * stride]
+    /// Color channels among `channels`, which is the color buffer's stride
+    pub fn colors(&self) -> usize {
+        self.channels
+            .iter()
+            .filter(|&&id| Channel::from(id).is_color())
+            .count()
     }
 
-    /// Every sample of one channel
-    pub fn plane(&self, channel: usize) -> impl Iterator<Item = u16> + use<'a> {
-        self.samples
-            .iter()
-            .skip(channel)
-            .step_by(self.channels.len())
-            .copied()
+    /// One row of the color buffer, channels interleaved in `channels` order
+    pub fn color_row(&self, y: usize) -> &'a [u16] {
+        let stride = self.cols * self.colors();
+        &self.color[y * stride..(y + 1) * stride]
+    }
+
+    /// Every sample of one channel, `channel` indexing into `channels` as the
+    /// pass carried them, color and infrared together
+    pub fn plane(&self, channel: usize) -> Plane<'a> {
+        let id = self.channels[channel];
+        match Channel::from(id).is_color() {
+            true => {
+                let before = self.channels[..channel]
+                    .iter()
+                    .filter(|&&c| Channel::from(c).is_color())
+                    .count();
+                Plane {
+                    samples: self.color,
+                    index: before,
+                    stride: self.colors(),
+                }
+            }
+            // Never more than one infrared channel, so it is always slot 0
+            false => Plane {
+                samples: self.ir,
+                index: 0,
+                stride: 1,
+            },
+        }
+    }
+}
+
+/// One channel's samples, strided through whichever buffer holds it
+pub struct Plane<'a> {
+    samples: &'a [u16],
+    index: usize,
+    stride: usize,
+}
+
+impl Iterator for Plane<'_> {
+    type Item = u16;
+
+    fn next(&mut self) -> Option<u16> {
+        let v = self.samples.get(self.index).copied();
+        if v.is_some() {
+            self.index += self.stride;
+        }
+        v
     }
 }
 
@@ -98,6 +177,10 @@ struct Transposed<'a> {
     gap: usize,
     /// Where each output channel's samples sit, in the output's order
     slots: Vec<Slot>,
+    /// Color channels among `slots`, the color buffer's stride
+    colors: usize,
+    /// Infrared channels among `slots`, the infrared buffer's stride
+    ir: usize,
     /// Samples in one readout
     readout: usize,
     /// Samples in one stage position
@@ -114,13 +197,17 @@ struct Transposed<'a> {
 /// not where the rest continue from, and the slots are not the SCAN order.
 #[derive(Debug, Clone, Copy)]
 struct Slot {
-    /// The first reading
+    /// The first reading, on the wire
     first: usize,
     /// The second, after which each further reading steps by `stride`
     next: usize,
     stride: usize,
     /// Readings to average. 1 for a channel multi-sampling does not repeat
     readings: usize,
+    /// This channel's position within its own output buffer
+    out: usize,
+    /// Whether this lands in the color buffer or the infrared one
+    color: bool,
 }
 
 impl Slot {
@@ -131,7 +218,7 @@ impl Slot {
         }
     }
 
-    /// One per output channel, in the order the output interleaves them
+    /// One per output channel, in the order the channel list carries them
     fn every(channels: &[u8], readings: usize) -> Vec<Self> {
         let colors = channels
             .iter()
@@ -139,7 +226,7 @@ impl Slot {
             .count();
         let once = channels.len() - colors;
 
-        let (mut color, mut other) = (0, 0);
+        let (mut color, mut ir) = (0, 0);
         channels
             .iter()
             .map(|id| match Channel::from(*id).is_color() {
@@ -150,15 +237,19 @@ impl Slot {
                         next: colors + once + color - 1,
                         stride: colors,
                         readings,
+                        out: color - 1,
+                        color: true,
                     }
                 }
                 false => {
-                    other += 1;
+                    ir += 1;
                     Slot {
-                        first: colors + other - 1,
+                        first: colors + ir - 1,
                         next: 0,
                         stride: 0,
                         readings: 1,
+                        out: ir - 1,
+                        color: false,
                     }
                 }
             })
@@ -182,12 +273,17 @@ impl Transposed<'_> {
         (self.rows, self.cols)
     }
 
-    /// Samples the output holds
-    fn samples(&self) -> usize {
-        self.rows * self.cols * self.slots.len()
+    /// Samples the color buffer holds
+    fn color_samples(&self) -> usize {
+        self.rows * self.cols * self.colors
     }
 
-    fn emit(&self, n: usize, block: &[u8], out: &mut [u16]) {
+    /// Samples the infrared buffer holds
+    fn ir_samples(&self) -> usize {
+        self.rows * self.cols * self.ir
+    }
+
+    fn emit(&self, n: usize, block: &[u8], color_out: &mut [u16], ir_out: &mut [u16]) {
         let first = n * self.gap * self.ccd_lines;
         for col in 0..self.gap * self.ccd_lines {
             // A block lays its stage positions out under each CCD row in turn
@@ -199,9 +295,9 @@ impl Transposed<'_> {
                 // The bar reads out opposite to increasing y
                 let y = self.rows - 1 - p;
                 let sample = base + p * self.ccd_lines;
-                let at = (y * self.cols + x) * self.slots.len();
+                let pixel = y * self.cols + x;
 
-                for (c, slot) in self.slots.iter().enumerate() {
+                for slot in &self.slots {
                     // Integers throughout. A nibble caps the readings at 16, so
                     // the sum cannot leave a u32, and rounding to nearest keeps
                     // the average off a systematic bias toward zero
@@ -217,7 +313,11 @@ impl Transposed<'_> {
                         });
                     }
                     let n = slot.readings as u32;
-                    out[at + c] = ((sum + n / 2) / n) as u16;
+                    let value = ((sum + n / 2) / n) as u16;
+                    match slot.color {
+                        true => color_out[pixel * self.colors + slot.out] = value,
+                        false => ir_out[pixel * self.ir + slot.out] = value,
+                    }
                 }
             }
         }
@@ -234,7 +334,7 @@ fn sample_at(sample: &[u8]) -> u16 {
     }
 }
 
-/// Unscrambles a scan into a caller-owned buffer
+/// Unscrambles a scan into a caller-owned [`Samples`], color and infrared
 ///
 /// A chunk can end anywhere, so partial blocks are held until the rest arrives
 pub struct Decoder<'a> {
@@ -305,15 +405,20 @@ impl<'a> Decoder<'a> {
             )));
         }
         let readout = rows * ccd_lines;
+        let slots = Slot::every(
+            &layout.channels,
+            usize::from(layout.readings_per_line).max(1),
+        );
+        let colors = slots.iter().filter(|s| s.color).count();
+        let ir = slots.len() - colors;
         let ordering = Transposed {
             rows,
             cols,
             ccd_lines,
             gap,
-            slots: Slot::every(
-                &layout.channels,
-                usize::from(layout.readings_per_line).max(1),
-            ),
+            slots,
+            colors,
+            ir,
             readout,
             stage: layout.readouts() as usize * readout,
             bytes_per_sample,
@@ -344,9 +449,14 @@ impl<'a> Decoder<'a> {
         self.ordering.shape()
     }
 
-    /// Samples the output buffer has to hold
-    pub fn samples(&self) -> usize {
-        self.ordering.samples()
+    /// Samples the color buffer has to hold
+    pub fn color_samples(&self) -> usize {
+        self.ordering.color_samples()
+    }
+
+    /// Samples the infrared buffer has to hold, 0 where the pass carries none
+    pub fn ir_samples(&self) -> usize {
+        self.ordering.ir_samples()
     }
 
     /// Blocks emitted so far, of the [`Layout`]'s total
@@ -359,19 +469,38 @@ impl<'a> Decoder<'a> {
         self.done == self.ordering.blocks()
     }
 
-    /// Feed the next chunk, writing whatever blocks it completes into `out`
+    /// Feed the next chunk, writing whatever blocks it completes into `samples`
     ///
     /// Bytes past the last block the layout promised are dropped: the unit pads
     /// a short read rather than truncating one.
-    pub fn push(&mut self, chunk: &[u8], out: &mut [u16]) -> Result<(), Error> {
-        if out.len() < self.samples() {
+    pub fn push(&mut self, chunk: &[u8], samples: &mut Samples) -> Result<(), Error> {
+        if samples.color.len() < self.color_samples() {
             return Err(bad(format!(
-                "the output holds {} samples and this stream needs {}",
-                out.len(),
-                self.samples()
+                "the color output holds {} samples and this stream needs {}",
+                samples.color.len(),
+                self.color_samples()
+            )));
+        }
+        let needed = self.ir_samples();
+        let have = samples.ir.as_ref().map_or(0, Vec::len);
+        if have < needed {
+            return Err(bad(format!(
+                "the infrared output holds {have} samples and this stream needs {needed}"
             )));
         }
 
+        let mut none = Vec::new();
+        let ir_out = samples.ir.as_deref_mut().unwrap_or(&mut none[..]);
+        self.push_into(chunk, &mut samples.color, ir_out)
+    }
+
+    /// [`push`](Self::push) against raw color and infrared buffers directly
+    fn push_into(
+        &mut self,
+        chunk: &[u8],
+        color_out: &mut [u16],
+        ir_out: &mut [u16],
+    ) -> Result<(), Error> {
         let width = self.ordering.block_bytes();
         let mut rest = chunk;
 
@@ -384,25 +513,25 @@ impl<'a> Decoder<'a> {
                 return Ok(());
             }
             let block = std::mem::take(&mut self.carry);
-            self.take(&block, out);
+            self.take(&block, color_out, ir_out);
             self.carry = block;
             self.carry.clear();
         }
 
         let mut blocks = rest.chunks_exact(width);
         for block in &mut blocks {
-            self.take(block, out);
+            self.take(block, color_out, ir_out);
         }
         self.carry.extend_from_slice(blocks.remainder());
         Ok(())
     }
 
     /// Emit one block, unless the layout has already had every block it wanted
-    fn take(&mut self, block: &[u8], out: &mut [u16]) {
+    fn take(&mut self, block: &[u8], color_out: &mut [u16], ir_out: &mut [u16]) {
         if self.done >= self.ordering.blocks() {
             return;
         }
-        self.ordering.emit(self.done, block, out);
+        self.ordering.emit(self.done, block, color_out, ir_out);
         self.done += 1;
     }
 }
@@ -432,22 +561,31 @@ mod tests {
         out
     }
 
+    /// A ready-sized buffer pair and the decoder to fill it, for a layout with
+    /// no infrared
+    fn buffers(l: &Layout) -> (Decoder<'_>, Samples) {
+        let d = Decoder::new(l).unwrap();
+        let mut samples = Samples::default();
+        samples.resize_for(&d);
+        (d, samples)
+    }
+
     /// The wire puts a whole channel down before the next; the output
     /// interleaves them per pixel, sensor pixels down the image with the bar
     /// read out backwards
     #[test]
     fn a_line_of_planes_comes_out_interleaved() {
         let l = layout(4, 3, vec![1, 2, 3]);
-        let mut d = Decoder::new(&l).unwrap();
-        let mut out = vec![0u16; d.samples()];
-        d.push(&stream(4, 3, 3), &mut out).unwrap();
+        let (mut d, mut samples) = buffers(&l);
+        d.push(&stream(4, 3, 3), &mut samples).unwrap();
 
         assert!(d.complete());
+        assert!(samples.ir.is_none());
         assert_eq!(d.shape(), (4, 3));
         for s in 0..4usize {
             for f in 0..3usize {
                 for c in 0..3usize {
-                    let got = out[((4 - 1 - s) * 3 + f) * 3 + c];
+                    let got = samples.color[((4 - 1 - s) * 3 + f) * 3 + c];
                     assert_eq!(got, (f * 1000 + s * 10 + c) as u16, "{s},{f},{c}");
                 }
             }
@@ -465,12 +603,12 @@ mod tests {
         three.registration_gap = 0;
 
         let raw = stream(4, 3, 3);
-        let mut a = vec![0u16; Decoder::new(&single).unwrap().samples()];
-        let mut b = vec![0u16; Decoder::new(&three).unwrap().samples()];
-        Decoder::new(&single).unwrap().push(&raw, &mut a).unwrap();
-        Decoder::new(&three).unwrap().push(&raw, &mut b).unwrap();
+        let (mut a, mut a_samples) = buffers(&single);
+        let (mut b, mut b_samples) = buffers(&three);
+        a.push(&raw, &mut a_samples).unwrap();
+        b.push(&raw, &mut b_samples).unwrap();
 
-        assert_eq!(a, b);
+        assert_eq!(a_samples.color, b_samples.color);
     }
 
     /// The transport splits where it likes, including mid-sample
@@ -479,17 +617,16 @@ mod tests {
         let l = layout(4, 3, vec![1, 2, 3]);
         let whole = stream(4, 3, 3);
 
-        let mut want = vec![0u16; Decoder::new(&l).unwrap().samples()];
-        Decoder::new(&l).unwrap().push(&whole, &mut want).unwrap();
+        let (mut d, mut want) = buffers(&l);
+        d.push(&whole, &mut want).unwrap();
 
         for split in [1usize, 3, 7, 16, 23, 48] {
-            let mut d = Decoder::new(&l).unwrap();
-            let mut got = vec![0u16; d.samples()];
+            let (mut d, mut got) = buffers(&l);
             for piece in whole.chunks(split) {
                 d.push(piece, &mut got).unwrap();
             }
             assert!(d.complete(), "split {split} left {} lines", d.decoded());
-            assert_eq!(got, want, "split {split}");
+            assert_eq!(got.color, want.color, "split {split}");
         }
     }
 
@@ -497,13 +634,13 @@ mod tests {
     #[test]
     fn a_short_stream_writes_only_what_arrived() {
         let l = layout(4, 3, vec![1, 2, 3]);
-        let mut d = Decoder::new(&l).unwrap();
-        let mut out = vec![0u16; d.samples()];
+        let (mut d, mut samples) = buffers(&l);
         let whole = stream(4, 3, 3);
-        d.push(&whole[..whole.len() / 3], &mut out).unwrap();
+        d.push(&whole[..whole.len() / 3], &mut samples).unwrap();
 
         assert!(!d.complete());
         assert_eq!(d.decoded(), 1);
+        let out = &samples.color;
         // One block is one feed position read into the whole sensor bar, so
         // column 0 carries the first wire line and nothing else has moved
         for (y, s) in [(0usize, 3usize), (1, 2), (2, 1), (3, 0)] {
@@ -529,9 +666,8 @@ mod tests {
     #[test]
     fn padding_past_the_last_line_is_dropped() {
         let l = layout(4, 2, vec![1, 2, 3]);
-        let mut d = Decoder::new(&l).unwrap();
-        let mut out = vec![0u16; d.samples()];
-        d.push(&stream(4, 4, 3), &mut out).unwrap();
+        let (mut d, mut samples) = buffers(&l);
+        d.push(&stream(4, 4, 3), &mut samples).unwrap();
 
         assert_eq!(d.decoded(), 2);
         assert!(d.complete());
@@ -550,24 +686,24 @@ mod tests {
         };
         let (w, h) = (1494usize, 1494usize);
         let l = layout(w as u32, h as u32, vec![1, 2, 3]);
-        let mut d = Decoder::new(&l).unwrap();
-        if raw.len() != d.samples() * 2 {
+        let (mut d, mut samples) = buffers(&l);
+        if raw.len() != samples.color.len() * 2 {
             eprintln!(
                 "scan.raw is {} bytes, not the {} of a single-line {w}x{h} pass, skipping",
                 raw.len(),
-                d.samples() * 2
+                samples.color.len() * 2
             );
             return;
         }
 
-        let mut out = vec![0u16; d.samples()];
         for piece in raw.chunks(262_144) {
-            d.push(piece, &mut out).unwrap();
+            d.push(piece, &mut samples).unwrap();
         }
         assert!(d.complete());
 
         // A photograph, not noise: neighbouring pixels agree far better than
         // distant ones. Scrambled planes would flatten the difference
+        let out = &samples.color;
         let at = |y: usize, x: usize, c: usize| f64::from(out[(y * w + x) * 3 + c]);
         let (mut near, mut far, mut n) = (0.0, 0.0, 0.0);
         for y in (10..h - 10).step_by(37) {
@@ -585,7 +721,11 @@ mod tests {
     fn an_output_too_small_is_refused() {
         let l = layout(4, 3, vec![1, 2, 3]);
         let mut d = Decoder::new(&l).unwrap();
-        assert!(d.push(&[], &mut [0u16; 4]).is_err());
+        let mut samples = Samples {
+            color: vec![0u16; 4],
+            ir: None,
+        };
+        assert!(d.push(&[], &mut samples).is_err());
     }
 }
 
@@ -610,6 +750,14 @@ mod transposed {
             registration_gap: gap,
             granule: 1,
         }
+    }
+
+    /// A ready-sized buffer pair and the decoder to fill it
+    fn buffers(l: &Layout) -> (Decoder<'_>, Samples) {
+        let d = Decoder::new(l).unwrap();
+        let mut samples = Samples::default();
+        samples.resize_for(&d);
+        (d, samples)
     }
 
     /// Every sample says where it came from, so a misplaced one is legible
@@ -640,14 +788,14 @@ mod transposed {
     fn a_block_tiles_stage_positions_against_ccd_rows() {
         let (rows, stages, gap) = (4usize, 2usize, 2u32);
         let l = layout(rows as u32, stages as u32, gap, vec![1, 2, 3], 1);
-        let mut d = Decoder::new(&l).unwrap();
+        let (mut d, mut samples) = buffers(&l);
         assert_eq!(d.shape(), (rows, stages * 3));
 
-        let mut out = vec![0u16; d.samples()];
-        d.push(&stream(stages, 3, rows, 3), &mut out).unwrap();
+        d.push(&stream(stages, 3, rows, 3), &mut samples).unwrap();
         assert!(d.complete());
 
         let (_, cols) = d.shape();
+        let color = &samples.color;
         for stage in 0..stages {
             for line in 0..3 {
                 let x = line * gap as usize + stage;
@@ -655,7 +803,7 @@ mod transposed {
                     let y = rows - 1 - pixel;
                     for channel in 0..3 {
                         assert_eq!(
-                            out[(y * cols + x) * 3 + channel],
+                            color[(y * cols + x) * 3 + channel],
                             tag(stage, channel, pixel, line),
                             "stage {stage} line {line} pixel {pixel} channel {channel}"
                         );
@@ -666,27 +814,29 @@ mod transposed {
     }
 
     /// Infrared sits after the first color triple and is not repeated, so a
-    /// repeated color averages its readings and infrared takes slot 3 alone
+    /// repeated color averages its readings and infrared lands in its own
+    /// buffer alone
     #[test]
-    fn multi_sampling_averages_the_colors_and_leaves_infrared_alone() {
+    fn multi_sampling_averages_the_colors_and_leaves_infrared_apart() {
         let l = layout(2, 1, 1, vec![9, 1, 2, 3], 2);
-        let mut d = Decoder::new(&l).unwrap();
-        let mut out = vec![0u16; d.samples()];
+        let (mut d, mut samples) = buffers(&l);
         // 3 colors x 2 readings + 1 infrared
-        d.push(&stream(1, 7, 2, 3), &mut out).unwrap();
+        d.push(&stream(1, 7, 2, 3), &mut samples).unwrap();
         assert!(d.complete());
 
         let (_, cols) = d.shape();
+        let color = &samples.color;
+        let ir = samples.ir.as_ref().unwrap();
         for line in 0..3 {
             for pixel in 0..2 {
                 let (y, x) = (2 - 1 - pixel, line);
-                let at = (y * cols + x) * 4;
-                // Channel order is the layout's: infrared first, from slot 3
-                assert_eq!(out[at], tag(0, 3, pixel, line));
-                for color in 0..3 {
-                    let first = tag(0, color, pixel, line);
-                    let second = tag(0, 4 + color, pixel, line);
-                    assert_eq!(out[at + 1 + color], (first + second) / 2);
+                let pixel_at = y * cols + x;
+                // Infrared is read once, at wire slot 3, whatever the reading count
+                assert_eq!(ir[pixel_at], tag(0, 3, pixel, line));
+                for c in 0..3 {
+                    let first = tag(0, c, pixel, line);
+                    let second = tag(0, 4 + c, pixel, line);
+                    assert_eq!(color[pixel_at * 3 + c], (first + second) / 2);
                 }
             }
         }
@@ -723,35 +873,36 @@ mod transposed {
     /// asked: per feed position the color channels for each reading, with the
     /// once-read infrared between the first reading and the rest
     #[test]
-    fn a_single_line_averages_multi_pass_and_leaves_infrared_alone() {
+    fn a_single_line_averages_multi_pass_and_leaves_infrared_apart() {
         let (rows, stages, readings) = (2usize, 2usize, 4u8);
         let l = single(rows as u32, stages as u32, vec![9, 1, 2, 3], readings);
         // 3 colors x 4 readings + 1 infrared
         let readouts = 13usize;
-        let mut d = Decoder::new(&l).unwrap();
-        let mut out = vec![0u16; d.samples()];
-        d.push(&stream(stages, readouts, rows, 1), &mut out)
+        let (mut d, mut samples) = buffers(&l);
+        d.push(&stream(stages, readouts, rows, 1), &mut samples)
             .unwrap();
         assert!(d.complete());
 
         let (_, cols) = d.shape();
+        let color = &samples.color;
+        let ir = samples.ir.as_ref().unwrap();
         for stage in 0..stages {
             for pixel in 0..rows {
                 let (y, x) = (rows - 1 - pixel, stage);
-                let at = (y * cols + x) * 4;
+                let pixel_at = y * cols + x;
                 assert_eq!(
-                    out[at],
+                    ir[pixel_at],
                     tag(stage, 3, pixel, 0),
                     "stage {stage} pixel {pixel} IR"
                 );
-                for color in 0..3 {
-                    let slots = [color, 4 + color, 7 + color, 10 + color];
+                for c in 0..3 {
+                    let slots = [c, 4 + c, 7 + c, 10 + c];
                     let reads: Vec<u16> = slots.iter().map(|&s| tag(stage, s, pixel, 0)).collect();
                     let want = reads.iter().map(|&s| u32::from(s)).sum::<u32>() / 4;
                     assert_eq!(
-                        out[at + 1 + color],
+                        color[pixel_at * 3 + c],
                         want as u16,
-                        "stage {stage} pixel {pixel} color {color}"
+                        "stage {stage} pixel {pixel} color {c}"
                     );
                 }
             }
@@ -759,22 +910,24 @@ mod transposed {
     }
 
     /// A single-line pass of a channel multi-sampling does not repeat is one
-    /// exposure per feed position, however many readings the window asked for
+    /// exposure per feed position, however many readings the window asked for.
+    /// An infrared-only scan carries no color channel at all
     #[test]
     fn a_single_line_reads_once_read_channels_once() {
         let (rows, stages) = (2usize, 2usize);
         let l = single(rows as u32, stages as u32, vec![9], 4);
-        let mut d = Decoder::new(&l).unwrap();
+        let (mut d, mut samples) = buffers(&l);
         assert_eq!(d.shape(), (rows, stages));
-        let mut out = vec![0u16; d.samples()];
-        d.push(&stream(stages, 1, rows, 1), &mut out).unwrap();
+        assert!(samples.color.is_empty());
+        d.push(&stream(stages, 1, rows, 1), &mut samples).unwrap();
         assert!(d.complete());
 
         let (_, cols) = d.shape();
+        let ir = samples.ir.as_ref().unwrap();
         for stage in 0..stages {
             for pixel in 0..rows {
                 let (y, x) = (rows - 1 - pixel, stage);
-                assert_eq!(out[y * cols + x], tag(stage, 0, pixel, 0));
+                assert_eq!(ir[y * cols + x], tag(stage, 0, pixel, 0));
             }
         }
     }

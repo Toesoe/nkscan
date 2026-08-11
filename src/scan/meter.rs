@@ -196,7 +196,7 @@ mod tests {
             other::Features,
             set_window::{ColorInterleaving, SetWindowFunction},
         },
-        decode::Decoder,
+        decode::{Decoder, Samples},
         image::Layout,
         window::{Channel, Composition, LENGTH},
     };
@@ -239,7 +239,7 @@ mod tests {
         }
     }
 
-    fn image<'a>(layout: &'a Layout, samples: &'a [u16]) -> Image<'a> {
+    fn image<'a>(layout: &'a Layout, samples: &'a Samples) -> Image<'a> {
         Image::new(layout, samples).unwrap()
     }
 
@@ -271,7 +271,7 @@ mod tests {
 
     /// A pass holding one flat level per channel, put through the real decoder
     /// so metering is tested against what a scan actually hands it
-    fn decoded(windows: &[Window], levels: &[u16]) -> (Layout, Vec<u16>) {
+    fn decoded(windows: &[Window], levels: &[u16]) -> (Layout, Samples) {
         let mut raw = Vec::new();
         for _ in 0..LINES {
             for &level in levels {
@@ -282,7 +282,8 @@ mod tests {
         }
         let layout = Layout::new(&caps(), windows, 4000).unwrap();
         let mut decoder = Decoder::new(&layout).unwrap();
-        let mut samples = vec![0u16; decoder.samples()];
+        let mut samples = Samples::default();
+        samples.resize_for(&decoder);
         decoder.push(&raw, &mut samples).unwrap();
         (layout, samples)
     }

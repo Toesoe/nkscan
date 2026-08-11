@@ -9,7 +9,10 @@
 
 use crate::mono::{self, Luminance};
 use anyhow::{Context, Result, bail};
-use nkscan::{protocol::window::Channel, scan::pass::Pass};
+use nkscan::{
+    protocol::{decode::Samples, window::Channel},
+    scan::pass::Pass,
+};
 use std::{
     fs::File,
     io::BufWriter,
@@ -61,17 +64,15 @@ pub fn next_free(basename: &Path) -> usize {
 pub fn write_frame(
     basename: &Path,
     n: usize,
-    samples: &[u16],
+    samples: &Samples,
     pass: &Pass,
     icc: Option<&[u8]>,
     mono: bool,
 ) -> Result<Vec<PathBuf>> {
-    let plane = |channel: Channel| {
-        pass.layout
-            .channels
-            .iter()
-            .position(|&id| Channel::from(id) == channel)
-    };
+    // Positions within the color buffer, which carries only the color
+    // channels of `pass.layout.channels`, in the same relative order
+    let color_ids: Vec<u8> = pass.layout.colors().collect();
+    let plane = |channel: Channel| color_ids.iter().position(|&id| Channel::from(id) == channel);
 
     // R, G, B whatever order the stream interleaves them in. A unit that scans
     // one channel calls it the default rather than green
@@ -86,6 +87,7 @@ pub fn write_frame(
 
     let (color_path, ir_path) = paths(basename, n);
     let mut written = Vec::new();
+    let stride = color_ids.len();
 
     // Three channels and a profile to weigh them by is the only way to make
     // luminance. Anything less falls back to the channel 2-11-3 calls the
@@ -108,28 +110,44 @@ pub fn write_frame(
             let planes = [color[0], color[1], color[2]];
             write_planes::<Gray16>(
                 &color_path,
-                samples,
+                &samples.color,
                 pass,
                 Source::Luminance { planes, luminance },
                 Some(&gray),
+                stride,
             )?
         }
-        (None, Some(gray), _) => {
-            write_planes::<Gray16>(&color_path, samples, pass, Source::Planes(&[gray]), None)?
-        }
-        (None, None, 3) => {
-            write_planes::<RGB16>(&color_path, samples, pass, Source::Planes(&color), icc)?
-        }
-        (None, None, 1) => {
-            write_planes::<Gray16>(&color_path, samples, pass, Source::Planes(&color), icc)?
-        }
+        (None, Some(gray), _) => write_planes::<Gray16>(
+            &color_path,
+            &samples.color,
+            pass,
+            Source::Planes(&[gray]),
+            None,
+            stride,
+        )?,
+        (None, None, 3) => write_planes::<RGB16>(
+            &color_path,
+            &samples.color,
+            pass,
+            Source::Planes(&color),
+            icc,
+            stride,
+        )?,
+        (None, None, 1) => write_planes::<Gray16>(
+            &color_path,
+            &samples.color,
+            pass,
+            Source::Planes(&color),
+            icc,
+            stride,
+        )?,
         (None, None, n) => bail!("{n} color planes is not a TIFF this writes"),
     }
     written.push(color_path);
 
-    if let Some(ir) = plane(Channel::Infrared) {
+    if let Some(ir) = &samples.ir {
         // The mask measures obstructions rather than color, so no profile
-        write_planes::<Gray16>(&ir_path, samples, pass, Source::Planes(&[ir]), None)?;
+        write_planes::<Gray16>(&ir_path, ir, pass, Source::Planes(&[0]), None, 1)?;
         written.push(ir_path);
     }
 
@@ -179,14 +197,15 @@ impl Source<'_> {
 
 /// Write `source` to one file, a strip at a time
 ///
-/// The samples interleave every channel of the pass, and a TIFF holds only what
-/// is going in this file, so each strip is gathered rather than copied
+/// `samples` interleaves `stride` channels; a TIFF holds only what is going in
+/// this file, so each strip is gathered rather than copied
 fn write_planes<C>(
     path: &Path,
     samples: &[u16],
     pass: &Pass,
     source: Source<'_>,
     icc: Option<&[u8]>,
+    stride: usize,
 ) -> Result<()>
 where
     C: ColorType<Inner = u16>,
@@ -213,7 +232,6 @@ where
     // samples are stretched to fill the container
     let scale = full_scale(pass.layout.bits_per_sample);
 
-    let stride = pass.layout.channels.len();
     let at = |pixel: usize, plane: usize| {
         let raw = samples[pixel * stride + plane];
         match &scale {

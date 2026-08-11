@@ -21,7 +21,7 @@
 //! Thanks to @toesoe, who worked out that a collapsed thumbnail is all this
 //! takes.
 
-use crate::protocol::{decode::Image, window::Channel};
+use crate::protocol::decode::Image;
 use tracing::*;
 
 /// Fraction of the rows dropped from each side before a column is summed
@@ -144,31 +144,16 @@ pub fn detect(image: &Image, length: usize, polarity: Option<Polarity>) -> Detec
 }
 
 /// Each column of the thumbnail as one number, summed across the film
-///
-/// A frame ends wherever the picture does, in every channel at once, so the
-/// colors are summed together. Infrared reads what is in the way rather than
-/// what was photographed and says nothing about where a frame ends, so it is
-/// left out of a pass that has anything else.
 fn profile(image: &Image) -> Vec<u64> {
-    let stride = image.channels.len();
-    let mut summed: Vec<usize> = (0..stride)
-        .filter(|c| Channel::from(image.channels[*c]).is_color())
-        .collect();
-    if summed.is_empty() {
-        summed = (0..stride).collect();
-    }
-
+    let stride = image.colors();
     let trim = image.rows / TRIM;
     let band = trim..image.rows - trim;
     (0..image.cols)
         .map(|x| {
             band.clone()
                 .map(|y| {
-                    let row = image.row(y);
-                    summed
-                        .iter()
-                        .map(|c| u64::from(row[x * stride + c]))
-                        .sum::<u64>()
+                    let row = image.color_row(y);
+                    (0..stride).map(|c| u64::from(row[x * stride + c])).sum::<u64>()
                 })
                 .sum()
         })
@@ -321,7 +306,7 @@ fn ladder(columns: &[usize], pitch: usize, length: usize, film_end: usize) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::image::Layout;
+    use crate::protocol::{decode::Samples, image::Layout};
 
     /// A thumbnail of a strip: `frames` runs of `length` columns `pitch` apart,
     /// each holding a picture, on film that is flat between them
@@ -334,7 +319,7 @@ mod tests {
         pitch: usize,
         polarity: Polarity,
         skip: Option<usize>,
-    ) -> (Vec<u16>, usize, usize) {
+    ) -> (Samples, usize, usize) {
         let (sensor, feed) = (16usize, first + frames * pitch + length);
         // Film between the frames, either side of what a picture averages
         let (between, picture) = match polarity {
@@ -361,10 +346,10 @@ mod tests {
                 }
             }
         }
-        (samples, sensor, feed)
+        (Samples { color: samples, ir: None }, sensor, feed)
     }
 
-    fn image(samples: &[u16], sensor: usize, feed: usize) -> Image<'_> {
+    fn image(samples: &Samples, sensor: usize, feed: usize) -> Image<'_> {
         // The single-line ordering, whose columns are the feed and rows the
         // sensor
         let layout = Layout::single_line(sensor as u32, feed as u32, vec![1, 2, 3]);
@@ -443,7 +428,7 @@ mod tests {
         let (mut samples, sensor, feed) = strip(2, 30, 120, 132, Polarity::Positive, None);
         let tail = 30 + 2 * 132;
         for y in 0..sensor {
-            for s in &mut samples[(y * feed + tail) * 3..(y * feed + feed) * 3] {
+            for s in &mut samples.color[(y * feed + tail) * 3..(y * feed + feed) * 3] {
                 *s = u16::MAX;
             }
         }
@@ -458,7 +443,10 @@ mod tests {
 
     #[test]
     fn an_empty_holder_holds_no_frames() {
-        let samples = vec![2000u16; 16 * 400 * 3];
+        let samples = Samples {
+            color: vec![2000u16; 16 * 400 * 3],
+            ir: None,
+        };
         let found = detect(&image(&samples, 16, 400), 120, None);
         assert!(found.frames.is_empty());
         assert_eq!(found.pitch, 0);

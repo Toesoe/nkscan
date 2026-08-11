@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4]
+
+### Changed
+
+- A pass's samples come back as `protocol::decode::Samples`, color and
+  infrared in their own buffers, instead of one `Vec<u16>` with infrared
+  interleaved into it. `Session::scan_pass_with`, `scan_thumbnail_with`,
+  `scan::thumbnail::frames` and `Image::new` all take it now.
+
+### Fixed
+
+- `nkscan dump` stopped a page's hexdump at its declared length instead of
+  printing the padding after it as though it were data.
+
 ## [0.3.3]
 
 ### Fixed

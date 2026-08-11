@@ -9,7 +9,10 @@ use anyhow::{anyhow, bail};
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
     device,
-    protocol::caps::{film::FilmFormat, set_window::ColorInterleaving},
+    protocol::{
+        caps::{film::FilmFormat, set_window::ColorInterleaving},
+        decode::Samples,
+    },
     scan::{
         autoexpose::Exposures,
         focus::Focus,
@@ -99,7 +102,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     wait_for_film(&mut session, "Load a film holder")?;
 
     // One buffer for every strip
-    let mut samples: Vec<u16> = Vec::new();
+    let mut samples = Samples::default();
 
     // A strip at a time until the operator stops feeding them
     loop {

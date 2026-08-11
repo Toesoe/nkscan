@@ -197,6 +197,16 @@ impl Layout {
         width_code(self.bytes_per_sample).expect("checked when the layout was built")
     }
 
+    /// This layout's channel identifiers that carry color, in stream order.
+    /// [`decode::Samples::color`](crate::protocol::decode::Samples) holds them
+    /// in this same relative order
+    pub fn colors(&self) -> impl Iterator<Item = u8> + '_ {
+        self.channels
+            .iter()
+            .copied()
+            .filter(|&id| Channel::from(id).is_color())
+    }
+
     /// Bytes in one line of every channel
     pub fn bytes_per_line(&self) -> u64 {
         u64::from(self.pixels) * u64::from(self.bytes_per_sample) * self.channels.len() as u64

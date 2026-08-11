@@ -2,7 +2,11 @@
 
 use crate::{
     error::Error,
-    protocol::{data::Rect, decode::Image, window::Window},
+    protocol::{
+        data::Rect,
+        decode::{Image, Samples},
+        window::Window,
+    },
     scan::{
         autoexpose::{AutoExposure, Exposures, prescan_windows},
         pass::Progress,
@@ -109,7 +113,7 @@ impl Session {
                 let seeded = self.seed_white_balance(windows)?;
 
                 let mut windows = prescan_windows(self.capabilities(), &seeded);
-                let mut samples = Vec::new();
+                let mut samples = Samples::default();
                 let mut layout = None;
                 let mut n = 0;
                 loop {

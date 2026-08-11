@@ -21,7 +21,7 @@ use crate::{
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
         data::{Boundary, Rect},
-        decode::Image,
+        decode::{Image, Samples},
         window::Window,
     },
 };
@@ -46,7 +46,7 @@ pub fn available(caps: &Capabilities) -> bool {
 pub fn frames(
     caps: &Capabilities,
     pass: &Pass,
-    samples: &[u16],
+    samples: &Samples,
     length: u32,
     polarity: Option<Polarity>,
 ) -> Result<Boundary, Error> {
