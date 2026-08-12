@@ -24,7 +24,7 @@ use nkscan::{
     },
     session::Session,
 };
-use std::{borrow::Cow, fs::File, io::Write, time::Duration};
+use std::{borrow::Cow, time::Duration};
 use tracing::*;
 
 /// Long enough for a full resolution pass over the largest frame
@@ -221,14 +221,15 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
 
                 session.set_boundaries_type2(&measured)?;
 
-                let x_start = session.windows()?[0].origin.0;
-                let x_boundary = session.windows()?[0].origin.0 + session.windows()?[0].size.0;
-                let y_size = session.windows()?[0].origin.1 + session.windows()?[0].size.1;
+                let x_start = session.capabilities().address.x_axis.address_range.start;
+                let x_boundary = session.capabilities().address.x_axis.boundary;
+
+                dbg!(x_start, x_boundary, length);
 
                 let frames = measured
                     .frames
                     .iter()
-                    .map(|f| f.rect(x_start, x_boundary, y_size))
+                    .map(|f| f.rect(x_start, x_boundary, length))
                     .collect();
                 info!(frames = measured.frames.len(), "detected frames");
                 (FrameTable::BoundaryType2(measured), frames)
