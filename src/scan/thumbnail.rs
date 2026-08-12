@@ -89,7 +89,7 @@ pub fn frames(
 pub fn frames_type2(
     caps: &Capabilities,
     pass: &Pass,
-    samples: &[u16],
+    samples: &Samples,
     perf_info: &PerfInformation,
     length: u32,
     polarity: Option<Polarity>,

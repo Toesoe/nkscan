@@ -150,7 +150,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
             _ => None,
         };
 
-        let (table, scan_frames) = match framing {
+        let (_table, scan_frames) = match framing {
             Framing::Published => {
                 let table = framing::table(session.capabilities())?;
                 let frames = table.frames.clone();

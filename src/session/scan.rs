@@ -6,10 +6,7 @@
 use super::Session;
 use crate::{
     error::Error,
-    protocol::{
-        decode::Samples, image::Layout, window::Window,
-        caps::set_window::ScanKind
-    },
+    protocol::{decode::Samples, image::Layout, window::Window},
     scan::pass::{self, Pass, Progress},
     session::window::Started,
 };
