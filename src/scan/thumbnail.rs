@@ -20,7 +20,7 @@ use crate::{
             Capabilities,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        data::{Boundary, Rect, BoundaryType2, FramePosition, PerfInformation},
+        data::{Boundary, BoundaryType2, FramePosition, PerfInformation, Rect},
         decode::{Image, Samples},
         window::{Flags, Window},
     },

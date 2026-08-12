@@ -10,9 +10,9 @@ use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
     device,
     protocol::{
-        caps::{film::FilmFormat, set_window::ColorInterleaving, other::HostCooperation},
+        caps::{film::FilmFormat, other::HostCooperation, set_window::ColorInterleaving},
+        data::FrameTable,
         decode::Samples,
-        data::FrameTable
     },
     scan::{
         autoexpose::Exposures,
