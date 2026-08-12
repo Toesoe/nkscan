@@ -309,6 +309,7 @@ pub struct Rect {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FramePosition {
     /// Bytes 4-7, Y address for line 1
+    /// address = 7 × (108 * perf_number + 22 * perf_decimal + pulse_number
     pub top: u32,
     /// Bytes 8-9, perforation number
     pub perf_number: u16,
@@ -328,13 +329,25 @@ impl FramePosition {
         }
     }
 
-    pub fn new(dpi_device: u16, dpi_thumb: u16, y_start: u32, perf_info: PerforationInformation) -> Self {
-        return FramePosition {
-            top: (y_start as f32 * (dpi_device as f32 / dpi_thumb as f32).round()).floor() as u32,
-            perf_number: perf_info.perf_number,
-            perf_decimal: perf_info.num_pattern,
-            pulse_number: perf_info.pulse_number
-        }
+    /// construct a FramePosition entry from detected y_start, as pixel location on the thumb strip
+    /// all other values are inferred using data read from 8Eh PerforationInformation
+    pub fn new(
+        dpi_device: u16,
+        dpi_thumb: u16,
+        y_start: u32,
+        perf_info: &PerfInformation,
+    ) -> Option<Self> {
+
+        // use approximation to find the closest perf match, then use that to calculate the address
+        let approx_addr = (y_start as f32 * dpi_device as f32 / dpi_thumb as f32).round() as u32;
+        let perf = perf_info.nearest(approx_addr)?;
+
+        Some(FramePosition {
+            top: PerfInformation::address(perf),
+            perf_number: perf.perf_number,
+            perf_decimal: perf.perf_decimal,
+            pulse_number: perf.pulse_number,
+        })
     }
 }
 
@@ -422,12 +435,13 @@ impl Boundary {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PerforationInformation {
-    /// Bytes 4-5: start perf number for this line
+    /// Bytes 4-5: perforation number
     pub perf_number: u16,
-    /// Byte 6: switching flag + number of patterns for this line
+    /// Byte 6 bit 7: switching flag
     pub count_switching_flag: bool,
-    pub num_pattern: u8,
-    /// Byte 7: pulse number for this line
+    /// Byte 6 bit 6-0: perforation decimal
+    pub perf_decimal: u8, 
+    /// Byte 7: raw encoder pulses accumulated in current phase
     pub pulse_number: u8
 }
 
@@ -481,23 +495,35 @@ impl PerfInformation {
             perfs.push(PerforationInformation {
                 perf_number: u16::from_be_bytes([r[0], r[1]]),
                 count_switching_flag: r[2] & 0x80 != 0,
-                num_pattern: r[2] & 0x7f,
+                perf_decimal: r[2] & 0x7f,
                 pulse_number: r[3],
             });
         }
 
         Some(Self { perfs })
     }
+
+    /// encoder-space address for a given perforation reading
+    fn address(perf: &PerforationInformation) -> u32 {
+        7 * (108 * perf.perf_number as u32
+            + 22 * perf.perf_decimal as u32
+            + perf.pulse_number as u32)
+    }
+
+    pub fn nearest(&self, addr: u32) -> Option<&PerforationInformation> {
+        self.perfs.iter().min_by_key(|p| Self::address(p).abs_diff(addr))
+    }
 }
 
 impl fmt::Display for PerforationInformation {
+    // perf_number,num_pattern,count_switching_flag,pulse_number
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "perf_number={} count_switching_flag={} num_pattern={} pulse_number={}",
+            "{},{},{},{}",
             self.perf_number,
+            self.perf_decimal,
             self.count_switching_flag,
-            self.num_pattern,
             self.pulse_number,
         )
     }
@@ -571,8 +597,7 @@ impl BoundaryType2 {
                 reason: "boundary information is too large".into(),
             })?;
 
-        // Parameter length is n - 1, where n is the total parameter size.
-        let parameter_length = total - 1;
+        let parameter_length = total - 2;
 
         if parameter_length > u16::MAX as usize {
             return Err(Error::Unsupported {

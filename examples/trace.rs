@@ -130,7 +130,7 @@ fn main() -> anyhow::Result<()> {
                         for f in &b.perfs {
                             println!(
                                 "      perf num={} flag={} num_pat(decimal)={} num_pulse={}",
-                                f.perf_number, f.count_switching_flag, f.num_pattern, f.pulse_number
+                                f.perf_number, f.count_switching_flag, f.pattern_number, f.pulse_number
                             );
                         }
                     }

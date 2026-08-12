@@ -196,11 +196,6 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
 
                 // Write the detected frames to the scanner's boundary table
                 let perfs = session.read_perforations().unwrap();
-                let mut file = File::create("perfs.txt")?;
-
-                for perf in &perfs.perfs {
-                    write!(file, "{perf}")?;
-                }
                 let measured = thumbnail::frames_type2(session.capabilities(), &pass, &samples, &perfs, length, None)?;
 
                 session.set_boundaries_type2(&measured)?;

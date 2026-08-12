@@ -112,17 +112,16 @@ pub fn frames_type2(
     let frames: Vec<FramePosition> = found
         .frames
         .iter()
-        .zip(perf_info.perfs.iter())
-        .filter_map(|(frame, perf)| {
+        .filter_map(|frame| {
             let top = origin + frame.col as u32 * pitch;
 
             if top + length <= end {
-                Some(FramePosition::new(
+                FramePosition::new(
                     caps.address.x_axis.optical_dpi,
                     caps.address.thumbnail_resolution.start,
                     frame.col as u32,
-                    perf.clone(),
-                ))
+                    &perf_info,
+                )
             } else {
                 None
             }
