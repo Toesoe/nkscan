@@ -224,8 +224,6 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 let x_start = session.capabilities().address.x_axis.address_range.start;
                 let x_boundary = session.capabilities().address.x_axis.boundary;
 
-                dbg!(x_start, x_boundary, length);
-
                 let frames = measured
                     .frames
                     .iter()
