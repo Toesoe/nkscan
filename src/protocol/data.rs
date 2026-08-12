@@ -1,5 +1,7 @@
 //! READ and SEND data types. Section 2-11
 
+use std::fmt;
+
 use super::{caps::other::DataTypes, sense::Coop};
 use crate::error::Error;
 use bitflags::bitflags;
@@ -220,7 +222,7 @@ impl DataType {
     pub fn qualifier(self) -> Option<(u8, u8)> {
         match self {
             Self::Perforation => Some((0, 0x00)),
-            Self::Boundary2 => Some((0, 0x3B)),
+            Self::Boundary2 => Some((0, 0x03)),
             _ => self.row().width.map(|width| {
                 (
                     width,
@@ -313,7 +315,7 @@ pub struct FramePosition {
     /// Byte 10, perforation decimal
     pub perf_decimal: u8,
     /// Byte 11, pulse number
-    pub pulse: u8,
+    pub pulse_number: u8,
 }
 
 impl FramePosition {
@@ -323,6 +325,15 @@ impl FramePosition {
             left: x_start,
             bottom: self.top + length - 1,
             right: x_start + x_boundary - 1,
+        }
+    }
+
+    pub fn new(dpi_device: u16, dpi_thumb: u16, y_start: u32, perf_info: PerforationInformation) -> Self {
+        return FramePosition {
+            top: (y_start as f32 * (dpi_device as f32 / dpi_thumb as f32).round()).floor() as u32,
+            perf_number: perf_info.perf_number,
+            perf_decimal: perf_info.num_pattern,
+            pulse_number: perf_info.pulse_number
         }
     }
 }
@@ -410,6 +421,89 @@ impl Boundary {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PerforationInformation {
+    /// Bytes 4-5: start perf number for this line
+    pub perf_number: u16,
+    /// Byte 6: switching flag + number of patterns for this line
+    pub count_switching_flag: bool,
+    pub num_pattern: u8,
+    /// Byte 7: pulse number for this line
+    pub pulse_number: u8
+}
+
+/// Perforation info from 8Eh, 2-11-8 (LS-5000)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PerfInformation {
+    pub perfs: Vec<PerforationInformation>
+}
+
+impl PerfInformation {
+    /// Bytes before the first frame.
+    const HEAD: usize = 4;
+
+    /// Bytes occupied by perforation records
+    const PERFS: usize = 4;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
+
+        let parameter_length =
+            ((head[0] as usize) << 16) |
+            ((head[1] as usize) << 8) |
+            (head[2] as usize);
+
+        let bytes_per_parameter = usize::from(head[3]);
+
+        if bytes_per_parameter != Self::PERFS {
+            return None;
+        }
+
+        let total = parameter_length.checked_add(3)?;
+
+        if total < Self::HEAD || b.len() < total {
+            return None;
+        }
+
+        let payload_len = total - Self::HEAD;
+
+        if payload_len % Self::PERFS != 0 {
+            return None;
+        }
+
+        let num_records = payload_len / Self::PERFS;
+
+        let mut perfs = Vec::with_capacity(num_records);
+
+        for n in 0..num_records {
+            let at = Self::HEAD + n * Self::PERFS;
+            let r = b.get(at..at + Self::PERFS)?;
+
+            perfs.push(PerforationInformation {
+                perf_number: u16::from_be_bytes([r[0], r[1]]),
+                count_switching_flag: r[2] & 0x80 != 0,
+                num_pattern: r[2] & 0x7f,
+                pulse_number: r[3],
+            });
+        }
+
+        Some(Self { perfs })
+    }
+}
+
+impl fmt::Display for PerforationInformation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "perf_number={} count_switching_flag={} num_pattern={} pulse_number={}",
+            self.perf_number,
+            self.count_switching_flag,
+            self.num_pattern,
+            self.pulse_number,
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BoundaryType2 {
     pub frames: Vec<FramePosition>,
 }
@@ -418,8 +512,8 @@ impl BoundaryType2 {
     /// Bytes before the first frame.
     const HEAD: usize = 4;
 
-    /// Bytes occupied by each frame record.
-    const FRAME: usize = 8;
+    /// Bytes occupied by each boundary record.
+    const BOUNDARY: usize = 8;
 
     pub fn from_bytes(b: &[u8]) -> Option<Self> {
         let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
@@ -435,7 +529,7 @@ impl BoundaryType2 {
         let total = parameter_length.checked_add(1)?;
 
         // The reserved byte is currently ignored.
-        let expected = Self::HEAD.checked_add(count.checked_mul(Self::FRAME)?)?;
+        let expected = Self::HEAD.checked_add(count.checked_mul(Self::BOUNDARY)?)?;
 
         // Reject truncated or structurally inconsistent data.
         if total != expected || b.len() < total {
@@ -445,14 +539,14 @@ impl BoundaryType2 {
         let mut frames = Vec::with_capacity(count);
 
         for n in 0..count {
-            let at = Self::HEAD + n * Self::FRAME;
-            let r = b.get(at..at + Self::FRAME)?;
+            let at = Self::HEAD + n * Self::BOUNDARY;
+            let r = b.get(at..at + Self::BOUNDARY)?;
 
             frames.push(FramePosition {
                 top: u32::from_be_bytes([r[0], r[1], r[2], r[3]]),
                 perf_number: u16::from_be_bytes([r[4], r[5]]),
                 perf_decimal: r[6],
-                pulse: r[7],
+                pulse_number: r[7],
             });
         }
 
@@ -471,7 +565,7 @@ impl BoundaryType2 {
         }
 
         let total = Self::HEAD
-            .checked_add(self.frames.len() * Self::FRAME)
+            .checked_add(self.frames.len() * Self::BOUNDARY)
             .ok_or_else(|| Error::Unsupported {
                 op: "boundary_type2",
                 reason: "boundary information is too large".into(),
@@ -497,7 +591,7 @@ impl BoundaryType2 {
             out.extend_from_slice(&frame.top.to_be_bytes());
             out.extend_from_slice(&frame.perf_number.to_be_bytes());
             out.push(frame.perf_decimal);
-            out.push(frame.pulse);
+            out.push(frame.pulse_number);
         }
 
         Ok(out)

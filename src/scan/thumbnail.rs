@@ -20,7 +20,7 @@ use crate::{
             Capabilities,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        data::{Boundary, Rect, BoundaryType2, FramePosition},
+        data::{Boundary, Rect, BoundaryType2, FramePosition, PerfInformation},
         decode::{Image, Samples},
         window::{Flags, Window},
     },
@@ -90,6 +90,7 @@ pub fn frames_type2(
     caps: &Capabilities,
     pass: &Pass,
     samples: &[u16],
+    perf_info: &PerfInformation,
     length: u32,
     polarity: Option<Polarity>,
 ) -> Result<BoundaryType2, Error> {
@@ -111,15 +112,19 @@ pub fn frames_type2(
     let frames: Vec<FramePosition> = found
         .frames
         .iter()
-        .map(|frame| origin + frame.col as u32 * pitch)
-        .filter(|top| *top + length <= end)
-        .map(|top| {
-            let (perf_number, perf_decimal) = perforation_position(top);
-            FramePosition {
-                top,
-                perf_number,
-                perf_decimal,
-                pulse: 0,
+        .zip(perf_info.perfs.iter())
+        .filter_map(|(frame, perf)| {
+            let top = origin + frame.col as u32 * pitch;
+
+            if top + length <= end {
+                Some(FramePosition::new(
+                    caps.address.x_axis.optical_dpi,
+                    caps.address.thumbnail_resolution.start,
+                    frame.col as u32,
+                    perf.clone(),
+                ))
+            } else {
+                None
             }
         })
         .collect();

@@ -24,7 +24,7 @@ use nkscan::{
     },
     session::Session,
 };
-use std::{borrow::Cow, time::Duration};
+use std::{borrow::Cow, time::Duration, fs::File, io::Write};
 use tracing::*;
 
 /// Long enough for a full resolution pass over the largest frame
@@ -174,6 +174,9 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
             Framing::Perforation => {
                 let perfs = session.read_perforations()?;
                 let frames = session.read_boundaries_type2();
+
+                dbg!(perfs);
+                dbg!(frames);
                 let bar = pass_bar("thumbnail");
 
                 let pass = session.scan_thumbnail_with(&mut samples, |p| bar.report(p))?;
@@ -192,13 +195,15 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 info!(?film_format, length, "frame length");
 
                 // Write the detected frames to the scanner's boundary table
-                let from_scanner = session.read_perforations();
-                dbg!(&from_scanner);
-                from_scanner?;
+                let perfs = session.read_perforations().unwrap();
+                let mut file = File::create("perfs.txt")?;
 
-                let measured = thumbnail::frames_type2(session.capabilities(), &pass, &samples, length, None)?;
+                for perf in &perfs.perfs {
+                    write!(file, "{perf}")?;
+                }
+                let measured = thumbnail::frames_type2(session.capabilities(), &pass, &samples, &perfs, length, None)?;
 
-                // session.set_boundaries_type2(&measured)?;
+                session.set_boundaries_type2(&measured)?;
 
                 let x_start = session.windows()?[0].origin.0;
                 let x_boundary = session.windows()?[0].origin.0 + session.windows()?[0].size.0;

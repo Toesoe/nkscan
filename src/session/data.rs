@@ -6,7 +6,7 @@ use crate::{
         caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         curves::Curves,
-        data::{self, FrameTable},
+        data::{self, BoundaryType2, FrameTable, PerfInformation},
         sense::{self, Failure, Fault},
         window::Channel,
     }, transport::{Data, Sense, Status}
@@ -179,15 +179,20 @@ impl Session {
         Ok(())
     }
 
-    pub fn read_perforations(&mut self) -> Result<(), Error> {
-        let result = self.read_data(data::DataType::Perforation, 0)?;
+    pub fn read_perforations(&mut self) -> Result<(data::PerfInformation), Error> {
+        let (_, record) = self.read_record(data::DataType::Perforation, 0)?;
         self.test_unit_ready(Duration::from_millis(500))?;
-        Ok(())
+
+        let perfs = PerfInformation::from_bytes(&record).ok_or_else(|| malformed(format!("PerfInfo was {} bytes", record.len())))?;
+        Ok(perfs)
     }
 
-    pub fn read_boundaries_type2(&mut self) -> Result<(), Error> {
-        let result = self.read_data(data::DataType::Boundary2, 0)?;
-        Ok(())
+    pub fn read_boundaries_type2(&mut self) -> Result<(data::BoundaryType2), Error> {
+        let (_, record) = self.read_record(data::DataType::Boundary2, 0)?;
+
+        let bounds = BoundaryType2::from_bytes(&record).ok_or_else(|| malformed(format!("BoundaryType2 was {} bytes", record.len())))?;
+
+        Ok(bounds)
     }
 
     pub fn inquiry_c1(&mut self, alloc: u8) -> Result<Vec<u8>, Error> {

@@ -22,7 +22,7 @@
 use std::{env, fs, path::PathBuf};
 
 use nkscan::protocol::{
-    data::{self, Boundary},
+    data::{self, Boundary, PerfInformation, PerforationInformation},
     window::Window,
 };
 
@@ -117,6 +117,24 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                     None => println!("[{n}] seq={} FRAME BOUNDARY (unparseable)", r.seq),
+                }
+            },
+            0x28 if dtc(r.cdb) == Some(0x8E) => {
+                match r.data.get(data::HEADER..).and_then(PerfInformation::from_bytes) {
+                    Some(b) => {
+                        println!(
+                            "[{n}] seq={} PERF ({} frame(s))",
+                            r.seq,
+                            b.perfs.len()
+                        );
+                        for f in &b.perfs {
+                            println!(
+                                "      perf num={} flag={} num_pat(decimal)={} num_pulse={}",
+                                f.perf_number, f.count_switching_flag, f.num_pattern, f.pulse_number
+                            );
+                        }
+                    }
+                    None => println!("[{n}] seq={} PERF (unparseable)", r.seq),
                 }
             }
             _ => println!("[{n}] seq={} {}", r.seq, describe(r)),
