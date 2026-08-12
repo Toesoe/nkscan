@@ -15,9 +15,7 @@ bitflags = "2"
 nusb = "0.2"
 tracing = "0.1"
 anyhow = "1"
-tracing-subscriber = { version = "0.3", features = [
-  "env-filter",
-] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Python library dependencies
 #
@@ -41,12 +39,7 @@ moxcms = { version = "0.9", optional = true }
 
 
 [features]
-cli = [
-  "dep:clap",
-  "dep:indicatif",
-  "dep:tiff",
-  "dep:moxcms",
-]
+cli = ["dep:clap", "dep:indicatif", "dep:tiff", "dep:moxcms"]
 python = ["dep:pyo3", "dep:numpy", "dep:pyo3-stub-gen"]
 
 [lib]
