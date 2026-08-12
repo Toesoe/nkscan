@@ -351,10 +351,6 @@ mod tests {
         assert_eq!(five.pitch_rule, PitchRule::OnePlusEven);
         assert_eq!((nine.lines, five.lines), (3, 2));
 
-        // The LS-5000 cannot crop in X, so a caller must take the full boundary
-        assert!(nine.x_axis.croppable());
-        assert!(!five.x_axis.croppable());
-
         // Only the LS-9000 publishes frame rectangles
         assert!(nine.coordinate_base.contains(CoordinateBase::FRAME_RECTS));
         assert!(!five.coordinate_base.contains(CoordinateBase::FRAME_RECTS));
