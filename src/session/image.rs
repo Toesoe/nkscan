@@ -48,8 +48,7 @@ impl Session {
                 Ok(completion) => {
                     debug!(
                         transferred = completion.transferred,
-                        want,
-                        "image READ completed"
+                        want, "image READ completed"
                     );
 
                     done += completion.transferred;
@@ -62,7 +61,7 @@ impl Session {
                 Err(Error::Device(fault))
                     if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) =>
                 {
-                    dbg!("end of stream reached");
+                    debug!(done, "end of stream reached");
                     break;
                 }
                 // 2-11: a transfer shorter than asked for comes back as CHECK
@@ -78,7 +77,7 @@ impl Session {
                 },
                 Err(e) => {
                     debug!(error = ?e, "image READ failed");
-                    return Err(e)
+                    return Err(e);
                 }
             }
         }
@@ -95,7 +94,6 @@ impl Session {
     /// Dropping one closes the scan, whatever route the caller took out of it
     pub fn image_chunks<'a>(&'a mut self, layout: &Layout) -> Result<Chunks<'a>, Error> {
         let chunk = self.chunk_size(layout)?;
-        dbg!(layout.total_bytes());
         Ok(Chunks {
             session: self,
             layout: layout.clone(),

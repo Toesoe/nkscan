@@ -337,7 +337,6 @@ impl FramePosition {
         y_start: u32,
         perf_info: &PerfInformation,
     ) -> Option<Self> {
-
         // use approximation to find the closest perf match, then use that to calculate the address
         let approx_addr = (y_start as f32 * dpi_device as f32 / dpi_thumb as f32).round() as u32;
         let perf = perf_info.nearest(approx_addr)?;
@@ -440,15 +439,15 @@ pub struct PerforationInformation {
     /// Byte 6 bit 7: switching flag
     pub count_switching_flag: bool,
     /// Byte 6 bit 6-0: perforation decimal
-    pub perf_decimal: u8, 
+    pub perf_decimal: u8,
     /// Byte 7: raw encoder pulses accumulated in current phase
-    pub pulse_number: u8
+    pub pulse_number: u8,
 }
 
 /// Perforation info from 8Eh, 2-11-8 (LS-5000)
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PerfInformation {
-    pub perfs: Vec<PerforationInformation>
+    pub perfs: Vec<PerforationInformation>,
 }
 
 impl PerfInformation {
@@ -462,9 +461,7 @@ impl PerfInformation {
         let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
 
         let parameter_length =
-            ((head[0] as usize) << 16) |
-            ((head[1] as usize) << 8) |
-            (head[2] as usize);
+            ((head[0] as usize) << 16) | ((head[1] as usize) << 8) | (head[2] as usize);
 
         let bytes_per_parameter = usize::from(head[3]);
 
@@ -511,7 +508,9 @@ impl PerfInformation {
     }
 
     pub fn nearest(&self, addr: u32) -> Option<&PerforationInformation> {
-        self.perfs.iter().min_by_key(|p| Self::address(p).abs_diff(addr))
+        self.perfs
+            .iter()
+            .min_by_key(|p| Self::address(p).abs_diff(addr))
     }
 }
 
@@ -521,10 +520,7 @@ impl fmt::Display for PerforationInformation {
         writeln!(
             f,
             "{},{},{},{}",
-            self.perf_number,
-            self.perf_decimal,
-            self.count_switching_flag,
-            self.pulse_number,
+            self.perf_number, self.perf_decimal, self.count_switching_flag, self.pulse_number,
         )
     }
 }

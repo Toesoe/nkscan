@@ -106,8 +106,7 @@ pub fn frames_type2(
     let origin = caps.address.y_axis.address_range.start;
     let end = caps.address.y_axis.address_range.last;
 
-    let found =
-        boundaries::detect(&image, (length / pitch) as usize, polarity);
+    let found = boundaries::detect(&image, (length / pitch) as usize, polarity);
 
     let frames: Vec<FramePosition> = found
         .frames
@@ -120,7 +119,7 @@ pub fn frames_type2(
                     caps.address.x_axis.optical_dpi,
                     caps.address.thumbnail_resolution.start,
                     frame.col as u32,
-                    &perf_info,
+                    perf_info,
                 )
             } else {
                 None
@@ -136,19 +135,6 @@ pub fn frames_type2(
     );
 
     Ok(BoundaryType2 { frames })
-}
-
-/// Perforation calculations for 8Fh BoundaryInformation Type2. Inferred from full roll previews
-/// Start offset always seems to be 28 internal units for the first perf
-fn perforation_position(y: u32) -> (u16, u8) {
-    const PERF_ORIGIN: f64 = 28.0;
-    const PERF_PITCH: f64 = 4000.0 * 4.8 / 25.4;
-
-    let position = (y as f64 - PERF_ORIGIN) / PERF_PITCH;
-    let number = position.floor() as u16;
-    let decimal = ((position - number as f64) * 5.0).floor() as u8;
-
-    (number, decimal)
 }
 
 /// Where the adapter's opening sits on the sensor, and how wide it is
@@ -180,13 +166,13 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         )));
     }
 
-    let (thumb_size, flags) = if caps.identity.model().unwrap().name().starts_with("LS-4") ||
-                            caps.identity.model().unwrap().name().starts_with("LS-5") {
-                                (250_278, Flags::POSITIVE | Flags::AVERAGING)
-                            }
-                            else {
-                                (y.address_range.last, Flags::empty())
-                            };
+    let (thumb_size, flags) = if caps.identity.model().unwrap().name().starts_with("LS-4")
+        || caps.identity.model().unwrap().name().starts_with("LS-5")
+    {
+        (250_278, Flags::POSITIVE | Flags::AVERAGING)
+    } else {
+        (y.address_range.last, Flags::empty())
+    };
 
     let (left, width) = opening(caps);
     let mut windows = window::blank(caps, &window::color_channels(caps))?;

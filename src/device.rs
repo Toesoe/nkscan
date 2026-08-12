@@ -94,10 +94,7 @@ impl Device {
     }
 
     pub fn is_mf_scanner(&self) -> bool {
-        match self.model {
-            Some(Model::Ls8000 | Model::Ls9000) => true,
-            _ => false
-        }
+        matches!(self.model, Some(Model::Ls8000 | Model::Ls9000))
     }
 }
 

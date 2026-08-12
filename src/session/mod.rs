@@ -16,9 +16,15 @@ pub mod window;
 use crate::{
     error::Error,
     protocol::{
-        caps::{Capabilities, frames::Frames}, cdbs::{
+        caps::{Capabilities, frames::Frames},
+        cdbs::{
             Abort, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit, TestUnitReady,
-        }, curves::Curves, data::{CooperativeAction, FrameTable, Op, Operation}, mode, model::Model, sense::{Activity, Change, Coop, Fault, Intervention, Outcome, Refusal, interpret}
+        },
+        curves::Curves,
+        data::{CooperativeAction, FrameTable, Op, Operation},
+        mode,
+        model::Model,
+        sense::{Activity, Change, Coop, Fault, Intervention, Outcome, Refusal, interpret},
     },
     transport::{self, Completion, Data, Transport},
 };

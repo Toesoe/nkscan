@@ -61,12 +61,12 @@ impl FilmFormat {
     /// selects the format via its mask
     pub fn from_holder(holder_id: u8) -> Option<Self> {
         match holder_id {
-            0x12 => Some(Self::F16),   // FH-816
-            0x19 => Some(Self::F645),  // FH-869GR 6×4.5
-            0x1A => Some(Self::F66),   // FH-869GR 6×6
-            0x1B => Some(Self::F67),   // FH-869GR 6×7
-            0x1C => Some(Self::F68),   // FH-869GR 6×8
-            0x1D => Some(Self::F69),   // FH-869GR 6×9
+            0x12 => Some(Self::F16),  // FH-816
+            0x19 => Some(Self::F645), // FH-869GR 6×4.5
+            0x1A => Some(Self::F66),  // FH-869GR 6×6
+            0x1B => Some(Self::F67),  // FH-869GR 6×7
+            0x1C => Some(Self::F68),  // FH-869GR 6×8
+            0x1D => Some(Self::F69),  // FH-869GR 6×9
             _ => None,
         }
     }

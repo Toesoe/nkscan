@@ -203,7 +203,7 @@ impl Transport for UsbTransport {
         // According to table 1-1-5-1 this will only ever be Good or CheckCondition, which is reasonable
         let status = Status::from(sb[0]);
 
-        let sense =  {
+        let sense = {
             Some(Sense {
                 key: sb[1],
                 asc: sb[2],

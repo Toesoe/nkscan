@@ -272,8 +272,6 @@ impl Recipe {
             // Byte 40 carries one less than the reading count. Its low nibble
             // leaves the color ordering to the unit
             w.multiple_reading = self.samples - 1;
-
-            dbg!(&w);
         }
         Ok(windows)
     }

@@ -2,14 +2,16 @@
 
 use super::{PROBE_TIMEOUT, Session, malformed};
 use crate::{
-    error::Error, protocol::{
+    error::Error,
+    protocol::{
         caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         curves::Curves,
         data::{self, BoundaryType2, FrameTable, PerfInformation},
         sense::{self, Failure, Fault},
         window::Channel,
-    }, transport::{Data, Sense, Status}
+    },
+    transport::{Data, Sense, Status},
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -99,9 +101,7 @@ impl Session {
             _ => return Err(refuse(format!("this unit does not offer {kind:?}"))),
         }
         let Some((width, qualifier)) = kind.qualifier() else {
-            return Err(refuse(format!(
-                "{kind:?} has no addressing qualifier"
-            )));
+            return Err(refuse(format!("{kind:?} has no addressing qualifier")));
         };
 
         Ok((width, qualifier, if kind.per_color() { color } else { 0 }))
@@ -113,7 +113,12 @@ impl Session {
             self.addressing(kind, kind.row().write, color, "send data type")?;
 
         let cmd = Send::new(kind.row().code, color, qualifier, body.len() as u32);
-        debug!("cdb for send {:02x} {:02x?} data {:02x?}", kind.row().code, &cmd.cdb(), &body);
+        debug!(
+            "cdb for send {:02x} {:02x?} data {:02x?}",
+            kind.row().code,
+            &cmd.cdb(),
+            &body
+        );
         self.run(&cmd.cdb(), Data::Out(body), PROBE_TIMEOUT)?;
         Ok(())
     }
@@ -179,36 +184,21 @@ impl Session {
         Ok(())
     }
 
-    pub fn read_perforations(&mut self) -> Result<(data::PerfInformation), Error> {
+    pub fn read_perforations(&mut self) -> Result<data::PerfInformation, Error> {
         let (_, record) = self.read_record(data::DataType::Perforation, 0)?;
         self.test_unit_ready(Duration::from_millis(500))?;
 
-        let perfs = PerfInformation::from_bytes(&record).ok_or_else(|| malformed(format!("PerfInfo was {} bytes", record.len())))?;
+        let perfs = PerfInformation::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("PerfInfo was {} bytes", record.len())))?;
         Ok(perfs)
     }
 
-    pub fn read_boundaries_type2(&mut self) -> Result<(data::BoundaryType2), Error> {
+    pub fn read_boundaries_type2(&mut self) -> Result<data::BoundaryType2, Error> {
         let (_, record) = self.read_record(data::DataType::Boundary2, 0)?;
 
-        let bounds = BoundaryType2::from_bytes(&record).ok_or_else(|| malformed(format!("BoundaryType2 was {} bytes", record.len())))?;
-
+        let bounds = BoundaryType2::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("BoundaryType2 was {} bytes", record.len())))?;
         Ok(bounds)
-    }
-
-    pub fn inquiry_c1(&mut self, alloc: u8) -> Result<Vec<u8>, Error> {
-        debug!("c1 inquiry for len {}", alloc);
-        let mut res = vec![0u8; alloc as usize];
-        let cdb = [0x12, 0x01, 0xC1, 0x00, alloc, 0x80];
-        let completion = self.run(
-            &cdb,
-            Data::In(&mut res),
-            PROBE_TIMEOUT,
-        )?;
-
-        res.truncate(completion.transferred);
-
-        dbg!(&res);
-        Ok(res)
     }
 
     /// The exposure the unit measured for this channel when it started up

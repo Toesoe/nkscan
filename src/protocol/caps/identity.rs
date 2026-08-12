@@ -38,12 +38,7 @@ impl Identity {
 
     pub fn is_mf(&self) -> bool {
         let model = Model::from_product(&self.product).unwrap();
-
-        if model == Model::Ls8000 || model == Model::Ls9000 {
-            true
-        } else {
-            false
-        }
+        model == Model::Ls8000 || model == Model::Ls9000
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
