@@ -12,7 +12,7 @@ use nkscan::{
     protocol::{
         caps::{film::FilmFormat, other::HostCooperation, set_window::ColorInterleaving},
         data::FrameTable,
-        decode::{Image, Samples},
+        decode::Samples,
         model::Model,
         window::Channel,
     },
@@ -313,6 +313,9 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 );
             }
 
+            // Everything after the pass assumes full-scale 16-bit samples
+            io::to_full_scale(&mut samples, pass.layout.bits_per_sample);
+
             if clean {
                 let model = session.capabilities().identity.model();
                 let removed = clean_frame(&mut samples, &pass, model)?;
@@ -359,8 +362,8 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Roughly how wide a calibration prescan wants to be
-const PRESCAN_WIDTH: usize = 1500;
+/// About how many pixels calibration wants to measure over
+const PRESCAN_PIXELS: usize = 2_500_000;
 
 /// Every `step`th pixel of a plane, which is all calibration needs
 fn decimate(plane: &[u16], cols: usize, step: usize) -> Vec<u16> {
@@ -374,25 +377,9 @@ fn decimate(plane: &[u16], cols: usize, step: usize) -> Vec<u16> {
     out
 }
 
-/// Run ICE over a finished pass, in place, returning how many pixels it rebuilt
-///
-/// Calibration wants a low-resolution view of the same frame. The AE prescan is
-/// gone by this point and --lock-ae skips metering altogether on later frames,
-/// so this decimates the pass itself. The two scalars it measures do not need
-/// full resolution, and at full resolution calibration costs more than the rest
-/// of the pipeline put together
+/// Run dust removal over a finished pass, in place, returning how many pixels it rebuilt
 fn clean_frame(samples: &mut Samples, pass: &Pass, model: Option<Model>) -> anyhow::Result<usize> {
-    let bits = pass.layout.bits_per_sample;
-    if bits != 16 {
-        bail!(
-            "--clean needs full-scale 16-bit samples; this pass is {bits}-bit, \
-             whose values sit too low for ICE's thresholds to mean anything"
-        );
-    }
-
-    // The buffer holds the pass's color channels in the stream's own order.
-    // ICE is not order-blind: the gate takes plane 0 as red, and the detail
-    // coefficients and dither amplitudes are per channel
+    // The buffer holds the pass's color channels in the stream's own order
     let ids: Vec<u8> = pass.layout.colors().collect();
     let at = |want: Channel| ids.iter().position(|&id| Channel::from(id) == want);
     let (Some(r), Some(g), Some(b)) = (at(Channel::Red), at(Channel::Green), at(Channel::Blue))
@@ -401,10 +388,8 @@ fn clean_frame(samples: &mut Samples, pass: &Pass, model: Option<Model>) -> anyh
     };
 
     let model = model.map(dust::Model::from).unwrap_or_else(|| {
-        // pipeline.md calls kind 8 the program default, so it is the one to
-        // fall back on rather than guessing from the format
-        warn!("unrecognized scanner, cleaning with ICE's own default profile");
-        dust::Model::Ls5000
+        warn!("unrecognized scanner, cleaning with a default profile");
+        dust::Model::Ls9000
     });
     let opts = dust::Options {
         model,
@@ -414,27 +399,38 @@ fn clean_frame(samples: &mut Samples, pass: &Pass, model: Option<Model>) -> anyh
         metering_target: Metering::default().target,
     };
 
-    let step = (pass.cols.max(pass.rows) / PRESCAN_WIDTH).max(1);
-    let small: Vec<Vec<u16>> = [r, g, b]
-        .map(|i| decimate(&samples.colors[i], pass.cols, step))
-        .into();
     let Some(ir) = samples.ir.as_deref() else {
         bail!("--clean needs the infrared pass");
     };
+
+    // Red and infrared only: that is all calibration reads
+    let step = ((pass.rows * pass.cols) / PRESCAN_PIXELS).isqrt().max(1);
+    let small_red = decimate(&samples.colors[r], pass.cols, step);
     let small_ir = decimate(ir, pass.cols, step);
-    let prescan = Image {
-        colors: small.iter().map(Vec::as_slice).collect(),
+    let cal = dust::calibrate(&dust::Prescan {
+        red: &small_red,
         ir: &small_ir,
         rows: pass.rows / step,
         cols: pass.cols / step,
-        bits,
-    };
+    })
+    .or_else(|| {
+        // A frame with little clear film can have none left after decimation while the full pass still has plenty
+        warn!("no clear film in the decimated prescan, calibrating off the whole frame");
+        dust::calibrate(&dust::Prescan {
+            red: &samples.colors[r],
+            ir,
+            rows: pass.rows,
+            cols: pass.cols,
+        })
+    })
+    .ok_or_else(|| anyhow!("no clear film in this frame to calibrate --clean against"))?;
+    debug!(?cal, step, "ICE calibration");
 
     let [pr, pg, pb] = samples
         .colors
         .get_disjoint_mut([r, g, b])
         .expect("three distinct color planes");
-    let count = dust::clean([pr, pg, pb], ir, &prescan, pass.rows, pass.cols, &opts);
+    let count = dust::clean([pr, pg, pb], ir, &cal, pass.rows, pass.cols, &opts);
     Ok(count)
 }
 
@@ -445,8 +441,7 @@ fn wait_for_film(session: &mut Session, prompt: &str) -> anyhow::Result<()> {
     session.refresh()?;
 
     if !session.media_loaded()? {
-        // The spinner is the affordance on a terminal, and hidden anywhere
-        // else, so the log says it too
+        // The spinner is the affordance on a terminal, and hidden anywhere else, so the log says it too
         info!("{prompt}");
         let spinner = ProgressBar::new_spinner();
         spinner.set_message(format!("{prompt}. Ctrl-c to stop"));

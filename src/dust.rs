@@ -4,7 +4,6 @@
 //! Some design notes: gotta go fast at all costs.
 //! I don't care about matchin Nikon bit-for-bit. It need to look correct and not waste my time.
 
-use crate::protocol::decode::Image;
 use rayon::prelude::*;
 use std::sync::LazyLock;
 use wide::f32x4;
@@ -307,6 +306,14 @@ pub fn from_density(values: &[f32]) -> Vec<u16> {
 
 // -----  step 2, calibrate
 
+/// The low-resolution view of the frame calibration measures against
+pub struct Prescan<'a> {
+    pub red: &'a [u16],
+    pub ir: &'a [u16],
+    pub rows: usize,
+    pub cols: usize,
+}
+
 // The IR calibration terms measured off a prescan
 #[derive(Debug, Clone)]
 pub struct Calibration {
@@ -319,9 +326,9 @@ pub struct Calibration {
 /// Step 2: measure `c` and `IR_ref` from a low-resolution scan of the frame.
 ///
 /// Returns `None` when the prescan holds no clear film to measure against, which would otherwise divide by zero and poison the whole pass.
-pub fn calibrate(prescan: &Image) -> Option<Calibration> {
+pub fn calibrate(prescan: &Prescan) -> Option<Calibration> {
     // Log-densities of the red and IR channels
-    let d_r = to_density(prescan.colors[0]);
+    let d_r = to_density(prescan.red);
     let d_ir = to_density(prescan.ir);
 
     // 1. The two reference levels, IR^2-weighted so the mean leans toward the clearest pixels
@@ -813,20 +820,19 @@ pub fn reconstruct_core(
 // ----- the rest of the owl
 
 /// Remove dust from a frame like magic, returning how many pixels it rebuilt
+///
+/// [`calibrate`] measures `cal`, separately so a caller can retry a failed
+/// measurement at a different scale, or hold one across a strip the way
+/// --lock-ae holds an exposure
 pub fn clean(
     color: [&mut [u16]; 3],
     ir: &[u16],
-    prescan: &Image,
+    cal: &Calibration,
     rows: usize,
     cols: usize,
     opts: &Options,
 ) -> usize {
-    // 2. IR calibration terms from the prescan
-    let Some(cal) = calibrate(prescan) else {
-        tracing::warn!("no clear film in the prescan, leaving the frame as scanned");
-        return 0;
-    };
-    let p = Params::new(opts, &cal);
+    let p = Params::new(opts, cal);
     let [red, green, blue] = color;
 
     // 1 and 3. Log-density, then IR gating

@@ -149,13 +149,20 @@ pub fn write_frame(
     Ok(written)
 }
 
-/// A table stretching `bits`-deep samples to fill 16, or `None` where they
-/// already do
-///
-/// 0 stays 0 and the deepest value reaches 65535, evenly spaced between, which
-/// for 8 bits is a multiply by 257. The scaling is linear, so the samples stay
-/// linear. Without it an 8-bit scan would sit in the bottom 0.4% of the range,
-/// which is both wrong to look at and wrong to hand a profile
+/// Stretch a pass's samples to fill 16 bits, in place
+pub fn to_full_scale(samples: &mut Samples, bits: u8) {
+    let Some(table) = full_scale(bits) else {
+        return;
+    };
+    debug!(bits, "stretching samples to full scale");
+    for plane in samples.colors.iter_mut().chain(samples.ir.as_mut()) {
+        for v in plane {
+            *v = table[usize::from(*v)];
+        }
+    }
+}
+
+/// A table stretching `bits`-deep samples to fill 16, or `None` where they already do
 fn full_scale(bits: u8) -> Option<Vec<u16>> {
     if bits == 0 || bits >= 16 {
         return None;
@@ -221,18 +228,8 @@ where
         image.encoder().write_tag(Tag::IccProfile, icc)?;
     }
 
-    // A sample carries the unit's own depth, so an 8-bit unit fills the low byte
-    // of a u16 and nothing else. TIFF has no way to say "14 bits in 16", so the
-    // samples are stretched to fill the container
-    let scale = full_scale(pass.layout.bits_per_sample);
-
-    let at = |pixel: usize, plane: usize| {
-        let raw = planes[plane][pixel];
-        match &scale {
-            Some(table) => table[usize::from(raw)],
-            None => raw,
-        }
-    };
+    // Already full scale: `to_full_scale` stretched the buffer after the pass
+    let at = |pixel: usize, plane: usize| planes[plane][pixel];
 
     let per_pixel = source.per_pixel();
     let mut strip = Vec::new();

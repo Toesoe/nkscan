@@ -1,7 +1,7 @@
 use divan::counter::ItemsCount;
 use nkscan::{
-    dust::{self, Calibration, Options, Params},
-    protocol::decode::{Image, Samples},
+    dust::{self, Calibration, Options, Params, Prescan},
+    protocol::decode::Samples,
 };
 use std::sync::LazyLock;
 use tiff::decoder::{Decoder, DecodingResult, Limits};
@@ -97,14 +97,15 @@ static SCAN: LazyLock<Option<Samples>> = LazyLock::new(|| {
 const PRESCAN_ROWS: usize = 1494;
 const PRESCAN_COLS: usize = 1098;
 
-struct Prescan {
+/// The synthetic prescan planes the calibrate bench measures
+struct Planes {
     colors: Vec<Vec<u16>>,
     ir: Vec<u16>,
 }
 
-static PRESCAN: LazyLock<Prescan> = LazyLock::new(|| {
+static PRESCAN: LazyLock<Planes> = LazyLock::new(|| {
     let n = PRESCAN_ROWS * PRESCAN_COLS;
-    Prescan {
+    Planes {
         colors: vec![plane(n), plane(n), plane(n)],
         ir: plane(n),
     }
@@ -192,13 +193,12 @@ fn calibrate(bencher: divan::Bencher) {
         .bench_values(|prescan| dust::calibrate(&prescan));
 }
 
-fn prescan_image() -> Image<'static> {
-    Image {
-        colors: PRESCAN.colors.iter().map(Vec::as_slice).collect(),
+fn prescan_image() -> Prescan<'static> {
+    Prescan {
+        red: &PRESCAN.colors[0],
         ir: &PRESCAN.ir,
         rows: PRESCAN_ROWS,
         cols: PRESCAN_COLS,
-        bits: 16,
     }
 }
 
@@ -250,23 +250,16 @@ fn clean(bencher: divan::Bencher) {
             let [r, g, b]: [Vec<u16>; 3] =
                 samples.colors.clone().try_into().expect("3 color planes");
             let ir = samples.ir.clone().unwrap_or_default();
-            let prescan = Image {
-                colors: pre.colors.iter().map(Vec::as_slice).collect(),
+            let prescan = Prescan {
+                red: &pre.colors[0],
                 ir: &pre.ir,
                 rows: ROWS / 6,
                 cols: COLS / 6,
-                bits: 16,
             };
             (r, g, b, ir, prescan)
         })
         .bench_values(|(mut r, mut g, mut b, ir, prescan)| {
-            dust::clean(
-                [&mut r, &mut g, &mut b],
-                &ir,
-                &prescan,
-                ROWS,
-                COLS,
-                &options(),
-            )
+            let cal = dust::calibrate(&prescan).expect("clear film in the prescan");
+            dust::clean([&mut r, &mut g, &mut b], &ir, &cal, ROWS, COLS, &options())
         });
 }
