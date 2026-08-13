@@ -10,7 +10,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
     device,
     protocol::{
-        caps::{film::FilmFormat, set_window::ColorInterleaving},
+        caps::{film::FilmFormat, other::HostCooperation, set_window::ColorInterleaving},
+        data::FrameTable,
         decode::Samples,
     },
     scan::{
@@ -81,15 +82,25 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         );
     }
 
+    let mut color_interleave = ColorInterleaving::LINE_WITHOUT_DISTANCE;
+
+    // validate existence of multiline scanning before evaluating superfine; not supported on LS-40/LS-50
+    if !superfine
+        && session
+            .capabilities()
+            .features
+            .cooperation
+            .contains(HostCooperation::MULTI_LINE)
+    {
+        color_interleave = ColorInterleaving::MULTILINE_SIMULTANEOUS;
+    }
+
     // What every frame gets scanned with
     // Checked before anything moves
     let recipe = Recipe {
         dpi: dpi.unwrap_or(session.capabilities().address.x_axis.optical_dpi),
         samples,
-        interleaving: match superfine {
-            true => ColorInterleaving::LINE_WITHOUT_DISTANCE,
-            false => ColorInterleaving::MULTILINE_SIMULTANEOUS,
-        },
+        interleaving: color_interleave,
         infrared: ir,
     };
     // Everything the recipe asks for is checked against the pages here, before
@@ -98,8 +109,21 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     // State for the first frame's exposures, reused for the rest so a strip comes out consistent rather than per-frame optimal
     let mut locked: Option<Exposures> = None;
 
+    let uses_adapter = !session.capabilities().identity.is_mf_scanner()
+        && session
+            .capabilities()
+            .address
+            .adapter_id
+            .is_some_and(|id| id > 0);
+
     // Nothing can be framed before something is loaded
-    wait_for_film(&mut session, "Load a film holder")?;
+    wait_for_film(
+        &mut session,
+        &format!(
+            "Load a film {}",
+            if uses_adapter { "strip" } else { "holder" }
+        ),
+    )?;
 
     // One buffer for every strip
     let mut samples = Samples::default();
@@ -115,15 +139,24 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         // Resolve the film format up front where it will be needed, so a
         // missing --format fails before the thumbnail pass
         let film_format = match framing {
-            Framing::Thumbnail => Some(resolve_format(
+            Framing::Thumbnail | Framing::Perforation => Some(resolve_format(
                 format,
-                session.capabilities().address.holder_id,
+                if !uses_adapter {
+                    session.capabilities().address.holder_id
+                } else {
+                    session.capabilities().address.connected_adapter
+                },
             )?),
             _ => None,
         };
 
-        let table = match framing {
-            Framing::Published => framing::table(session.capabilities())?,
+        let (_table, scan_frames) = match framing {
+            Framing::Published => {
+                let table = framing::table(session.capabilities())?;
+                let frames = table.frames.clone();
+
+                (FrameTable::Boundary(table), frames)
+            }
             Framing::Thumbnail => {
                 let bar = pass_bar("thumbnail");
                 let pass = session.scan_thumbnail_with(&mut samples, |p| bar.report(p))?;
@@ -141,38 +174,79 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 let length = film_format.height_dots(optical_dpi);
                 info!(?film_format, length, "frame length");
 
+                // Write the detected frames to the scanner's boundary table
                 let measured =
                     thumbnail::frames(session.capabilities(), &pass, &samples, length, None)?;
-
-                // Write the detected frames to the scanner's boundary table
                 session.set_boundaries(&measured)?;
+
+                let frames = measured.frames.clone();
+
                 info!(frames = measured.frames.len(), "detected frames");
-                measured
+                (FrameTable::Boundary(measured), frames)
             }
             Framing::Caller => {
                 bail!("Caller-supplied frame boundaries are not implemented yet");
             }
             Framing::Perforation => {
-                bail!("Perforation frame discovery is not implemented");
+                // discard old data
+                let _ = session.read_perforations()?;
+                let _ = session.read_boundaries_type2();
+                let bar = pass_bar("thumbnail");
+
+                let pass = session.scan_thumbnail_with(&mut samples, |p| bar.report(p))?;
+                bar.finish_and_clear();
+                debug!(
+                    "thumbnail {} x {} in {} channels, complete={}",
+                    pass.cols,
+                    pass.rows,
+                    pass.layout.channels.len(),
+                    pass.complete
+                );
+
+                let film_format = film_format.expect("resolved before the pass");
+                let optical_dpi = session.capabilities().address.y_axis.optical_dpi;
+                let length = film_format.height_dots(optical_dpi);
+                info!(?film_format, length, "frame length");
+
+                // Read perf data and use it to generate Boundary Type2 data for telling the scanner
+                // where the frames reside
+                let perfs = session.read_perforations()?;
+                let measured = thumbnail::frames_type2(
+                    session.capabilities(),
+                    &pass,
+                    &samples,
+                    &perfs,
+                    length,
+                    None,
+                )?;
+
+                session.set_boundaries_type2(&measured)?;
+
+                let x_start = session.capabilities().address.x_axis.address_range.start;
+                let x_boundary = session.capabilities().address.x_axis.boundary;
+
+                let frames = measured
+                    .frames
+                    .iter()
+                    .map(|f| f.rect(x_start, x_boundary, length))
+                    .collect();
+                info!(frames = measured.frames.len(), "detected frames");
+                (FrameTable::BoundaryType2(measured), frames)
             }
         };
 
         // Select all or the requested subset of the frames to scan
         let selected_frames = if frames.is_empty() {
-            table.frames
+            scan_frames
         } else {
             frames
                 .iter()
                 .map(|&idx| {
-                    table
-                        .frames
-                        .get(idx - 1) // One-indexed from the user
-                        .cloned()
-                        .ok_or(anyhow!(
-                            "Requested frame {} not available. Frames detected: {}",
-                            idx,
-                            table.frames.len()
-                        ))
+                    scan_frames.get(idx - 1).cloned().ok_or(anyhow!(
+                        "Requested frame {} not available. Frames detected: {}",
+                        idx,
+                        scan_frames.len()
+                    ))
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?
         };
@@ -341,19 +415,24 @@ fn resolve_format(flag: Option<FilmFormat>, holder_id: Option<u8>) -> anyhow::Re
     if let Some(format) = flag {
         return Ok(format);
     }
+
     let id = holder_id.ok_or_else(|| anyhow!("No holder loaded; supply --format"))?;
-    FilmFormat::from_holder(id).ok_or_else(|| {
-        let choices = FilmFormat::choices_for_holder(id)
-            .map(|c| {
-                format!(
-                    " (try: {})",
-                    c.iter()
-                        .map(cli::format_name)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })
-            .unwrap_or_default();
-        anyhow!("This holder does not fix the film format; supply --format{choices}")
-    })
+
+    FilmFormat::from_holder(id)
+        .or_else(|| FilmFormat::from_adapter(id))
+        .ok_or_else(|| {
+            let choices = FilmFormat::choices_for_holder(id)
+                .map(|c| {
+                    format!(
+                        " (try: {})",
+                        c.iter()
+                            .map(cli::format_name)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+                .unwrap_or_default();
+
+            anyhow!("This holder does not fix the film format; supply --format{choices}")
+        })
 }

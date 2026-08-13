@@ -118,7 +118,12 @@ pub(crate) fn prescan_windows(caps: &Capabilities, windows: &[Window]) -> Vec<Wi
             // A preview halves Y where a scan is square, and runs without the
             // averaging bit. The captures pair 666x333 with byte 41 = 01h and
             // high speed every time
-            w.resolution = (dpi, dpi / 2);
+            // LS-5x always prescans at 285dpi
+            w.resolution = if caps.identity.is_mf_scanner() {
+                (dpi, dpi / 2)
+            } else {
+                (285, 285)
+            };
             w.flags.remove(Flags::AVERAGING);
             if fast {
                 w.scanning_mode = ScanMode::HIGH_SPEED;

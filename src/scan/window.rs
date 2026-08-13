@@ -243,7 +243,7 @@ impl Recipe {
         let fast = caps.set_window.mode.contains(ScanMode::HIGH_SPEED);
 
         // Byte 43 is normal quality in every captured scan but the preview, and
-        // the LS-5000 does not offer high speed at all
+        // the LS-5000 does not offer high speed at all but does send HIGH_SPEED during a metering pass? huh?
         let mut mode = match native && fast {
             true => ScanMode::HIGH_SPEED,
             false => ScanMode::NORMAL_QUALITY,

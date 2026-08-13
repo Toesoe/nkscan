@@ -11,7 +11,8 @@ use crate::{
             address::Transfer,
             set_window::{ColorInterleaving, ScanKind},
         },
-        data::width_code,
+        data::{Truncation, width_code},
+        model::Model,
         window::{Channel, Window, validate_set},
     },
 };
@@ -53,6 +54,10 @@ pub struct Layout {
     /// The transfer length every READ has to be a whole number of. 1 means the
     /// unit constrains nothing
     pub granule: usize,
+    /// Invalid bytes attached to every scan line, at start and end per 2-11-5-3
+    pub truncated_bytes_line: (u32, u32),
+    /// Invalid lines attached to every image, so total lines before the first and after the last line per 2-11-5-3
+    pub truncated_lines_frame: (u32, u32),
 }
 
 impl Layout {
@@ -75,6 +80,8 @@ impl Layout {
             ccd_lines: 1,
             registration_gap: 0,
             granule: 1,
+            truncated_bytes_line: (0, 0),
+            truncated_lines_frame: (0, 0),
         }
     }
 }
@@ -123,7 +130,12 @@ fn pitches(caps: &Capabilities, window: &Window) -> Result<(u32, u32), Error> {
 /// Bit 1 makes it a line across every color, bit 2 one line. Neither set means
 /// the unit constrains nothing, so any length will do
 fn read_granule(caps: &Capabilities, line: usize, channels: usize) -> usize {
+    if caps.identity.model() == Some(Model::Ls50) {
+        return 1024;
+    }
+
     let transfer = caps.address.transfer;
+
     if transfer.contains(Transfer::READ_LINE_COLS) {
         (line * channels).max(1)
     } else if transfer.contains(Transfer::READ_LINE) {
@@ -137,7 +149,12 @@ impl Layout {
     /// Work out what a scan of `windows` will produce
     ///
     /// `divisor` is the measurement unit in force, from the mode page
-    pub fn new(caps: &Capabilities, windows: &[Window], divisor: u16) -> Result<Self, Error> {
+    pub fn new(
+        caps: &Capabilities,
+        windows: &[Window],
+        divisor: u16,
+        truncated_by_driver: Option<&Truncation>,
+    ) -> Result<Self, Error> {
         // Every rule about the set itself, including that they agree on
         // everything shaping the stream
         validate_set(windows)?;
@@ -172,6 +189,18 @@ impl Layout {
         let line = pixels as usize * usize::from(bytes_per_sample);
         let granule = read_granule(caps, line, channels.len());
 
+        let mut truncated_bytes_line = (0, 0);
+        let mut truncated_lines_frame = (0, 0);
+
+        if let Some(t) = truncated_by_driver {
+            truncated_bytes_line = (
+                u32::from(t.per_color.first) + u32::from(t.all_colors.first),
+                u32::from(t.per_color.last) + u32::from(t.all_colors.last),
+            );
+
+            truncated_lines_frame = (u32::from(t.lines.first), u32::from(t.lines.last));
+        }
+
         Ok(Self {
             pixels,
             lines,
@@ -189,6 +218,8 @@ impl Layout {
             // two pitches are equal except in a preview, which halves only Y
             registration_gap: u32::from(caps.address.line_gap) / line_pitch,
             granule,
+            truncated_bytes_line,
+            truncated_lines_frame,
         })
     }
 
@@ -208,22 +239,18 @@ impl Layout {
     }
 
     /// Bytes in one line of every channel
-    pub fn bytes_per_line(&self) -> u64 {
-        u64::from(self.pixels) * u64::from(self.bytes_per_sample) * self.channels.len() as u64
+    pub fn bytes_per_line(&self) -> u32 {
+        self.pixels * u32::from(self.bytes_per_sample) * self.readouts()
+            + self.truncated_bytes_line.0
+            + self.truncated_bytes_line.1
     }
 
     /// How many bytes the whole scan will hand back
     ///
-    /// The modes that raise a cooperative request are the ones this can be
-    /// wrong for: the
-    /// multi-line record reports its own byte and line counts, and a scan whose
-    /// CCD lines need re-registering carries extra lines at the seams. Prefer
-    /// the unit's numbers where it gives them
+    /// Takes truncated bytes reported by driver from LS-4x/LS-5x in account
     pub fn total_bytes(&self) -> u64 {
-        u64::from(self.pixels)
-            * u64::from(self.lines)
-            * u64::from(self.bytes_per_sample)
-            * u64::from(self.readouts())
+        u64::from(self.bytes_per_line())
+            * u64::from(self.lines + self.truncated_lines_frame.0 + self.truncated_lines_frame.1)
     }
 
     /// Readouts the unit emits per line
@@ -323,7 +350,13 @@ mod tests {
     /// dpi, one channel, 16 bit, which read back 80000 bytes off the hardware
     #[test]
     fn the_first_real_scan_still_measures_80000_bytes() {
-        let l = Layout::new(&caps(0x01, 12, 3), &[window(1, 666, (1200, 1200))], 4000).unwrap();
+        let l = Layout::new(
+            &caps(0x01, 12, 3),
+            &[window(1, 666, (1200, 1200))],
+            4000,
+            None,
+        )
+        .unwrap();
 
         assert_eq!(l.pitch, 6);
         assert_eq!((l.pixels, l.lines), (200, 200));
@@ -348,7 +381,8 @@ mod tests {
             (334, 666, 6),
             (333, 333, 12),
         ] {
-            let l = Layout::new(&caps(0x01, 12, 3), &rgb(asked, (12000, 12000)), 4000).unwrap();
+            let l =
+                Layout::new(&caps(0x01, 12, 3), &rgb(asked, (12000, 12000)), 4000, None).unwrap();
             assert_eq!((l.pitch, l.dpi), (pitch, dpi), "{asked} dpi");
             assert_eq!(l.pixels, 12000 / pitch, "{asked} dpi");
         }
@@ -364,7 +398,7 @@ mod tests {
         windows[0].composition = Composition::MultilevelBW;
         windows[0].scanning_kind = ScanKind::THUMBNAIL;
 
-        let l = Layout::new(&caps(0x01, 12, 3), &windows, 4000).unwrap();
+        let l = Layout::new(&caps(0x01, 12, 3), &windows, 4000, None).unwrap();
         assert_eq!(l.pitch, 48);
         assert_eq!((l.pixels, l.lines), (186, 721));
         assert_eq!(l.total_bytes(), 268212);
@@ -372,7 +406,7 @@ mod tests {
         // The same window as an image snaps to the ladder instead
         windows[0].scanning_kind = ScanKind::IMAGE;
         assert_eq!(
-            Layout::new(&caps(0x01, 12, 3), &windows, 4000)
+            Layout::new(&caps(0x01, 12, 3), &windows, 4000, None)
                 .unwrap()
                 .pitch,
             12
@@ -383,7 +417,7 @@ mod tests {
     /// 1666x100 on hardware, half the lines a square 666 gives, so it is not
     #[test]
     fn a_half_y_resolution_halves_the_lines() {
-        let square = Layout::new(&caps(0x01, 12, 3), &rgb(666, (10000, 1200)), 4000).unwrap();
+        let square = Layout::new(&caps(0x01, 12, 3), &rgb(666, (10000, 1200)), 4000, None).unwrap();
         assert_eq!((square.pixels, square.lines), (1666, 200));
         assert_eq!(square.total_bytes(), 1999200);
 
@@ -391,7 +425,7 @@ mod tests {
         for w in &mut half {
             w.resolution = (666, 333);
         }
-        let half = Layout::new(&caps(0x01, 12, 3), &half, 4000).unwrap();
+        let half = Layout::new(&caps(0x01, 12, 3), &half, 4000, None).unwrap();
         assert_eq!((half.pixels, half.lines), (1666, 100));
         assert_eq!(half.total_bytes(), 999600);
         // X is untouched by it
@@ -413,8 +447,8 @@ mod tests {
     #[test]
     fn the_coarse_divisor_scales_the_window_to_pixels() {
         let windows = rgb(4000, (1200, 2400));
-        let fine = Layout::new(&caps(0x01, 12, 3), &windows, 4000).unwrap();
-        let coarse = Layout::new(&caps(0x01, 12, 3), &windows, 1200).unwrap();
+        let fine = Layout::new(&caps(0x01, 12, 3), &windows, 4000, None).unwrap();
+        let coarse = Layout::new(&caps(0x01, 12, 3), &windows, 1200, None).unwrap();
 
         assert_eq!((fine.pixels, fine.lines), (1200, 2400));
         assert_eq!((coarse.pixels, coarse.lines), (4000, 8000));
@@ -427,7 +461,7 @@ mod tests {
         let windows = rgb(4000, (10000, 13860));
         let line = 10000 * 2;
         let granule = |transfer| {
-            Layout::new(&caps(transfer, 1, 2), &windows, 4000)
+            Layout::new(&caps(transfer, 1, 2), &windows, 4000, None)
                 .unwrap()
                 .granule
         };
@@ -441,14 +475,14 @@ mod tests {
     #[test]
     fn multiple_reading_multiplies_the_byte_count() {
         let mut windows = rgb(4000, (10000, 13860));
-        let single = Layout::new(&caps(0x01, 12, 3), &windows, 4000).unwrap();
+        let single = Layout::new(&caps(0x01, 12, 3), &windows, 4000, None).unwrap();
         assert_eq!(single.readings_per_line, 1);
         assert_eq!(single.total_bytes(), 10000 * 2 * 3 * 13860);
 
         for w in &mut windows {
             w.multiple_reading = 15;
         }
-        let sixteen = Layout::new(&caps(0x01, 12, 3), &windows, 4000).unwrap();
+        let sixteen = Layout::new(&caps(0x01, 12, 3), &windows, 4000, None).unwrap();
         assert_eq!(sixteen.readings_per_line, 16);
         assert_eq!(sixteen.total_bytes(), single.total_bytes() * 16);
     }
@@ -457,7 +491,7 @@ mod tests {
     #[test]
     fn the_registration_gap_shrinks_with_the_pitch() {
         let gap = |dpi| {
-            Layout::new(&caps(0x01, 12, 3), &rgb(dpi, (10000, 13860)), 4000)
+            Layout::new(&caps(0x01, 12, 3), &rgb(dpi, (10000, 13860)), 4000, None)
                 .unwrap()
                 .registration_gap
         };
@@ -471,7 +505,7 @@ mod tests {
         for w in &mut preview {
             w.resolution = (666, 333);
         }
-        let preview = Layout::new(&caps(0x01, 12, 3), &preview, 4000).unwrap();
+        let preview = Layout::new(&caps(0x01, 12, 3), &preview, 4000, None).unwrap();
         assert_eq!((preview.pitch, preview.line_pitch), (6, 12));
         assert_eq!(preview.registration_gap, 1);
     }
@@ -480,17 +514,17 @@ mod tests {
     fn a_window_set_that_disagrees_has_no_layout() {
         let mut windows = rgb(4000, (10000, 13860));
         windows[2].size.0 = 9000;
-        assert!(Layout::new(&caps(0x01, 12, 3), &windows, 4000).is_err());
+        assert!(Layout::new(&caps(0x01, 12, 3), &windows, 4000, None).is_err(),);
 
         // Exposure is what a set is allowed to differ in
         let mut windows = rgb(4000, (10000, 13860));
         windows[2].exposure = 71125;
-        assert!(Layout::new(&caps(0x01, 12, 3), &windows, 4000).is_ok());
+        assert!(Layout::new(&caps(0x01, 12, 3), &windows, 4000, None).is_ok(),);
     }
 
     #[test]
     fn an_empty_window_set_has_no_layout() {
-        assert!(Layout::new(&caps(0x01, 12, 3), &[], 4000).is_err());
+        assert!(Layout::new(&caps(0x01, 12, 3), &[], 4000, None).is_err());
     }
 }
 
@@ -515,6 +549,8 @@ mod readouts {
             ccd_lines: 3,
             registration_gap: 1,
             granule: 1,
+            truncated_bytes_line: (0, 0),
+            truncated_lines_frame: (0, 0),
         }
     }
 

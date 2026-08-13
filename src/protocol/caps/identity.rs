@@ -36,6 +36,13 @@ impl Identity {
         Model::from_product(&self.product)
     }
 
+    pub fn is_mf_scanner(&self) -> bool {
+        matches!(
+            Model::from_product(&self.product).unwrap().into(),
+            Some(Model::Ls8000 | Model::Ls9000)
+        )
+    }
+
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() < Self::LENGTH {
             return Err(Error::Truncated {

@@ -117,7 +117,7 @@ This library doesn't have anything scanner or adapter-specific so *theoretically
 |------------------|:------:|:---------:|:----------:|:------:|:-----------:|
 | 5000             |   ⚠️   |  ⚠️      |    ⚠️     |  ⚠️    |   ⚠️       |
 | 4000             |   ⚠️   |  ⚠️      |    ⚠️     |  ⚠️    |   ⚠️       |
-| V                |   ⚠️   |  ⚠️      |    ⚠️     |  ⚠️    |   ⚠️       |
+| V                |   ✅   |  ⚠️      |    ⚠️     |  ✅    |   ⚠️       |
 | IV               |   ⚠️   |  ⚠️      |    ⚠️     |  ⚠️    |   ⚠️       |
 
 If you want to use a Firewire scanner on an old Mac that still has OS support for FireWire, let me know and I can scope it out.

@@ -216,6 +216,19 @@ impl DataType {
             },
         }
     }
+
+    pub fn qualifier(self) -> Option<(u8, u8)> {
+        match self {
+            Self::Perforation => Some((0, 0x00)),
+            Self::Boundary2 => Some((0, 0x03)),
+            _ => self.row().width.map(|width| {
+                (
+                    width,
+                    width_code(width).expect("2-11-2 widths are all encodable"),
+                )
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,6 +280,12 @@ pub const fn width_code(width: u8) -> Option<u8> {
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrameTable {
+    Boundary(Boundary),
+    BoundaryType2(BoundaryType2),
+}
+
 /// One frame's rectangle as `DataType::Boundary` carries it, 2-11-6
 ///
 /// Sub-scanning is Y and main-scanning is X, and this record puts them in that
@@ -282,6 +301,53 @@ pub struct Rect {
     pub bottom: u32,
     /// Bytes 16-19, lower right in the main-scanning direction
     pub right: u32,
+}
+
+/// One frame's rectangle as `DataType::BoundaryType2` carries it, 2-11-9 (LS-5000)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FramePosition {
+    /// Bytes 4-7, Y address for line 1
+    /// address = 7 × (108 * perf_number + 22 * perf_decimal + pulse_number
+    pub top: u32,
+    /// Bytes 8-9, perforation number
+    pub perf_number: u16,
+    /// Byte 10, perforation decimal
+    pub perf_decimal: u8,
+    /// Byte 11, pulse number
+    pub pulse_number: u8,
+}
+
+impl FramePosition {
+    pub fn rect(self, x_start: u32, x_boundary: u32, length: u32) -> Rect {
+        Rect {
+            top: self.top,
+            left: x_start,
+            bottom: self.top + length - 1,
+            right: x_start + x_boundary - 1,
+        }
+    }
+
+    /// construct a FramePosition entry from detected y_start, as pixel location on the thumb strip
+    /// all other values are inferred using data read from 8Eh PerforationInformation
+    /// the only valid positions on a strip are locations returned from 8Eh so we need to find the closest match
+    /// in the table of returned positions, then use that as an index for the scanner's boundary information data
+    pub fn new(
+        dpi_device: u16,
+        dpi_thumb: u16,
+        y_start: u32,
+        perf_info: &PerfInformation,
+    ) -> Option<Self> {
+        // use approximation to find the closest perf match, then use that to calculate the address
+        let approx_addr = (y_start as f32 * dpi_device as f32 / dpi_thumb as f32).round() as u32;
+        let perf = perf_info.nearest(approx_addr)?;
+
+        Some(FramePosition {
+            top: PerfInformation::address(perf),
+            perf_number: perf.perf_number,
+            perf_decimal: perf.perf_decimal,
+            pulse_number: perf.pulse_number,
+        })
+    }
 }
 
 /// Boundary information, 2-11-6, `DataType::Boundary`
@@ -362,6 +428,185 @@ impl Boundary {
                 out.extend_from_slice(&v.to_be_bytes());
             }
         }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PerforationInformation {
+    /// Bytes 4-5: perforation number
+    pub perf_number: u16,
+    /// Byte 6 bit 7: switching flag
+    pub count_switching_flag: bool,
+    /// Byte 6 bit 6-0: perforation decimal
+    pub perf_decimal: u8,
+    /// Byte 7: raw encoder pulses accumulated in current phase
+    pub pulse_number: u8,
+}
+
+/// Perforation info from 8Eh, 2-11-8 (LS-5000)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PerfInformation {
+    pub perfs: Vec<PerforationInformation>,
+}
+
+impl PerfInformation {
+    /// Bytes before the first frame.
+    const HEAD: usize = 4;
+
+    /// Bytes occupied by perforation records
+    const PERFS: usize = 4;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
+
+        let parameter_length =
+            ((head[0] as usize) << 16) | ((head[1] as usize) << 8) | (head[2] as usize);
+
+        let bytes_per_parameter = usize::from(head[3]);
+
+        if bytes_per_parameter != Self::PERFS {
+            return None;
+        }
+
+        let total = parameter_length.checked_add(3)?;
+
+        if total < Self::HEAD || b.len() < total {
+            return None;
+        }
+
+        let payload_len = total - Self::HEAD;
+
+        if payload_len % Self::PERFS != 0 {
+            return None;
+        }
+
+        let num_records = payload_len / Self::PERFS;
+
+        let mut perfs = Vec::with_capacity(num_records);
+
+        for n in 0..num_records {
+            let at = Self::HEAD + n * Self::PERFS;
+            let r = b.get(at..at + Self::PERFS)?;
+
+            perfs.push(PerforationInformation {
+                perf_number: u16::from_be_bytes([r[0], r[1]]),
+                count_switching_flag: r[2] & 0x80 != 0,
+                perf_decimal: r[2] & 0x7f,
+                pulse_number: r[3],
+            });
+        }
+
+        Some(Self { perfs })
+    }
+
+    /// encoder-space address for a given perforation reading
+    /// used for calculating closest perf match to a given line address
+    fn address(perf: &PerforationInformation) -> u32 {
+        7 * (108 * perf.perf_number as u32
+            + 22 * perf.perf_decimal as u32
+            + perf.pulse_number as u32)
+    }
+
+    /// find nearest perf match corresponding to an image address
+    /// there's ~19 addresses per perf leading to a granularity of ~0.25mm with 35mm film (4.75mm perf pitch)
+    pub fn nearest(&self, addr: u32) -> Option<&PerforationInformation> {
+        self.perfs
+            .iter()
+            .min_by_key(|p| Self::address(p).abs_diff(addr))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoundaryType2 {
+    pub frames: Vec<FramePosition>,
+}
+
+impl BoundaryType2 {
+    /// Bytes before the first frame.
+    const HEAD: usize = 4;
+
+    /// Bytes occupied by each boundary record.
+    const BOUNDARY: usize = 8;
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let head: &[u8; Self::HEAD] = b.get(..Self::HEAD)?.try_into().ok()?;
+
+        // Bytes 0-1: parameter length, which is total length - 1.
+        let parameter_length = u16::from_be_bytes([head[0], head[1]]) as usize;
+
+        // Byte 2: actual number of images.
+        let count = usize::from(head[2]);
+
+        // The parameter length describes everything following the field
+        // itself, i.e. total parameter size is length + 1.
+        let total = parameter_length.checked_add(1)?;
+
+        // The reserved byte is currently ignored.
+        let expected = Self::HEAD.checked_add(count.checked_mul(Self::BOUNDARY)?)?;
+
+        // Reject truncated or structurally inconsistent data.
+        if total != expected || b.len() < total {
+            return None;
+        }
+
+        let mut frames = Vec::with_capacity(count);
+
+        for n in 0..count {
+            let at = Self::HEAD + n * Self::BOUNDARY;
+            let r = b.get(at..at + Self::BOUNDARY)?;
+
+            frames.push(FramePosition {
+                top: u32::from_be_bytes([r[0], r[1], r[2], r[3]]),
+                perf_number: u16::from_be_bytes([r[4], r[5]]),
+                perf_decimal: r[6],
+                pulse_number: r[7],
+            });
+        }
+
+        Some(Self { frames })
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        if self.frames.len() > u8::MAX as usize {
+            return Err(Error::Unsupported {
+                op: "boundary_type2",
+                reason: format!(
+                    "{} frames cannot fit the one-byte count field",
+                    self.frames.len()
+                ),
+            });
+        }
+
+        let total = Self::HEAD
+            .checked_add(self.frames.len() * Self::BOUNDARY)
+            .ok_or_else(|| Error::Unsupported {
+                op: "boundary_type2",
+                reason: "boundary information is too large".into(),
+            })?;
+
+        let parameter_length = total - 2;
+
+        if parameter_length > u16::MAX as usize {
+            return Err(Error::Unsupported {
+                op: "boundary_type2",
+                reason: "boundary information is too large".into(),
+            });
+        }
+
+        let mut out = Vec::with_capacity(total);
+
+        out.extend_from_slice(&(parameter_length as u16).to_be_bytes());
+        out.push(self.frames.len() as u8);
+        out.push(0);
+
+        for frame in &self.frames {
+            out.extend_from_slice(&frame.top.to_be_bytes());
+            out.extend_from_slice(&frame.perf_number.to_be_bytes());
+            out.push(frame.perf_decimal);
+            out.push(frame.pulse_number);
+        }
+
         Ok(out)
     }
 }

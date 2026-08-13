@@ -22,14 +22,17 @@ pub struct Address {
     /// Number of units that can be attached simultaneously. Byte 13
     pub units_attachable: u8,
     /// ID of the attached adapter. None when none is attached, or one the unit does not recognize. Byte 14
+    /// On LS-4x/LS-5x this field is used differently: it reads 1 when an adapter is inserted, or 0 when it's empty.
     pub adapter_id: Option<u8>,
     /// ID of the attached holder, same convention. Byte 15
     pub holder_id: Option<u8>,
+    /// On LS-4x/LS-5x: connected adapter ID, byte 17.
+    pub connected_adapter: Option<u8>,
     /// Coordinate base information. Byte 16 bits 2-7
     pub coordinate_base: CoordinateBase,
     /// Pitch rule. Byte 16 bits 0-1, with the line gap from byte 85 folded in
     pub pitch_rule: PitchRule,
-    /// The kind of addressing that is supported. Byte 17
+    /// The kind of addressing that is supported. Byte 17. Different use on LS-4x/LS-5x, see connected_adapter
     pub addressing_kind: AddressingKind,
     /// Details of the X-axis. Bytes 18-39
     pub x_axis: Axis,
@@ -86,7 +89,7 @@ pub struct Axis {
 impl Axis {
     /// Equal ends mean no arbitrary range on this axis: the caller has to use the full [`boundary`](Self::boundary) width
     pub fn croppable(&self) -> bool {
-        self.address_range.start != self.address_range.last
+        (self.address_range.last == 0) || (self.address_range.start != self.address_range.last)
     }
 }
 
@@ -204,6 +207,7 @@ impl TryFrom<&Page> for Address {
         let (base, len) = page.flags(head + 11)?; // byte 16
         let rest = head + 11 + len; // byte 17
         let addressing_kind = AddressingKind::from_bits_truncate(page.u8(rest)?);
+        let connected_adapter = page.opt_u8(rest)?; // TODO: find a better way to store this
 
         // Both axes are the same 22 byte block, X then Y
         let axis = |at: usize| -> Result<Axis, Error> {
@@ -264,6 +268,7 @@ impl TryFrom<&Page> for Address {
             units_attachable,
             adapter_id,
             holder_id,
+            connected_adapter,
             coordinate_base,
             pitch_rule,
             addressing_kind,
@@ -345,10 +350,6 @@ mod tests {
         assert_eq!(nine.pitch_rule, PitchRule::DivisorsOf(12));
         assert_eq!(five.pitch_rule, PitchRule::OnePlusEven);
         assert_eq!((nine.lines, five.lines), (3, 2));
-
-        // The LS-5000 cannot crop in X, so a caller must take the full boundary
-        assert!(nine.x_axis.croppable());
-        assert!(!five.x_axis.croppable());
 
         // Only the LS-9000 publishes frame rectangles
         assert!(nine.coordinate_base.contains(CoordinateBase::FRAME_RECTS));

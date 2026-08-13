@@ -7,7 +7,7 @@ use crate::{
         caps::other::DataTypes,
         cdbs::{Execute, GetParameter, Read, Send, SendDiagnostic, SetParameter},
         curves::Curves,
-        data,
+        data::{self, BoundaryType2, FrameTable, PerfInformation},
         sense::{self, Failure, Fault},
         window::Channel,
     },
@@ -54,8 +54,10 @@ impl Session {
         let mut fetch = |len: u32| -> Result<Vec<u8>, Error> {
             let cmd = Read::new(code, color, qualifier, len);
             let mut buf = vec![0u8; cmd.allocation_length()];
+            debug!("cdb for read {:02x} {:02x?}", code, &cmd.cdb());
             let completion = self.run(&cmd.cdb(), Data::In(&mut buf), PROBE_TIMEOUT)?;
             buf.truncate(completion.transferred);
+            debug!("recv {:02x?}", buf);
             Ok(buf)
         };
 
@@ -98,12 +100,10 @@ impl Session {
             Some(bit) if self.caps.features.data_types.contains(bit) => {}
             _ => return Err(refuse(format!("this unit does not offer {kind:?}"))),
         }
-        let Some(width) = kind.row().width else {
-            return Err(refuse(format!(
-                "{kind:?} takes a width 2-11-2 does not fix"
-            )));
+        let Some((width, qualifier)) = kind.qualifier() else {
+            return Err(refuse(format!("{kind:?} has no addressing qualifier")));
         };
-        let qualifier = data::width_code(width).expect("2-11-2 widths are all encodable");
+
         Ok((width, qualifier, if kind.per_color() { color } else { 0 }))
     }
 
@@ -113,7 +113,12 @@ impl Session {
             self.addressing(kind, kind.row().write, color, "send data type")?;
 
         let cmd = Send::new(kind.row().code, color, qualifier, body.len() as u32);
-        debug!(?kind, bytes = body.len(), "send data");
+        debug!(
+            "cdb for send {:02x} {:02x?} data {:02x?}",
+            kind.row().code,
+            &cmd.cdb(),
+            &body
+        );
         self.run(&cmd.cdb(), Data::Out(body), PROBE_TIMEOUT)?;
         Ok(())
     }
@@ -123,7 +128,9 @@ impl Session {
         let (_, record) = self.read_record(data::DataType::Boundary, 0)?;
         let boundary = data::Boundary::from_bytes(&record)
             .ok_or_else(|| malformed(format!("Boundary was {} bytes", record.len())))?;
-        self.frames = Some(boundary.clone());
+
+        self.frames = Some(FrameTable::Boundary(boundary.clone()));
+
         Ok(boundary)
     }
 
@@ -131,7 +138,30 @@ impl Session {
     ///
     /// `None` until something has read or written one
     pub fn frames(&self) -> Option<&data::Boundary> {
-        self.frames.as_ref()
+        match self.frames.as_ref() {
+            Some(FrameTable::Boundary(boundary)) => Some(boundary),
+            _ => None,
+        }
+    }
+
+    pub fn boundaries_type2(&mut self) -> Result<data::BoundaryType2, Error> {
+        let (_, record) = self.read_record(data::DataType::Boundary2, 0)?;
+        let boundary = data::BoundaryType2::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("BoundaryType2 was {} bytes", record.len())))?;
+
+        self.frames = Some(FrameTable::BoundaryType2(boundary.clone()));
+
+        Ok(boundary)
+    }
+
+    /// The frame table as far as this session knows it
+    ///
+    /// `None` until something has read or written one
+    pub fn frames_type2(&self) -> Option<&data::BoundaryType2> {
+        match self.frames.as_ref() {
+            Some(FrameTable::BoundaryType2(boundary)) => Some(boundary),
+            _ => None,
+        }
     }
 
     /// Tell the unit where each frame is
@@ -142,8 +172,33 @@ impl Session {
     pub fn set_boundaries(&mut self, boundary: &data::Boundary) -> Result<(), Error> {
         let bytes = boundary.to_bytes()?;
         self.send_data(data::DataType::Boundary, 0, &bytes)?;
-        self.frames = Some(boundary.clone());
+        self.frames = Some(FrameTable::Boundary(boundary.clone()));
         Ok(())
+    }
+
+    /// 2-11-9: alternate Type2 indexing for roll feeders
+    pub fn set_boundaries_type2(&mut self, boundary: &data::BoundaryType2) -> Result<(), Error> {
+        let bytes = boundary.to_bytes()?;
+        self.send_data(data::DataType::Boundary2, 0, &bytes)?;
+        self.frames = Some(FrameTable::BoundaryType2(boundary.clone()));
+        Ok(())
+    }
+
+    pub fn read_perforations(&mut self) -> Result<data::PerfInformation, Error> {
+        let (_, record) = self.read_record(data::DataType::Perforation, 0)?;
+        self.test_unit_ready(Duration::from_millis(500))?;
+
+        let perfs = PerfInformation::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("PerfInfo was {} bytes", record.len())))?;
+        Ok(perfs)
+    }
+
+    pub fn read_boundaries_type2(&mut self) -> Result<data::BoundaryType2, Error> {
+        let (_, record) = self.read_record(data::DataType::Boundary2, 0)?;
+
+        let bounds = BoundaryType2::from_bytes(&record)
+            .ok_or_else(|| malformed(format!("BoundaryType2 was {} bytes", record.len())))?;
+        Ok(bounds)
     }
 
     /// The exposure the unit measured for this channel when it started up
