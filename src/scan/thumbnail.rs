@@ -22,6 +22,7 @@ use crate::{
         },
         data::{Boundary, BoundaryType2, FramePosition, PerfInformation, Rect},
         decode::{Image, Samples},
+        model::Model,
         window::{Flags, Window},
     },
 };
@@ -108,6 +109,7 @@ pub fn frames_type2(
 
     let found = boundaries::detect(&image, (length / pitch) as usize, polarity);
 
+    // genereate FramePosition table using detected frame boundaries + perforation data table
     let frames: Vec<FramePosition> = found
         .frames
         .iter()
@@ -166,12 +168,15 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         )));
     }
 
-    let (thumb_size, flags) = if caps.identity.model().unwrap().name().starts_with("LS-4")
-        || caps.identity.model().unwrap().name().starts_with("LS-5")
-    {
-        (250_278, Flags::POSITIVE | Flags::AVERAGING)
-    } else {
-        (y.address_range.last, Flags::empty())
+    let flags = match caps.identity.model() {
+        Some(Model::Ls8000 | Model::Ls9000) => Flags::empty(),
+        Some(_) => Flags::POSITIVE | Flags::AVERAGING,
+        None => {
+            return Err(Error::Unsupported {
+                op: "thumbnail window",
+                reason: "unrecognized model".into(),
+            });
+        }
     };
 
     let (left, width) = opening(caps);
@@ -184,7 +189,7 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         // Y starts at the axis rather than the first frame, so the leading
         // edge of the film is in the pass and can be found
         w.origin = (left, y.address_range.start);
-        w.size = (width, thumb_size);
+        w.size = (width, y.address_range.last);
         w.scanning_kind = ScanKind::THUMBNAIL;
         w.scanning_mode = ScanMode::NORMAL_QUALITY;
         w.flags = flags;

@@ -208,8 +208,9 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 let length = film_format.height_dots(optical_dpi);
                 info!(?film_format, length, "frame length");
 
-                // Write the detected frames to the scanner's boundary table
-                let perfs = session.read_perforations().unwrap();
+                // Read perf data and use it to generate Boundary Type2 data for telling the scanner
+                // where the frames reside
+                let perfs = session.read_perforations()?;
                 let measured = thumbnail::frames_type2(
                     session.capabilities(),
                     &pass,

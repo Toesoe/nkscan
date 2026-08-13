@@ -36,11 +36,6 @@ impl Identity {
         Model::from_product(&self.product)
     }
 
-    pub fn is_mf(&self) -> bool {
-        let model = Model::from_product(&self.product).unwrap();
-        model == Model::Ls8000 || model == Model::Ls9000
-    }
-
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() < Self::LENGTH {
             return Err(Error::Truncated {
