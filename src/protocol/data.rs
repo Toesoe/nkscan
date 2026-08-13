@@ -1,7 +1,5 @@
 //! READ and SEND data types. Section 2-11
 
-use std::fmt;
-
 use super::{caps::other::DataTypes, sense::Coop};
 use crate::error::Error;
 use bitflags::bitflags;
@@ -501,27 +499,19 @@ impl PerfInformation {
     }
 
     /// encoder-space address for a given perforation reading
+    /// used for calculating closest perf match to a given line address
     fn address(perf: &PerforationInformation) -> u32 {
         7 * (108 * perf.perf_number as u32
             + 22 * perf.perf_decimal as u32
             + perf.pulse_number as u32)
     }
 
+    /// find nearest perf match corresponding to an image address
+    /// there's ~19 addresses per perf leading to a granularity of ~0.25mm (4.75mm perf pitch)
     pub fn nearest(&self, addr: u32) -> Option<&PerforationInformation> {
         self.perfs
             .iter()
             .min_by_key(|p| Self::address(p).abs_diff(addr))
-    }
-}
-
-impl fmt::Display for PerforationInformation {
-    // perf_number,num_pattern,count_switching_flag,pulse_number
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "{},{},{},{}",
-            self.perf_number, self.perf_decimal, self.count_switching_flag, self.pulse_number,
-        )
     }
 }
 
