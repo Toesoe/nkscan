@@ -109,7 +109,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     // State for the first frame's exposures, reused for the rest so a strip comes out consistent rather than per-frame optimal
     let mut locked: Option<Exposures> = None;
 
-    let uses_adapter = !device.is_mf_scanner()
+    let uses_adapter = !session.capabilities().identity.is_mf_scanner()
         && session
             .capabilities()
             .address
