@@ -145,16 +145,16 @@ pub fn detect(image: &Image, length: usize, polarity: Option<Polarity>) -> Detec
 
 /// Each column of the thumbnail as one number, summed across the film
 fn profile(image: &Image) -> Vec<u64> {
-    let stride = image.colors();
     let trim = image.rows / TRIM;
     let band = trim..image.rows - trim;
     (0..image.cols)
         .map(|x| {
             band.clone()
                 .map(|y| {
-                    let row = image.color_row(y);
-                    (0..stride)
-                        .map(|c| u64::from(row[x * stride + c]))
+                    image
+                        .colors
+                        .iter()
+                        .map(|plane| u64::from(plane[y * image.cols + x]))
                         .sum::<u64>()
                 })
                 .sum()
@@ -329,7 +329,7 @@ mod tests {
             Polarity::Negative => (40000u16, 20000u16),
         };
 
-        let mut samples = vec![0u16; sensor * feed * 3];
+        let mut colors = vec![vec![0u16; sensor * feed]; 3];
         for x in 0..feed {
             let inside = (0..frames).find(|n| {
                 let top = first + n * pitch;
@@ -343,19 +343,12 @@ mod tests {
                 _ => between,
             };
             for y in 0..sensor {
-                for c in 0..3 {
-                    samples[(y * feed + x) * 3 + c] = level;
+                for plane in &mut colors {
+                    plane[y * feed + x] = level;
                 }
             }
         }
-        (
-            Samples {
-                color: samples,
-                ir: None,
-            },
-            sensor,
-            feed,
-        )
+        (Samples { colors, ir: None }, sensor, feed)
     }
 
     fn image(samples: &Samples, sensor: usize, feed: usize) -> Image<'_> {
@@ -437,8 +430,10 @@ mod tests {
         let (mut samples, sensor, feed) = strip(2, 30, 120, 132, Polarity::Positive, None);
         let tail = 30 + 2 * 132;
         for y in 0..sensor {
-            for s in &mut samples.color[(y * feed + tail) * 3..(y * feed + feed) * 3] {
-                *s = u16::MAX;
+            for plane in &mut samples.colors {
+                for s in &mut plane[y * feed + tail..y * feed + feed] {
+                    *s = u16::MAX;
+                }
             }
         }
         let found = detect(
@@ -453,7 +448,7 @@ mod tests {
     #[test]
     fn an_empty_holder_holds_no_frames() {
         let samples = Samples {
-            color: vec![2000u16; 16 * 400 * 3],
+            colors: vec![vec![2000u16; 16 * 400]; 3],
             ir: None,
         };
         let found = detect(&image(&samples, 16, 400), 120, None);

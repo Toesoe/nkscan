@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0]
+
+### Added
+
+- `--clean`, which removes dust and scratches with the infrared channel, an implementation of the pipeline @a6o documented for [openICE](https://github.com/a6o/openICE)
+- Coolscan V (LS-50), with the SA-21 and SA-30 adapters, from [#26](https://github.com/activexray/nkscan/pull/26)
+
+### Changed
+
+- A pass's colors come back as one buffer per channel, `Samples::colors`,
+  rather than one buffer with the channels interleaved into it. Nothing
+  downstream has to stride past two channels it does not want.
+- `protocol::data::Image` is `SetupImage`, distinct from
+  `protocol::decode::Image` which is what a finished pass actually is.
+- Samples are stretched to fill 16 bits once, when a pass lands, instead of
+  per sample on the way into a TIFF. A unit that scans 14 bits deep now looks
+  the same as a 16-bit one to everything after the pass, which is what lets
+  `--clean` work on either: ICE's thresholds are absolute against a 65535
+  full scale, so a 14-bit frame left alone reads as one enormous defect.
+
+### Fixed
+
+- `calibrate` returns `None` rather than a NaN when a prescan holds no clear
+  film to measure against. The NaN used to reach every downstream constant
+  and flag the whole frame as dust.
+
 ## [0.3.4]
 
 ### Changed

@@ -78,6 +78,10 @@ pub struct Scan {
     #[arg(long)]
     pub ir: bool,
 
+    /// Remove dust and scratches using the infrared channel.
+    #[arg(long)]
+    pub clean: bool,
+
     /// Don't eject at the end of the strip
     #[arg(long)]
     pub no_eject: bool,

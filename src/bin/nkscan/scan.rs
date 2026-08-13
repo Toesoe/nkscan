@@ -8,23 +8,29 @@ use crate::{cli, io};
 use anyhow::{anyhow, bail};
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
-    device,
+    device, dust,
     protocol::{
         caps::{film::FilmFormat, other::HostCooperation, set_window::ColorInterleaving},
         data::FrameTable,
         decode::Samples,
+        model::Model,
+        window::Channel,
     },
     scan::{
         autoexpose::Exposures,
         focus::Focus,
         framing::{self, Framing},
-        pass::Progress,
+        meter::Metering,
+        pass::{Pass, Progress},
         profile, thumbnail,
         window::Recipe,
     },
     session::Session,
 };
-use std::{borrow::Cow, time::Duration};
+use std::{
+    borrow::Cow,
+    time::{Duration, Instant},
+};
 use tracing::*;
 
 /// Long enough for a full resolution pass over the largest frame
@@ -48,6 +54,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         superfine,
         frames,
         ir,
+        clean,
         no_eject,
         format,
         film,
@@ -69,8 +76,8 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     // Silver grains stop infrared as they stop light, so the mask a
     // black and white negative returns is the picture again rather than
     // the dust on it
-    if film == cli::FilmType::Mono && ir {
-        bail!("--ir does not work on black and white negatives");
+    if film == cli::FilmType::Mono && (ir || clean) {
+        bail!("--ir and --clean do not work on black and white negatives");
     }
 
     // What the scans get tagged with, which follows the film type
@@ -101,7 +108,8 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         dpi: dpi.unwrap_or(session.capabilities().address.x_axis.optical_dpi),
         samples,
         interleaving: color_interleave,
-        infrared: ir,
+        // Cleaning reads the mask whether or not the operator wants it kept
+        infrared: ir || clean,
     };
     // Everything the recipe asks for is checked against the pages here, before
     // the thumbnail pass and the stage move that would otherwise come first
@@ -308,6 +316,20 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 );
             }
 
+            // Everything after the pass assumes full-scale 16-bit samples
+            io::to_full_scale(&mut samples, pass.layout.bits_per_sample);
+
+            if clean {
+                let model = session.capabilities().identity.model();
+                let started = Instant::now();
+                let removed = clean_frame(&mut samples, &pass, model)?;
+                info!(
+                    frame = n + 1,
+                    "cleaned {removed} pixels in {} ms",
+                    started.elapsed().as_millis()
+                );
+            }
+
             let written = io::write_frame(
                 &basename,
                 first + n,
@@ -315,6 +337,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 &pass,
                 icc,
                 film == cli::FilmType::Mono,
+                ir,
             )?;
             info!(
                 frame = n + 1,
@@ -347,6 +370,78 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// About how many pixels calibration wants to measure over
+const PRESCAN_PIXELS: usize = 2_500_000;
+
+/// Every `step`th pixel of a plane, which is all calibration needs
+fn decimate(plane: &[u16], cols: usize, step: usize) -> Vec<u16> {
+    let rows = plane.len() / cols;
+    let mut out = Vec::with_capacity((rows / step) * (cols / step));
+    for y in (0..rows - rows % step).step_by(step) {
+        for x in (0..cols - cols % step).step_by(step) {
+            out.push(plane[y * cols + x]);
+        }
+    }
+    out
+}
+
+/// Run dust removal over a finished pass, in place, returning how many pixels it rebuilt
+fn clean_frame(samples: &mut Samples, pass: &Pass, model: Option<Model>) -> anyhow::Result<usize> {
+    // The buffer holds the pass's color channels in the stream's own order
+    let ids: Vec<u8> = pass.layout.colors().collect();
+    let at = |want: Channel| ids.iter().position(|&id| Channel::from(id) == want);
+    let (Some(r), Some(g), Some(b)) = (at(Channel::Red), at(Channel::Green), at(Channel::Blue))
+    else {
+        bail!("--clean needs a red, green and blue plane, this pass has {ids:?}");
+    };
+
+    let model = model.map(dust::Model::from).unwrap_or_else(|| {
+        warn!("unrecognized scanner, cleaning with a default profile");
+        dust::Model::Ls9000
+    });
+    let opts = dust::Options {
+        model,
+        quality: dust::Quality::Normal,
+        dpi: pass.layout.dpi,
+        // What autoexpose::Plan hands the host meter
+        metering_target: Metering::default().target,
+    };
+
+    let Some(ir) = samples.ir.as_deref() else {
+        bail!("--clean needs the infrared pass");
+    };
+
+    // Red and infrared only: that is all calibration reads
+    let step = ((pass.rows * pass.cols) / PRESCAN_PIXELS).isqrt().max(1);
+    let small_red = decimate(&samples.colors[r], pass.cols, step);
+    let small_ir = decimate(ir, pass.cols, step);
+    let cal = dust::calibrate(&dust::Prescan {
+        red: &small_red,
+        ir: &small_ir,
+        rows: pass.rows / step,
+        cols: pass.cols / step,
+    })
+    .or_else(|| {
+        // A frame with little clear film can have none left after decimation while the full pass still has plenty
+        warn!("no clear film in the decimated prescan, calibrating off the whole frame");
+        dust::calibrate(&dust::Prescan {
+            red: &samples.colors[r],
+            ir,
+            rows: pass.rows,
+            cols: pass.cols,
+        })
+    })
+    .ok_or_else(|| anyhow!("no clear film in this frame to calibrate --clean against"))?;
+    debug!(?cal, step, "ICE calibration");
+
+    let [pr, pg, pb] = samples
+        .colors
+        .get_disjoint_mut([r, g, b])
+        .expect("three distinct color planes");
+    let count = dust::clean([pr, pg, pb], ir, &cal, pass.rows, pass.cols, &opts);
+    Ok(count)
+}
+
 /// Wait until a holder is loaded, then put the unit in a state to scan from
 fn wait_for_film(session: &mut Session, prompt: &str) -> anyhow::Result<()> {
     // An eject leaves what we know about the holder behind, so ask again before
@@ -354,8 +449,7 @@ fn wait_for_film(session: &mut Session, prompt: &str) -> anyhow::Result<()> {
     session.refresh()?;
 
     if !session.media_loaded()? {
-        // The spinner is the affordance on a terminal, and hidden anywhere
-        // else, so the log says it too
+        // The spinner is the affordance on a terminal, and hidden anywhere else, so the log says it too
         info!("{prompt}");
         let spinner = ProgressBar::new_spinner();
         spinner.set_message(format!("{prompt}. Ctrl-c to stop"));

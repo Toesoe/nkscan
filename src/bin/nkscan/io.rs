@@ -61,6 +61,9 @@ pub fn next_free(basename: &Path) -> usize {
 /// profile to XYZ, keeping Y. That is what `icc` is for on a mono write, and
 /// the file is tagged with a gray space instead. Without a profile to convert
 /// through there is nothing to weight the channels by, so it keeps green.
+///
+/// `infrared` says whether to keep the mask. Cleaning takes the IR pass for
+/// itself, so a pass can carry infrared the operator never asked to see.
 pub fn write_frame(
     basename: &Path,
     n: usize,
@@ -68,6 +71,7 @@ pub fn write_frame(
     pass: &Pass,
     icc: Option<&[u8]>,
     mono: bool,
+    infrared: bool,
 ) -> Result<Vec<PathBuf>> {
     // Positions within the color buffer, which carries only the color
     // channels of `pass.layout.channels`, in the same relative order
@@ -91,7 +95,7 @@ pub fn write_frame(
 
     let (color_path, ir_path) = paths(basename, n);
     let mut written = Vec::new();
-    let stride = color_ids.len();
+    let planes: Vec<&[u16]> = samples.colors.iter().map(Vec::as_slice).collect();
 
     // Three channels and a profile to weigh them by is the only way to make
     // luminance. Anything less falls back to the channel 2-11-3 calls the
@@ -111,60 +115,54 @@ pub fn write_frame(
     match (&luminance, fallback, color.len()) {
         (Some(luminance), _, _) => {
             let gray = mono::gray_profile()?;
-            let planes = [color[0], color[1], color[2]];
+            let source_planes = [color[0], color[1], color[2]];
             write_planes::<Gray16>(
                 &color_path,
-                &samples.color,
+                &planes,
                 pass,
-                Source::Luminance { planes, luminance },
+                Source::Luminance {
+                    planes: source_planes,
+                    luminance,
+                },
                 Some(&gray),
-                stride,
             )?
         }
-        (None, Some(gray), _) => write_planes::<Gray16>(
-            &color_path,
-            &samples.color,
-            pass,
-            Source::Planes(&[gray]),
-            None,
-            stride,
-        )?,
-        (None, None, 3) => write_planes::<RGB16>(
-            &color_path,
-            &samples.color,
-            pass,
-            Source::Planes(&color),
-            icc,
-            stride,
-        )?,
-        (None, None, 1) => write_planes::<Gray16>(
-            &color_path,
-            &samples.color,
-            pass,
-            Source::Planes(&color),
-            icc,
-            stride,
-        )?,
+        (None, Some(gray), _) => {
+            write_planes::<Gray16>(&color_path, &planes, pass, Source::Planes(&[gray]), None)?
+        }
+        (None, None, 3) => {
+            write_planes::<RGB16>(&color_path, &planes, pass, Source::Planes(&color), icc)?
+        }
+        (None, None, 1) => {
+            write_planes::<Gray16>(&color_path, &planes, pass, Source::Planes(&color), icc)?
+        }
         (None, None, n) => bail!("{n} color planes is not a TIFF this writes"),
     }
     written.push(color_path);
 
-    if let Some(ir) = &samples.ir {
+    if let Some(ir) = samples.ir.as_ref().filter(|_| infrared) {
         // The mask measures obstructions rather than color, so no profile
-        write_planes::<Gray16>(&ir_path, ir, pass, Source::Planes(&[0]), None, 1)?;
+        write_planes::<Gray16>(&ir_path, &[ir], pass, Source::Planes(&[0]), None)?;
         written.push(ir_path);
     }
 
     Ok(written)
 }
 
-/// A table stretching `bits`-deep samples to fill 16, or `None` where they
-/// already do
-///
-/// 0 stays 0 and the deepest value reaches 65535, evenly spaced between, which
-/// for 8 bits is a multiply by 257. The scaling is linear, so the samples stay
-/// linear. Without it an 8-bit scan would sit in the bottom 0.4% of the range,
-/// which is both wrong to look at and wrong to hand a profile
+/// Stretch a pass's samples to fill 16 bits, in place
+pub fn to_full_scale(samples: &mut Samples, bits: u8) {
+    let Some(table) = full_scale(bits) else {
+        return;
+    };
+    debug!(bits, "stretching samples to full scale");
+    for plane in samples.colors.iter_mut().chain(samples.ir.as_mut()) {
+        for v in plane {
+            *v = table[usize::from(*v)];
+        }
+    }
+}
+
+/// A table stretching `bits`-deep samples to fill 16, or `None` where they already do
 fn full_scale(bits: u8) -> Option<Vec<u16>> {
     if bits == 0 || bits >= 16 {
         return None;
@@ -201,15 +199,14 @@ impl Source<'_> {
 
 /// Write `source` to one file, a strip at a time
 ///
-/// `samples` interleaves `stride` channels; a TIFF holds only what is going in
-/// this file, so each strip is gathered rather than copied
+/// `planes` is one slice per channel, never interleaved; a TIFF holds only
+/// what is going in this file, so each strip is gathered rather than copied
 fn write_planes<C>(
     path: &Path,
-    samples: &[u16],
+    planes: &[&[u16]],
     pass: &Pass,
     source: Source<'_>,
     icc: Option<&[u8]>,
-    stride: usize,
 ) -> Result<()>
 where
     C: ColorType<Inner = u16>,
@@ -231,18 +228,8 @@ where
         image.encoder().write_tag(Tag::IccProfile, icc)?;
     }
 
-    // A sample carries the unit's own depth, so an 8-bit unit fills the low byte
-    // of a u16 and nothing else. TIFF has no way to say "14 bits in 16", so the
-    // samples are stretched to fill the container
-    let scale = full_scale(pass.layout.bits_per_sample);
-
-    let at = |pixel: usize, plane: usize| {
-        let raw = samples[pixel * stride + plane];
-        match &scale {
-            Some(table) => table[usize::from(raw)],
-            None => raw,
-        }
-    };
+    // Already full scale: `to_full_scale` stretched the buffer after the pass
+    let at = |pixel: usize, plane: usize| planes[plane][pixel];
 
     let per_pixel = source.per_pixel();
     let mut strip = Vec::new();
