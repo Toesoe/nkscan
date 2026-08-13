@@ -11,6 +11,8 @@
 /// A film format, keyed by its frame height in millimetres
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilmFormat {
+    // APS
+    IX240,
     /// 135 film (35mm), 24 × 36 mm
     F135,
     /// 16mm film, 16 × 20 mm (FH-816)
@@ -33,6 +35,7 @@ impl FilmFormat {
     /// Frame height along the feed, in mm
     pub const fn height_mm(self) -> u32 {
         match self {
+            Self::IX240 => 24,
             Self::F135 => 36,
             Self::F16 => 20,
             Self::F645 => 45,
@@ -79,6 +82,16 @@ impl FilmFormat {
             0x16 => Some(&[Self::F66, Self::F67, Self::F69]), // FH-869M
             0x17 => Some(&[Self::F66, Self::F67, Self::F69]), // FH-869S
             0x18 => Some(&[Self::F66, Self::F67, Self::F69]), // FH-869G
+            _ => None,
+        }
+    }
+
+    /// Same as holder ID, but for LS-4x and LS-5x adapters
+    pub fn from_adapter(adapter_id: u8) -> Option<Self> {
+        match adapter_id {
+            0x31 => Some(Self::F135),  // SA-21/SA-30
+            0x35 => Some(Self::IX240), // IA-20
+            0x32 => Some(Self::F135),  // SF-210
             _ => None,
         }
     }

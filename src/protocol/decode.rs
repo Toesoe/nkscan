@@ -749,6 +749,8 @@ mod transposed {
             ccd_lines: 3,
             registration_gap: gap,
             granule: 1,
+            truncated_bytes_line: (0, 0),
+            truncated_lines_frame: (0, 0),
         }
     }
 
@@ -866,6 +868,8 @@ mod transposed {
             ccd_lines: 1,
             registration_gap: 1,
             granule: 1,
+            truncated_bytes_line: (0, 0),
+            truncated_lines_frame: (0, 0),
         }
     }
 

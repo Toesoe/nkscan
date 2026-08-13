@@ -21,8 +21,9 @@ use crate::{
             Abort, ModeSelect, ModeSense, PageControl, ReleaseUnit, ReserveUnit, TestUnitReady,
         },
         curves::Curves,
-        data::{Boundary, CooperativeAction, Op, Operation},
+        data::{CooperativeAction, FrameTable, Op, Operation},
         mode,
+        model::Model,
         sense::{Activity, Change, Coop, Fault, Intervention, Outcome, Refusal, interpret},
     },
     transport::{self, Completion, Data, Transport},
@@ -41,7 +42,8 @@ pub struct Session {
     /// What a step of a window coordinate is currently worth
     divisor: u16,
     /// The frame table that windowing uses
-    frames: Option<Boundary>,
+    frames: Option<FrameTable>,
+    frame_type_2: bool,
     /// CCD row response curves, read once in the preamble
     curves: Option<Arc<Curves>>,
     /// Whether we hold the unit, so [`Drop`] only releases what it took
@@ -89,12 +91,14 @@ impl Session {
     pub fn open(mut transport: Box<dyn Transport>) -> Result<Self, Error> {
         let caps = probe::capabilities(transport.as_mut())?;
         let divisor = caps.address.x_axis.dpi_range.last;
+        let frame_type_2 = !matches!(caps.identity.model(), Some(Model::Ls8000 | Model::Ls9000));
         let mut session = Self {
             transport,
             caps,
             divisor,
             reserved: false,
             frames: None,
+            frame_type_2,
             curves: None,
         };
         // INQUIRY answers while the unit is still initializing, so probing says
@@ -255,6 +259,11 @@ impl Session {
         &self.caps
     }
 
+    /// Whether we use Framing Type2 or not
+    pub fn uses_frame_type_2(&self) -> bool {
+        self.frame_type_2
+    }
+
     /// Re-read what the scanner says it can do
     ///
     /// Needed after anything that changes the adapter or holder, since several
@@ -343,12 +352,12 @@ impl Session {
         cdb: &[u8],
         mut data: Data<'_>,
         timeout: Duration,
-    ) -> Result<(Completion, Option<CooperativeAction>), Error> {
+    ) -> Result<(Completion, Vec<CooperativeAction>), Error> {
         // One budget for the command, re-issues included, rather than one each:
         // a fresh timeout per round would let 16 cooperative requests run for 16
         // times what the caller allowed
         let deadline = Instant::now() + timeout;
-        let mut cooperation = None;
+        let mut cooperations = Vec::new();
         let mut asked: Vec<(Coop, CooperativeAction)> = Vec::new();
         for _ in 0..=MAX_COOPERATION {
             // `Data::In` holds a `&mut [u8]` and so is not `Copy`. Reborrowing
@@ -360,7 +369,7 @@ impl Session {
             };
             let (completion, coop) = self.run_cooperative(cdb, payload, deadline, timeout)?;
             let Some(coop) = coop else {
-                return Ok((completion, cooperation));
+                return Ok((completion, cooperations));
             };
 
             // Dispatch on the record rather than the sense: the two specs give
@@ -382,7 +391,7 @@ impl Session {
                 });
             }
             asked.push((coop, record.clone()));
-            cooperation = Some(record);
+            cooperations.push(record);
         }
 
         Err(Error::Unsupported {

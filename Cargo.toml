@@ -14,6 +14,8 @@ thiserror = "2"
 bitflags = "2"
 nusb = "0.2"
 tracing = "0.1"
+anyhow = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Python library dependencies
 #
@@ -30,25 +32,14 @@ pyo3-stub-gen = { version = "0.23", optional = true, default-features = false, f
 ] }
 
 # The CLI stack, which a library consumer has no use for
-tracing-subscriber = { version = "0.3", features = [
-  "env-filter",
-], optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
-anyhow = { version = "1", optional = true }
 indicatif = { version = "0.18", optional = true }
 tiff = { version = "0.11", optional = true }
 moxcms = { version = "0.9", optional = true }
 
 
 [features]
-cli = [
-  "dep:tracing-subscriber",
-  "dep:clap",
-  "dep:anyhow",
-  "dep:indicatif",
-  "dep:tiff",
-  "dep:moxcms",
-]
+cli = ["dep:clap", "dep:indicatif", "dep:tiff", "dep:moxcms"]
 python = ["dep:pyo3", "dep:numpy", "dep:pyo3-stub-gen"]
 
 [lib]

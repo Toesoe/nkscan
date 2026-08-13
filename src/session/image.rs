@@ -27,15 +27,30 @@ impl Session {
         let chunk = self.chunk_size(layout)?;
         let code = DataType::Image.row().code;
         let width = layout.width_code();
+        let len = buf.as_mut().len();
 
         let mut done = 0;
         while done < buf.len() {
             let want = chunk.min(buf.len() - done);
+
             let cmd = Read::new(code, 0, width, want as u32);
             let slice = &mut buf[done..done + want];
 
+            debug!(
+                cdb = ?cmd.cdb(),
+                want,
+                done,
+                left = len - done,
+                "executing image READ"
+            );
+
             match self.run(&cmd.cdb(), Data::In(slice), MOVE_TIMEOUT) {
                 Ok(completion) => {
+                    debug!(
+                        transferred = completion.transferred,
+                        want, "image READ completed"
+                    );
+
                     done += completion.transferred;
                     if completion.transferred < want {
                         break;
@@ -46,6 +61,7 @@ impl Session {
                 Err(Error::Device(fault))
                     if matches!(*fault, Fault::Rejected(Refusal::OutOfSequence, _)) =>
                 {
+                    debug!(done, "end of stream reached");
                     break;
                 }
                 // 2-11: a transfer shorter than asked for comes back as CHECK
@@ -59,7 +75,10 @@ impl Session {
                     }
                     None => return Err(Error::Device(fault)),
                 },
-                Err(e) => return Err(e),
+                Err(e) => {
+                    debug!(error = ?e, "image READ failed");
+                    return Err(e);
+                }
             }
         }
         // Once a chunk, so hundreds of megabytes of scan is thousands of lines
@@ -164,6 +183,12 @@ impl Chunks<'_> {
         let want = self.chunk.min(self.remaining as usize);
         buf.resize(want, 0);
         let layout = &self.layout;
+
+        debug!(
+            remaining = self.remaining,
+            buf_len = buf.len(),
+            "issuing image READ from fill"
+        );
         match self.session.read_image(layout, &mut buf[..want]) {
             Err(e) => {
                 self.spent = true;
@@ -174,7 +199,13 @@ impl Chunks<'_> {
                 None
             }
             Ok(got) => {
-                self.remaining -= got as u64;
+                let rem = self.remaining as i64 - got as i64;
+
+                if rem < 0 {
+                    self.remaining = 0;
+                } else {
+                    self.remaining = rem as u64;
+                }
                 // The unit ran out before the layout said it would
                 if got < want {
                     self.spent = true;

@@ -31,6 +31,73 @@ enum Chunk {
     Failed(Error),
 }
 
+struct TruncationState {
+    line: usize,
+    offset_in_line: usize,
+}
+
+impl TruncationState {
+    fn new() -> Self {
+        Self {
+            line: 0,
+            offset_in_line: 0,
+        }
+    }
+}
+
+fn strip_truncation(buf: &mut Vec<u8>, state: &mut TruncationState, layout: &Layout) {
+    let line_bytes = layout.bytes_per_line() as usize;
+    let (first_bytes, last_bytes) = layout.truncated_bytes_line;
+    let first_bytes = first_bytes as usize;
+    let last_bytes = last_bytes as usize;
+
+    let total_lines = layout.lines as usize;
+    let first_line = layout.truncated_lines_frame.0 as usize;
+    let last_line = total_lines - layout.truncated_lines_frame.1 as usize;
+
+    let mut read = 0;
+    let mut write = 0;
+
+    while read < buf.len() {
+        let remaining_in_line = line_bytes - state.offset_in_line;
+        let n = remaining_in_line.min(buf.len() - read);
+
+        let line = state.line;
+
+        // Is this line part of the actual image?
+        if line >= first_line && line < last_line {
+            let line_start = state.offset_in_line;
+            let line_end = state.offset_in_line + n;
+
+            // Keep only the intersection with:
+            //
+            //     [first_bytes, line_bytes - last_bytes)
+            //
+            let keep_start = line_start.max(first_bytes);
+            let keep_end = line_end.min(line_bytes - last_bytes);
+
+            if keep_start < keep_end {
+                let src_start = read + (keep_start - line_start);
+                let src_end = read + (keep_end - line_start);
+                let len = src_end - src_start;
+
+                buf.copy_within(src_start..src_end, write);
+                write += len;
+            }
+        }
+
+        read += n;
+        state.offset_in_line += n;
+
+        if state.offset_in_line == line_bytes {
+            state.offset_in_line = 0;
+            state.line += 1;
+        }
+    }
+
+    buf.truncate(write);
+}
+
 impl Session {
     /// Stage the windows and start a scan pass, returning once the data is ready
     ///
@@ -83,7 +150,9 @@ impl Session {
     ) -> Result<Pass, Error> {
         let started = self.start_pass(windows, timeout)?;
         let layout = started.layout.clone();
+
         let total = layout.total_bytes();
+
         let curves = self.curves();
         let mut decoder = pass::decoder(&layout, curves.as_deref())?;
         samples.resize_for(&decoder);
@@ -91,21 +160,24 @@ impl Session {
         let timing = Timing::default();
         let mut decoding = Duration::ZERO;
         let mut idle = Duration::ZERO;
+        let mut truncation = TruncationState::new();
+        let reader_layout = layout.clone();
 
         thread::scope(|scope| {
             let (full_tx, full_rx) = mpsc::channel::<Chunk>();
             let (empty_tx, empty_rx) = mpsc::channel::<Vec<u8>>();
             let timing = &timing;
-            scope.spawn(move || read_chunks(self, &layout, &full_tx, &empty_rx, timing));
+            scope.spawn(move || read_chunks(self, &reader_layout, &full_tx, &empty_rx, timing));
 
             let mut out = Ok(());
             let mut bytes = 0u64;
+
             loop {
                 let waited = Instant::now();
                 let msg = full_rx.recv();
                 idle += waited.elapsed();
 
-                let chunk = match msg {
+                let mut chunk = match msg {
                     Ok(Chunk::Data(buf)) => buf,
                     Ok(Chunk::End) | Err(_) => break,
                     Ok(Chunk::Failed(e)) => {
@@ -114,11 +186,14 @@ impl Session {
                     }
                 };
 
+                bytes += chunk.len() as u64;
+
+                strip_truncation(&mut chunk, &mut truncation, &layout);
+
                 let pushed = Instant::now();
                 let decoded = decoder.push(&chunk, samples);
                 decoding += pushed.elapsed();
 
-                bytes += chunk.len() as u64;
                 let _ = empty_tx.send(chunk);
                 if let Err(e) = decoded {
                     out = Err(e);
@@ -149,7 +224,7 @@ impl Session {
         let (rows, cols) = decoder.shape();
         Ok(Pass {
             layout: started.layout,
-            cooperation: started.cooperation,
+            cooperation: started.cooperations,
             complete: decoder.complete(),
             rows,
             cols,
@@ -240,7 +315,10 @@ fn read_chunks(
             None => {
                 let waited = Instant::now();
                 let buf = match empty.recv() {
-                    Ok(buf) => buf,
+                    Ok(buf) => {
+                        debug!("got empty buffer");
+                        buf
+                    }
                     Err(_) => return,
                 };
                 Timing::add(&timing.starved, waited.elapsed().as_nanos() as u64);

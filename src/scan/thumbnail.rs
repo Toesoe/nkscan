@@ -20,9 +20,10 @@ use crate::{
             Capabilities,
             set_window::{ColorInterleaving, ScanKind, ScanMode},
         },
-        data::{Boundary, Rect},
+        data::{Boundary, BoundaryType2, FramePosition, PerfInformation, Rect},
         decode::{Image, Samples},
-        window::Window,
+        model::Model,
+        window::{Flags, Window},
     },
 };
 use tracing::*;
@@ -86,6 +87,58 @@ pub fn frames(
     Ok(Boundary { frames })
 }
 
+pub fn frames_type2(
+    caps: &Capabilities,
+    pass: &Pass,
+    samples: &Samples,
+    perf_info: &PerfInformation,
+    length: u32,
+    polarity: Option<Polarity>,
+) -> Result<BoundaryType2, Error> {
+    // The window that scans a frame has to be whole readout blocks.
+    let length = window::whole_blocks(caps, length);
+    framing::reachable(caps, length)?;
+
+    let image = Image::new(&pass.layout, samples)?;
+
+    // A thumbnail column is one line pitch of film, and the pass starts
+    // where the Y axis does, so a column is an address.
+    let pitch = pass.layout.line_pitch.max(1);
+    let origin = caps.address.y_axis.address_range.start;
+    let end = caps.address.y_axis.address_range.last;
+
+    let found = boundaries::detect(&image, (length / pitch) as usize, polarity);
+
+    // genereate FramePosition table using detected frame boundaries + perforation data table
+    let frames: Vec<FramePosition> = found
+        .frames
+        .iter()
+        .filter_map(|frame| {
+            let top = origin + frame.col as u32 * pitch;
+
+            if top + length <= end {
+                FramePosition::new(
+                    caps.address.x_axis.optical_dpi,
+                    caps.address.thumbnail_resolution.start,
+                    frame.col as u32,
+                    perf_info,
+                )
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    info!(
+        frames = frames.len(),
+        polarity = ?found.polarity,
+        pitch = found.pitch as u32 * pitch,
+        "measured the loaded strip"
+    );
+
+    Ok(BoundaryType2 { frames })
+}
+
 /// Where the adapter's opening sits on the sensor, and how wide it is
 ///
 /// The first published image is the opening: a frame narrower than that is a
@@ -115,6 +168,17 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         )));
     }
 
+    let flags = match caps.identity.model() {
+        Some(Model::Ls8000 | Model::Ls9000) => Flags::empty(),
+        Some(_) => Flags::POSITIVE | Flags::AVERAGING,
+        None => {
+            return Err(Error::Unsupported {
+                op: "thumbnail window",
+                reason: "unrecognized model".into(),
+            });
+        }
+    };
+
     let (left, width) = opening(caps);
     let mut windows = window::blank(caps, &window::color_channels(caps))?;
     for w in &mut windows {
@@ -128,6 +192,7 @@ pub(crate) fn windows(caps: &Capabilities) -> Result<Vec<Window>, Error> {
         w.size = (width, y.address_range.last);
         w.scanning_kind = ScanKind::THUMBNAIL;
         w.scanning_mode = ScanMode::NORMAL_QUALITY;
+        w.flags = flags;
         w.color_interleaving = ColorInterleaving::LINE_WITHOUT_DISTANCE;
     }
     Ok(windows)

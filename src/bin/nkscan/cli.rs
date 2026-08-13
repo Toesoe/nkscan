@@ -127,6 +127,7 @@ pub fn parse_log_level(flag: &str) -> Result<LevelFilter, String> {
 /// is what a format nobody named still needs
 pub fn parse_format(flag: &str) -> Result<FilmFormat, String> {
     Ok(match flag {
+        "IX240" => FilmFormat::IX240,
         "135" => FilmFormat::F135,
         "16" => FilmFormat::F16,
         "645" => FilmFormat::F645,
@@ -144,6 +145,7 @@ pub fn parse_format(flag: &str) -> Result<FilmFormat, String> {
 /// What `parse_format` would take for this format, for saying what is on offer
 pub fn format_name(format: &FilmFormat) -> String {
     match format {
+        FilmFormat::IX240 => "24".into(),
         FilmFormat::F135 => "135".into(),
         FilmFormat::F16 => "16".into(),
         FilmFormat::F645 => "645".into(),
