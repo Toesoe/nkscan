@@ -27,7 +27,10 @@ use nkscan::{
     },
     session::Session,
 };
-use std::{borrow::Cow, time::Duration};
+use std::{
+    borrow::Cow,
+    time::{Duration, Instant},
+};
 use tracing::*;
 
 /// Long enough for a full resolution pass over the largest frame
@@ -318,8 +321,13 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
 
             if clean {
                 let model = session.capabilities().identity.model();
+                let started = Instant::now();
                 let removed = clean_frame(&mut samples, &pass, model)?;
-                info!(frame = n + 1, "cleaned {removed} pixels");
+                info!(
+                    frame = n + 1,
+                    "cleaned {removed} pixels in {} ms",
+                    started.elapsed().as_millis()
+                );
             }
 
             let written = io::write_frame(
