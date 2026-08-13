@@ -329,6 +329,8 @@ impl FramePosition {
 
     /// construct a FramePosition entry from detected y_start, as pixel location on the thumb strip
     /// all other values are inferred using data read from 8Eh PerforationInformation
+    /// the only valid positions on a strip are locations returned from 8Eh so we need to find the closest match
+    /// in the table of returned positions, then use that as an index for the scanner's boundary information data
     pub fn new(
         dpi_device: u16,
         dpi_thumb: u16,
@@ -507,7 +509,7 @@ impl PerfInformation {
     }
 
     /// find nearest perf match corresponding to an image address
-    /// there's ~19 addresses per perf leading to a granularity of ~0.25mm (4.75mm perf pitch)
+    /// there's ~19 addresses per perf leading to a granularity of ~0.25mm with 35mm film (4.75mm perf pitch)
     pub fn nearest(&self, addr: u32) -> Option<&PerforationInformation> {
         self.perfs
             .iter()
