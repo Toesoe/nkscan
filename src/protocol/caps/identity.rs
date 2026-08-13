@@ -36,6 +36,10 @@ impl Identity {
         Model::from_product(&self.product)
     }
 
+    pub fn is_mf_scanner(&self) -> bool {
+        matches!(Model::from_product(&self.product).unwrap().into(), Some(Model::Ls8000 | Model::Ls9000))
+    }
+
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() < Self::LENGTH {
             return Err(Error::Truncated {
@@ -60,6 +64,7 @@ impl Identity {
     pub fn is_scanner(&self) -> bool {
         self.qualifier == 0 && self.device_type == SCANNER
     }
+
 }
 
 /// The identification fields are space-padded ASCII

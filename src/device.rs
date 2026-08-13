@@ -92,10 +92,6 @@ impl Device {
             )),
         }
     }
-
-    pub fn is_mf_scanner(&self) -> bool {
-        matches!(self.model, Some(Model::Ls8000 | Model::Ls9000))
-    }
 }
 
 impl fmt::Display for Device {
