@@ -97,6 +97,11 @@ impl UsbTransport {
     }
 
     /// Read bytes from the Bulk In endpoint, filling out and returning the number of bytes read
+    ///
+    /// The request is rounded up to whole packets, so the unit can answer with
+    /// more than `out` holds. Those bytes are off the wire and there is nowhere
+    /// to put them: whatever is read next starts mid-answer, so this ends the
+    /// transport rather than dropping them and carrying on
     fn read_in(&mut self, out: &mut [u8], timeout: Duration) -> Result<usize, Error> {
         // We need to request a whole-number of self.in_max_packet-sized chunks
         let req = out.len().max(1).div_ceil(self.in_max_packet) * self.in_max_packet;
@@ -105,17 +110,19 @@ impl UsbTransport {
             .transfer_blocking(Buffer::new(req), timeout)
             .into_result()
             .map_err(|e| transfer_err(e, timeout))?;
-        let n = buf.len().min(out.len());
-        // this would be weird huh
         if buf.len() > out.len() {
-            warn!(
-                got = buf.len(),
-                want = out.len(),
-                "device sent more than requested"
-            );
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "device sent {} bytes for a {}-byte read, so the stream is out of step",
+                    buf.len(),
+                    out.len()
+                ),
+            )
+            .into());
         }
-        out[..n].copy_from_slice(&buf[..n]);
-        Ok(n)
+        out[..buf.len()].copy_from_slice(&buf);
+        Ok(buf.len())
     }
 }
 

@@ -12,7 +12,6 @@ use crate::{
             set_window::{ColorInterleaving, ScanKind},
         },
         data::{Truncation, width_code},
-        model::Model,
         window::{Channel, Window, validate_set},
     },
 };
@@ -129,20 +128,34 @@ fn pitches(caps: &Capabilities, window: &Window) -> Result<(u32, u32), Error> {
 ///
 /// Bit 1 makes it a line across every color, bit 2 one line. Neither set means
 /// the unit constrains nothing, so any length will do
-fn read_granule(caps: &Capabilities, line: usize, channels: usize) -> usize {
-    if caps.identity.model() == Some(Model::Ls50) {
-        return 1024;
-    }
-
+///
+/// A line is what the unit puts on the wire, so it counts the bytes 2-11-5-3
+/// attaches to each one. A length that ends mid-line is rounded up to the next
+/// whole one and the surplus arrives regardless, out of step with the phase
+/// protocol
+fn read_granule(caps: &Capabilities, layout: &Layout, truncated: Option<&Truncation>) -> usize {
     let transfer = caps.address.transfer;
+    let whole_line = (layout.bytes_per_line() as usize).max(1);
 
     if transfer.contains(Transfer::READ_LINE_COLS) {
-        (line * channels).max(1)
-    } else if transfer.contains(Transfer::READ_LINE) {
-        line.max(1)
-    } else {
-        1
+        return whole_line;
     }
+    if !transfer.contains(Transfer::READ_LINE) {
+        return 1;
+    }
+
+    // What is attached across all colors sits at the ends of the whole line, so
+    // once there is any, one color's line is not a unit the stream repeats
+    let (per_color, all_colors) = truncated.map_or((0, 0), |t| {
+        (
+            usize::from(t.per_color.first) + usize::from(t.per_color.last),
+            usize::from(t.all_colors.first) + usize::from(t.all_colors.last),
+        )
+    });
+    if all_colors > 0 {
+        return whole_line;
+    }
+    (layout.pixels as usize * usize::from(layout.bytes_per_sample) + per_color).max(1)
 }
 
 impl Layout {
@@ -186,8 +199,6 @@ impl Layout {
         }
 
         let channels: Vec<u8> = windows.iter().map(|w| w.id).collect();
-        let line = pixels as usize * usize::from(bytes_per_sample);
-        let granule = read_granule(caps, line, channels.len());
 
         let mut truncated_bytes_line = (0, 0);
         let mut truncated_lines_frame = (0, 0);
@@ -201,7 +212,7 @@ impl Layout {
             truncated_lines_frame = (u32::from(t.lines.first), u32::from(t.lines.last));
         }
 
-        Ok(Self {
+        let mut layout = Self {
             pixels,
             lines,
             pitch,
@@ -217,10 +228,14 @@ impl Layout {
             // The gap is along the feed, so it divides by the feed's pitch. The
             // two pitches are equal except in a preview, which halves only Y
             registration_gap: u32::from(caps.address.line_gap) / line_pitch,
-            granule,
+            // Measured off the line the rest of these describe
+            granule: 1,
             truncated_bytes_line,
             truncated_lines_frame,
-        })
+        };
+        layout.granule = read_granule(caps, &layout, truncated_by_driver);
+
+        Ok(layout)
     }
 
     /// The data type qualifier's low byte for this sample width, per 2-11-4
@@ -280,6 +295,7 @@ mod tests {
             other::Features,
             set_window::SetWindowFunction,
         },
+        data::{Edges, Position},
         window::{Composition, LENGTH},
     };
 
@@ -470,6 +486,61 @@ mod tests {
         assert_eq!(granule(0x01), 1);
         assert_eq!(granule(0x03), line * 3);
         assert_eq!(granule(0x05), line);
+    }
+
+    /// The thumbnail pass of an LS-5000: 96 pixels of three 16-bit colors with
+    /// 448 bytes attached to the end of every line, so 1024 bytes go over the
+    /// wire for each of them. A granule of the valid 576 puts the end of a
+    /// 128 KiB READ 320 bytes into a line, and the unit answers the whole one
+    #[test]
+    fn the_read_granule_counts_the_bytes_the_unit_attaches_to_a_line() {
+        let truncation = Truncation {
+            position: Position::ALL_LAST,
+            all_colors: Edges {
+                first: 0,
+                last: 448,
+            },
+            ..Default::default()
+        };
+        // 96 pixels at a pitch of 48, which is what 83 dpi thumbnails at
+        let mut windows = rgb(83, (4608, 292992));
+        for w in &mut windows {
+            w.scanning_kind = ScanKind::THUMBNAIL;
+        }
+
+        let l = Layout::new(&caps(0x03, 12, 3), &windows, 4000, Some(&truncation)).unwrap();
+
+        assert_eq!(l.pixels, 96);
+        assert_eq!(l.bytes_per_line(), 1024);
+        assert_eq!(l.granule, 1024);
+        // What `Session::chunk_size` will make of it, against a 128 KiB transport
+        assert_eq!(128 * 1024 / l.granule * l.granule, 131072);
+    }
+
+    /// One color's line is not a unit the stream repeats once anything is
+    /// attached across all of them
+    #[test]
+    fn a_single_line_granule_gives_way_to_the_whole_line() {
+        let windows = rgb(4000, (10000, 13860));
+        let granule = |t: &Truncation| {
+            Layout::new(&caps(0x05, 1, 2), &windows, 4000, Some(t))
+                .unwrap()
+                .granule
+        };
+
+        let per_color = Truncation {
+            position: Position::COLOR_LAST,
+            per_color: Edges { first: 0, last: 16 },
+            ..Default::default()
+        };
+        assert_eq!(granule(&per_color), 10000 * 2 + 16);
+
+        let all_colors = Truncation {
+            position: Position::ALL_LAST,
+            all_colors: Edges { first: 0, last: 16 },
+            ..Default::default()
+        };
+        assert_eq!(granule(&all_colors), 10000 * 2 * 3 + 16);
     }
 
     #[test]

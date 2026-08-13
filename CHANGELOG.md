@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1]
+
+### Fixed
+
+- An image READ asks for whole lines as the unit transfers them, which counts
+  the bytes 2-11-5-3 attaches to each line. A length ending mid-line was rounded
+  up to the next whole one by the unit, and the extra bytes were read as the
+  status that follows, ending the scan a timeout later on an invalid phase byte.
+- A bulk read that returns more bytes than were asked for is an error rather
+  than a warning and a truncation. The extra bytes have already been taken from
+  the endpoint, so the next read starts partway through the unit's answer.
+
 ## [0.4.0]
 
 ### Added
