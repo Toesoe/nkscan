@@ -812,7 +812,7 @@ pub fn reconstruct_core(
 
 // ----- the rest of the owl
 
-/// Remove dust from a frame like magic
+/// Remove dust from a frame like magic, returning how many pixels it rebuilt
 pub fn clean(
     color: [&mut [u16]; 3],
     ir: &[u16],
@@ -820,11 +820,11 @@ pub fn clean(
     rows: usize,
     cols: usize,
     opts: &Options,
-) {
+) -> usize {
     // 2. IR calibration terms from the prescan
     let Some(cal) = calibrate(prescan) else {
         tracing::warn!("no clear film in the prescan, leaving the frame as scanned");
-        return;
+        return 0;
     };
     let p = Params::new(opts, &cal);
     let [red, green, blue] = color;
@@ -849,4 +849,5 @@ pub fn clean(
             *out = if p.clamp_l3 { v.max(*out) } else { v };
         }
     }
+    patch.at.len()
 }

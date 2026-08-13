@@ -61,6 +61,9 @@ pub fn next_free(basename: &Path) -> usize {
 /// profile to XYZ, keeping Y. That is what `icc` is for on a mono write, and
 /// the file is tagged with a gray space instead. Without a profile to convert
 /// through there is nothing to weight the channels by, so it keeps green.
+///
+/// `infrared` says whether to keep the mask. Cleaning takes the IR pass for
+/// itself, so a pass can carry infrared the operator never asked to see.
 pub fn write_frame(
     basename: &Path,
     n: usize,
@@ -68,6 +71,7 @@ pub fn write_frame(
     pass: &Pass,
     icc: Option<&[u8]>,
     mono: bool,
+    infrared: bool,
 ) -> Result<Vec<PathBuf>> {
     // Positions within the color buffer, which carries only the color
     // channels of `pass.layout.channels`, in the same relative order
@@ -136,7 +140,7 @@ pub fn write_frame(
     }
     written.push(color_path);
 
-    if let Some(ir) = &samples.ir {
+    if let Some(ir) = samples.ir.as_ref().filter(|_| infrared) {
         // The mask measures obstructions rather than color, so no profile
         write_planes::<Gray16>(&ir_path, &[ir], pass, Source::Planes(&[0]), None)?;
         written.push(ir_path);

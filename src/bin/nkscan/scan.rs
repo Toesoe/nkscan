@@ -8,17 +8,20 @@ use crate::{cli, io};
 use anyhow::{anyhow, bail};
 use indicatif::{ProgressBar, ProgressStyle};
 use nkscan::{
-    device,
+    device, dust,
     protocol::{
         caps::{film::FilmFormat, other::HostCooperation, set_window::ColorInterleaving},
         data::FrameTable,
-        decode::Samples,
+        decode::{Image, Samples},
+        model::Model,
+        window::Channel,
     },
     scan::{
         autoexpose::Exposures,
         focus::Focus,
         framing::{self, Framing},
-        pass::Progress,
+        meter::Metering,
+        pass::{Pass, Progress},
         profile, thumbnail,
         window::Recipe,
     },
@@ -48,6 +51,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         superfine,
         frames,
         ir,
+        clean,
         no_eject,
         format,
         film,
@@ -69,8 +73,8 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
     // Silver grains stop infrared as they stop light, so the mask a
     // black and white negative returns is the picture again rather than
     // the dust on it
-    if film == cli::FilmType::Mono && ir {
-        bail!("--ir does not work on black and white negatives");
+    if film == cli::FilmType::Mono && (ir || clean) {
+        bail!("--ir and --clean do not work on black and white negatives");
     }
 
     // What the scans get tagged with, which follows the film type
@@ -101,7 +105,8 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         dpi: dpi.unwrap_or(session.capabilities().address.x_axis.optical_dpi),
         samples,
         interleaving: color_interleave,
-        infrared: ir,
+        // Cleaning reads the mask whether or not the operator wants it kept
+        infrared: ir || clean,
     };
     // Everything the recipe asks for is checked against the pages here, before
     // the thumbnail pass and the stage move that would otherwise come first
@@ -308,6 +313,12 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 );
             }
 
+            if clean {
+                let model = session.capabilities().identity.model();
+                let removed = clean_frame(&mut samples, &pass, model)?;
+                info!(frame = n + 1, "cleaned {removed} pixels");
+            }
+
             let written = io::write_frame(
                 &basename,
                 first + n,
@@ -315,6 +326,7 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
                 &pass,
                 icc,
                 film == cli::FilmType::Mono,
+                ir,
             )?;
             info!(
                 frame = n + 1,
@@ -345,6 +357,85 @@ pub fn run(args: cli::Scan) -> anyhow::Result<()> {
         wait_for_film(&mut session, "Load the next strip")?;
     }
     Ok(())
+}
+
+/// Roughly how wide a calibration prescan wants to be
+const PRESCAN_WIDTH: usize = 1500;
+
+/// Every `step`th pixel of a plane, which is all calibration needs
+fn decimate(plane: &[u16], cols: usize, step: usize) -> Vec<u16> {
+    let rows = plane.len() / cols;
+    let mut out = Vec::with_capacity((rows / step) * (cols / step));
+    for y in (0..rows - rows % step).step_by(step) {
+        for x in (0..cols - cols % step).step_by(step) {
+            out.push(plane[y * cols + x]);
+        }
+    }
+    out
+}
+
+/// Run ICE over a finished pass, in place, returning how many pixels it rebuilt
+///
+/// Calibration wants a low-resolution view of the same frame. The AE prescan is
+/// gone by this point and --lock-ae skips metering altogether on later frames,
+/// so this decimates the pass itself. The two scalars it measures do not need
+/// full resolution, and at full resolution calibration costs more than the rest
+/// of the pipeline put together
+fn clean_frame(samples: &mut Samples, pass: &Pass, model: Option<Model>) -> anyhow::Result<usize> {
+    let bits = pass.layout.bits_per_sample;
+    if bits != 16 {
+        bail!(
+            "--clean needs full-scale 16-bit samples; this pass is {bits}-bit, \
+             whose values sit too low for ICE's thresholds to mean anything"
+        );
+    }
+
+    // The buffer holds the pass's color channels in the stream's own order.
+    // ICE is not order-blind: the gate takes plane 0 as red, and the detail
+    // coefficients and dither amplitudes are per channel
+    let ids: Vec<u8> = pass.layout.colors().collect();
+    let at = |want: Channel| ids.iter().position(|&id| Channel::from(id) == want);
+    let (Some(r), Some(g), Some(b)) = (at(Channel::Red), at(Channel::Green), at(Channel::Blue))
+    else {
+        bail!("--clean needs a red, green and blue plane, this pass has {ids:?}");
+    };
+
+    let model = model.map(dust::Model::from).unwrap_or_else(|| {
+        // pipeline.md calls kind 8 the program default, so it is the one to
+        // fall back on rather than guessing from the format
+        warn!("unrecognized scanner, cleaning with ICE's own default profile");
+        dust::Model::Ls5000
+    });
+    let opts = dust::Options {
+        model,
+        quality: dust::Quality::Normal,
+        dpi: pass.layout.dpi,
+        // What autoexpose::Plan hands the host meter
+        metering_target: Metering::default().target,
+    };
+
+    let step = (pass.cols.max(pass.rows) / PRESCAN_WIDTH).max(1);
+    let small: Vec<Vec<u16>> = [r, g, b]
+        .map(|i| decimate(&samples.colors[i], pass.cols, step))
+        .into();
+    let Some(ir) = samples.ir.as_deref() else {
+        bail!("--clean needs the infrared pass");
+    };
+    let small_ir = decimate(ir, pass.cols, step);
+    let prescan = Image {
+        colors: small.iter().map(Vec::as_slice).collect(),
+        ir: &small_ir,
+        rows: pass.rows / step,
+        cols: pass.cols / step,
+        bits,
+    };
+
+    let [pr, pg, pb] = samples
+        .colors
+        .get_disjoint_mut([r, g, b])
+        .expect("three distinct color planes");
+    let count = dust::clean([pr, pg, pb], ir, &prescan, pass.rows, pass.cols, &opts);
+    Ok(count)
 }
 
 /// Wait until a holder is loaded, then put the unit in a state to scan from
