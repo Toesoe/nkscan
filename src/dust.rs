@@ -53,6 +53,26 @@ pub enum Model {
     Ls50,
 }
 
+/// Every unit we know of onto the three kinds ICE ships.
+///
+/// Not the same grouping as [`crate::scan::profile`]'s `Family`, which pairs
+/// the LS-50 with the LS-5000 because their color measurements are identical.
+/// ICE gives the LS-50 its own coefficient table, so here they are apart.
+///
+/// Only the LS-9000, LS-5000 and LS-50 are in pipeline.md. The other three
+/// are put with the sibling they share a generation and a sensor format with,
+/// which is a guess, not something the document says
+impl From<crate::protocol::model::Model> for Model {
+    fn from(model: crate::protocol::model::Model) -> Self {
+        use crate::protocol::model::Model as Unit;
+        match model {
+            Unit::Ls9000 | Unit::Ls8000 => Self::Ls9000,
+            Unit::Ls5000 | Unit::Ls4000 => Self::Ls5000,
+            Unit::Ls50 | Unit::Ls40 => Self::Ls50,
+        }
+    }
+}
+
 /// Nikon Scan's two ICE settings
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Quality {

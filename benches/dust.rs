@@ -19,10 +19,21 @@ fn plane(n: usize) -> Vec<u16> {
     (0..n).map(|i| (i % 65536) as u16).collect()
 }
 
+/// What the fixtures are: an LS-9000 frame at 4000 DPI, metered where this
+/// crate's AE puts it
+fn options() -> Options {
+    Options {
+        model: dust::Model::Ls9000,
+        quality: dust::Quality::Normal,
+        dpi: 4000,
+        metering_target: nkscan::scan::meter::Metering::default().target,
+    }
+}
+
 /// The profile every kernel bench runs under
 fn params() -> Params {
     Params::new(
-        &Options::default(),
+        &options(),
         &Calibration {
             c: 0.05,
             ir_ref: 40_000.0,
@@ -255,7 +266,7 @@ fn clean(bencher: divan::Bencher) {
                 &prescan,
                 ROWS,
                 COLS,
-                &Options::default(),
+                &options(),
             )
         });
 }
